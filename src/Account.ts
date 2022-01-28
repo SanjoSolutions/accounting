@@ -1,8 +1,12 @@
-export class Account {
-  number: number
-  name: string
+import type { AccountEntry } from "./AccountEntry.js"
 
-  constructor(number: number, name: string) {
+export class Account {
+  number: number | null
+  name: string
+  debit: AccountEntry[] = []
+  credit: AccountEntry[] = []
+
+  constructor(number: number | null, name: string) {
     this.number = number
     this.name = name
   }

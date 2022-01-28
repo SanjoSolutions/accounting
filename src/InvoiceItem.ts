@@ -5,5 +5,8 @@ export class InvoiceItem {
   amountOfUnit: number = 0
   unit: Unit = Unit.None
   pricePerUnit: number = 0
-  netAmount: number = 0
+
+  get netAmount(): number {
+    return this.amountOfUnit * this.pricePerUnit
+  }
 }

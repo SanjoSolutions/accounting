@@ -1,4 +1,5 @@
 export enum Unit {
   None,
-  Hours
+  Hours,
+  Kilogram
 }

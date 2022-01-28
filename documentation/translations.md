@@ -18,3 +18,8 @@
 | Steuernummer                 | tax number              |
 | Adresse                      | address                 |
 | Kontenrahmen                 | chart of accounts       |
+| Grundbuch                    | journal                 |
+| Buchungsstempel              | booking stamp           |
+| Buchhalter                   | accountant              |
+| Rohmaterialien               | raw materials           |
+| Büromaterialien              | office supplies         |
