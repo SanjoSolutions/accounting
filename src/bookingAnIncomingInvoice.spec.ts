@@ -3,7 +3,7 @@ import { Account } from './Account.js'
 import { Accountant } from './Accountant.js'
 import { AccountEntry } from './AccountEntry.js'
 import { Accounting } from './Accounting.js'
-import { A, BookingRecord } from './BookingRecord.js'
+import { BookingRecordElement, BookingRecord } from './BookingRecord.js'
 import { IncomingInvoice } from './IncomingInvoice.js'
 import { InvoiceItem } from './InvoiceItem.js'
 import { Unit } from './Unit.js'
@@ -30,10 +30,10 @@ describe('booking an incoming invoice', () => {
       new BookingRecord(
         incomingInvoice.bookingStamp!.date,
         [
-          new A(incomingInvoice, rawMaterialsAccount, incomingInvoice.total)
+          new BookingRecordElement(incomingInvoice, rawMaterialsAccount, incomingInvoice.total)
         ],
         [
-          new A(incomingInvoice, liabilitiesAccount, incomingInvoice.total)
+          new BookingRecordElement(incomingInvoice, liabilitiesAccount, incomingInvoice.total)
         ],
       ),
     ])
@@ -66,10 +66,10 @@ describe('booking an incoming invoice', () => {
       new BookingRecord(
         incomingInvoice.bookingStamp!.date,
         [
-          new A(incomingInvoice, officeSuppliesAccount, incomingInvoice.total)
+          new BookingRecordElement(incomingInvoice, officeSuppliesAccount, incomingInvoice.total)
         ],
         [
-          new A(incomingInvoice, liabilitiesAccount, incomingInvoice.total)
+          new BookingRecordElement(incomingInvoice, liabilitiesAccount, incomingInvoice.total)
         ],
       ),
     ])

@@ -3,17 +3,17 @@ import type { Document } from "./Document"
 
 export class BookingRecord {
   date: Date
-  debitSide: A[]
-  creditSide: A[]
+  debitSide: BookingRecordElement[]
+  creditSide: BookingRecordElement[]
 
-  constructor(date: Date, debitSide: A[], creditSide: A[]) {
+  constructor(date: Date, debitSide: BookingRecordElement[], creditSide: BookingRecordElement[]) {
     this.date = date
     this.debitSide = debitSide
     this.creditSide = creditSide
   }
 }
 
-export class A {
+export class BookingRecordElement {
   document: Document
   account: Account
   amount: number

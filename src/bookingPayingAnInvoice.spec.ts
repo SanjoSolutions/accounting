@@ -3,12 +3,12 @@ import { Account } from './Account.js'
 import { Accountant } from './Accountant.js'
 import { AccountEntry } from './AccountEntry.js'
 import { Accounting } from './Accounting.js'
-import { A, BookingRecord } from './BookingRecord.js'
+import { BookingRecordElement, BookingRecord } from './BookingRecord.js'
 import { IncomingInvoice } from './IncomingInvoice.js'
 import { InvoiceItem } from './InvoiceItem.js'
 import { Unit } from './Unit.js'
 
-describe.skip('booking paying an invoice', () => {
+describe('booking paying an invoice', () => {
   it('creates the booking records in the journal and the account entries on the accounts', () => {
     const incomingInvoice = new IncomingInvoice()
     const invoiceItem = new InvoiceItem()
@@ -27,21 +27,33 @@ describe.skip('booking paying an invoice', () => {
     accounting.addAccount(bank1Account)
     accounting.addAccount(bank2Account)
     accounting.stampInvoice(incomingInvoice, accountant)
-    accounting.bookIncomingInvoice(incomingInvoice)
+    accounting.bookPayingAnInvoice(
+      incomingInvoice,
+      [
+        {
+          account: bank1Account,
+          amount: 600
+        },
+        {
+          account: bank2Account,
+          amount: 400
+        }
+      ]
+    )
     expect(accounting.journal).toEqual([
       new BookingRecord(
         incomingInvoice.bookingStamp!.date,
         [
-          new A(incomingInvoice, liabilitiesAccount, incomingInvoice.total),
+          new BookingRecordElement(incomingInvoice, liabilitiesAccount, incomingInvoice.total),
         ],
         [
-          new A(incomingInvoice, bank1Account, 600),
-          new A(incomingInvoice, bank2Account, 400),
+          new BookingRecordElement(incomingInvoice, bank1Account, 600),
+          new BookingRecordElement(incomingInvoice, bank2Account, 400),
         ],
       ),
     ])
     expect(liabilitiesAccount.debit).toEqual([
-      new AccountEntry(`${ bank1Account.name } / ${ bank2Account }`, incomingInvoice.total),
+      new AccountEntry(`${ bank1Account.name } / ${ bank2Account.name }`, incomingInvoice.total),
     ])
     expect(bank1Account.credit).toEqual([
       new AccountEntry(liabilitiesAccount.name, 600),
