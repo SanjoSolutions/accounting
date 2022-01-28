@@ -23,3 +23,4 @@
 | Buchhalter                   | accountant              |
 | Rohmaterialien               | raw materials           |
 | Büromaterialien              | office supplies         |
+| Hauptbuch                    | ledger                  |

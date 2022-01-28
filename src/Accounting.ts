@@ -6,15 +6,12 @@ import { BookingStamp } from './BookingStamp'
 import type { IncomingInvoice } from './IncomingInvoice.js'
 import type { Invoice } from './Invoice'
 import { InvoiceItem } from './InvoiceItem.js'
+import { Ledger } from './Ledger'
 import { Payment } from './Payment'
 
 export class Accounting {
   journal: BookingRecord[] = []
-  accounts: Map<string, Account> = new Map()
-
-  addAccount(account: Account) {
-    this.accounts.set(account.name, account)
-  }
+  ledger: Ledger = new Ledger()
 
   stampInvoice(invoice: Invoice, accountant: Accountant) {
     invoice.bookingStamp = new BookingStamp(new Date(), accountant)
@@ -25,7 +22,7 @@ export class Accounting {
 
     const invoiceItem = incomingInvoice.items[0]
     const debitAccount = this._classifyIncomingInvoiceItemToAccount(invoiceItem)!
-    const creditAccount = this.accounts.get('Liabilities')!
+    const creditAccount = this.ledger.accounts.get('Liabilities')!
     const bookingRecord = new BookingRecord(
       incomingInvoice.bookingStamp!.date,
       [
@@ -45,7 +42,7 @@ export class Accounting {
   bookPayingAnInvoice(incomingInvoice: IncomingInvoice, payments: Payment[]) {
     const bookingRecords = []
 
-    const debitAccount = this.accounts.get('Liabilities')!
+    const debitAccount = this.ledger.accounts.get('Liabilities')!
     const creditSide = []
     for (const { account, amount } of payments) {
       creditSide.push(new BookingRecordElement(incomingInvoice, account, amount))
@@ -101,8 +98,8 @@ export class Accounting {
     if (accountName === null) {
       account = null
     } else {
-      if (this.accounts.has(accountName)) {
-        account = this.accounts.get(accountName)!
+      if (this.ledger.accounts.has(accountName)) {
+        account = this.ledger.accounts.get(accountName)!
       } else {
         account = null
       }

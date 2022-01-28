@@ -22,8 +22,8 @@ describe('booking an incoming invoice', () => {
     const liabilitiesAccount = new Account(null, 'Liabilities')
     const accounting = new Accounting()
     const accountant = new Accountant()
-    accounting.addAccount(rawMaterialsAccount)
-    accounting.addAccount(liabilitiesAccount)
+    accounting.ledger.addAccount(rawMaterialsAccount)
+    accounting.ledger.addAccount(liabilitiesAccount)
     accounting.stampInvoice(incomingInvoice, accountant)
     accounting.bookIncomingInvoice(incomingInvoice)
     expect(accounting.journal).toEqual([
@@ -58,8 +58,8 @@ describe('booking an incoming invoice', () => {
     const liabilitiesAccount = new Account(null, 'Liabilities')
     const accounting = new Accounting()
     const accountant = new Accountant()
-    accounting.addAccount(officeSuppliesAccount)
-    accounting.addAccount(liabilitiesAccount)
+    accounting.ledger.addAccount(officeSuppliesAccount)
+    accounting.ledger.addAccount(liabilitiesAccount)
     accounting.stampInvoice(incomingInvoice, accountant)
     accounting.bookIncomingInvoice(incomingInvoice)
     expect(accounting.journal).toEqual([

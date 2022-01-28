@@ -23,9 +23,9 @@ describe('booking paying an invoice', () => {
     const bank2Account = new Account(null, 'Bank 2')
     const accounting = new Accounting()
     const accountant = new Accountant()
-    accounting.addAccount(liabilitiesAccount)
-    accounting.addAccount(bank1Account)
-    accounting.addAccount(bank2Account)
+    accounting.ledger.addAccount(liabilitiesAccount)
+    accounting.ledger.addAccount(bank1Account)
+    accounting.ledger.addAccount(bank2Account)
     accounting.stampInvoice(incomingInvoice, accountant)
     accounting.bookPayingAnInvoice(
       incomingInvoice,
