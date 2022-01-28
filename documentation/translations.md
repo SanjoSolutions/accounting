@@ -17,3 +17,4 @@
 | Einheit                      | Unit                    |
 | Steuernummer                 | tax number              |
 | Adresse                      | address                 |
+| Kontenrahmen                 | chart of accounts       |
