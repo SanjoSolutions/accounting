@@ -25,3 +25,4 @@
 | Büromaterialien              | office supplies         |
 | Hauptbuch                    | ledger                  |
 | Eröffnungsbilanz             | opening balance sheet   |
+| Schlussbilanz                | closing balance sheet   |
