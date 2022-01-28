@@ -129,7 +129,7 @@ module.exports = {
   // snapshotSerializers: [],
 
   // The test environment that will be used for testing
-  testEnvironment: 'jsdom',
+  testEnvironment: 'node',
 
   // Options that will be passed to the testEnvironment
   // testEnvironmentOptions: {},
@@ -139,9 +139,7 @@ module.exports = {
 
   // The glob patterns Jest uses to detect test files
   testMatch: [
-    '<rootDir>/packages/*/src/**/*.spec.ts',
-    '<rootDir>/rgbToHsl.spec.js',
-    '<rootDir>/sudoku_solver/*.spec.js',
+    '<rootDir>/src/**/*.spec.ts',
   ],
 
   // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
