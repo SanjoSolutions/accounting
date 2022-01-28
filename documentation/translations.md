@@ -24,3 +24,4 @@
 | Rohmaterialien               | raw materials           |
 | Büromaterialien              | office supplies         |
 | Hauptbuch                    | ledger                  |
+| Eröffnungsbilanz             | opening balance sheet   |
