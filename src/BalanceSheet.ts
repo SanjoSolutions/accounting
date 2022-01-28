@@ -1,9 +1,9 @@
 export class BalanceSheet {
-  addPassivePosition(name: string) {
+  addActivePosition(name: string) {
 
   }
 
-  addActivePosition(name: string) {
+  addPassivePosition(name: string) {
 
   }
 
