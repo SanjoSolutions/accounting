@@ -29,9 +29,15 @@ describe('BalanceSheet', () => {
     })
   })
 
-  it('supports set the value of a position', () => {
+  it('supports set the value of an active position', () => {
     const balanceSheet = new BalanceSheet()
     balanceSheet.addActivePosition('A. Anlagevermögen')
     balanceSheet.setActivePosition('A. Anlagevermögen', 1000)
+  })
+
+  it('supports set the value of a passive position', () => {
+    const balanceSheet = new BalanceSheet()
+    balanceSheet.addPassivePosition('A. Eigenkapital')
+    balanceSheet.setPassivePosition('A. Eigenkapital', 1000)
   })
 })

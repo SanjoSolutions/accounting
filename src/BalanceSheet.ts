@@ -10,5 +10,9 @@ export class BalanceSheet {
   setActivePosition(name: string, value: number) {
 
   }
+
+  setPassivePosition(name: string, value: number) {
+
+  }
 }
 
