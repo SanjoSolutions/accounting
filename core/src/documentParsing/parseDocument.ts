@@ -30,5 +30,6 @@ export async function parseDocument(gcsSourceUri: string, gcsDestinationUri: str
 
   const [operation] = await client.asyncBatchAnnotateFiles(request)
   const [filesResponse] = await operation.promise()
+  console.log(filesResponse)
   const destinationUri = filesResponse.responses![0].outputConfig!.gcsDestination!.uri
 }
