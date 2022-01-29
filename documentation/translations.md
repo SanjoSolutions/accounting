@@ -26,3 +26,6 @@
 | Hauptbuch                    | ledger                  |
 | Eröffnungsbilanz             | opening balance sheet   |
 | Schlussbilanz                | closing balance sheet   |
+| Belegnummer                  | document id             |
+| Soll                         | debit                   |
+| Haben                        | credit                  |

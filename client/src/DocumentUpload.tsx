@@ -35,42 +35,33 @@ export function DocumentUpload() {
   )
 
   return (
-    <div className="container">
-      <div className="row">
-        <div className="col">
-          <h1>Document upload</h1>
-          {
-            isUploading ?
-              <div>
-                <div className="progress" style={ { height: '36px' } }>
-                  <div
-                    className="progress-bar"
-                    role="progressbar"
-                    aria-valuenow={ uploadProgress }
-                    aria-valuemin={ 0 }
-                    aria-valuemax={ 100 }
-                  />
-                </div>
-              </div> :
-              <form onSubmit={ onSubmit }>
-                <div className="mb-3">
-                  <label htmlFor="file" className="form-label">Document</label>
-                  <input
-                    ref={ fileInput }
-                    className="form-control form-control-lg"
-                    id="file"
-                    type="file"
-                    accept=".pdf"
-                  />
-                </div>
-
-                <div className="text-end">
-                  <button type="submit" className="btn btn-primary btn-lg">Upload</button>
-                </div>
-              </form>
-          }
-        </div>
+  isUploading ?
+    <div>
+      <div className="progress" style={ { height: '36px' } }>
+        <div
+          className="progress-bar"
+          role="progressbar"
+          aria-valuenow={ uploadProgress }
+          aria-valuemin={ 0 }
+          aria-valuemax={ 100 }
+        />
       </div>
-    </div>
+    </div> :
+    <form onSubmit={ onSubmit }>
+      <div className="mb-3">
+        <label htmlFor="file" className="form-label">Document</label>
+        <input
+          ref={ fileInput }
+          className="form-control form-control-lg"
+          id="file"
+          type="file"
+          accept=".pdf"
+        />
+      </div>
+
+      <div className="text-end">
+        <button type="submit" className="btn btn-primary btn-lg">Upload</button>
+      </div>
+    </form>
   )
 }
