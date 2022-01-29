@@ -1,10 +1,35 @@
-import React, { useCallback, useState } from 'react'
+import { getStorage, ref, uploadBytesResumable } from 'firebase/storage'
+import React, { useCallback, useRef, useState } from 'react'
 
 export function DocumentUpload() {
+  const fileInput = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const onSubmit = useCallback(
-    () => {
+    (event) => {
+      event.preventDefault()
+
       setIsUploading(true)
+      const storage = getStorage()
+      const storageRef = ref(storage, `${ Date.now() }.pdf`)
+
+      const files = fileInput.current!.files!
+      if (files.length >= 1) {
+        const file = files.item(0)!
+        const uploadTask = uploadBytesResumable(storageRef, file)
+        uploadTask.on(
+          'state_changed',
+          ({ bytesTransferred, totalBytes, state }) => {
+            setUploadProgress(bytesTransferred * 100 / totalBytes)
+          },
+          (error) => {
+            console.error(error)
+          },
+          () => {
+            setIsUploading(false)
+          },
+        )
+      }
     },
     [],
   )
@@ -21,7 +46,7 @@ export function DocumentUpload() {
                   <div
                     className="progress-bar"
                     role="progressbar"
-                    aria-valuenow={ 0 }
+                    aria-valuenow={ uploadProgress }
                     aria-valuemin={ 0 }
                     aria-valuemax={ 100 }
                   />
@@ -29,10 +54,11 @@ export function DocumentUpload() {
               </div> :
               <form onSubmit={ onSubmit }>
                 <div className="mb-3">
-                  <label htmlFor="formFileLg" className="form-label">Document</label>
+                  <label htmlFor="file" className="form-label">Document</label>
                   <input
+                    ref={ fileInput }
                     className="form-control form-control-lg"
-                    id="formFileLg"
+                    id="file"
                     type="file"
                     accept=".pdf"
                   />
