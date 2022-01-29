@@ -6,7 +6,7 @@ export function DocumentUpload() {
     () => {
       setIsUploading(true)
     },
-    []
+    [],
   )
 
   return (
@@ -30,7 +30,12 @@ export function DocumentUpload() {
               <form onSubmit={ onSubmit }>
                 <div className="mb-3">
                   <label htmlFor="formFileLg" className="form-label">Document</label>
-                  <input className="form-control form-control-lg" id="formFileLg" type="file" />
+                  <input
+                    className="form-control form-control-lg"
+                    id="formFileLg"
+                    type="file"
+                    accept=".pdf"
+                  />
                 </div>
 
                 <div className="text-end">
