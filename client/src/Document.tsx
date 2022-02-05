@@ -7,7 +7,7 @@ export function Document(): any {
     <div>
       <iframe
         className="w-100 mb-2"
-        style={ { minHeight: '400px' } }
+        style={ { minHeight: '80vh' } }
         src="https://storage.googleapis.com/accounting-documents-public/Invoice_Example_German.pdf"
         title="Document"
       ></iframe>
