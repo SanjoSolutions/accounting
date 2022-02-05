@@ -2,6 +2,16 @@ import { identity } from '@sanjo/identity'
 import { useCallback, useState } from 'react'
 import type { IRow } from './IRow'
 
+const accounts = {
+  debit: [
+    '6170: Sonstige Aufwendungen für bezogene Leistungen',
+    'Vorsteuer'
+  ],
+  credit: [
+    'Verbindlichkeiten a. LL'
+  ]
+}
+
 function useInputStateHandler(options: { name: string, row: any, transform?: (value: any) => any }): [any, (event: any) => void] {
   const transform = options.transform ?? identity
 
@@ -81,12 +91,17 @@ export function Row({ row, onRemove, showDate }: { row: IRow, onRemove: () => vo
             <option value=""></option>
             <option value="to">to</option>
           </select>
-          <input
-            type="text"
-            className="form-control flex-grow-1"
+          <select
+            className="form-select"
             value={ account }
             onChange={ onAccountChange }
-          />
+          >
+            {
+              to === '' ?
+                accounts.debit.map(account => <option value={ account }>{ account}</option>) :
+                accounts.credit.map(account => <option value={ account }>{ account }</option>)
+            }
+          </select>
         </div>
       </td>
       {
