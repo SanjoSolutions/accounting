@@ -9,6 +9,7 @@ import ReactDOM from 'react-dom'
 import { initReactI18next } from 'react-i18next'
 import { App } from './App'
 import { firebaseConfig } from './firebaseConfig.js'
+import { getLanguage } from './getLanguage'
 import './index.css'
 import reportWebVitals from './reportWebVitals'
 
@@ -22,6 +23,10 @@ i18n
       en: {
         'App': {
           'Document upload': 'Document upload',
+        },
+        'LanguageSelect': {
+          'en': 'English',
+          'de': 'Deutsch'
         },
         'DocumentUpload': {
           'Document': 'Document',
@@ -56,7 +61,7 @@ i18n
         },
       },
     },
-    lng: 'de',
+    lng: getLanguage() ?? 'en',
     fallbackLng: 'en',
 
     interpolation: {

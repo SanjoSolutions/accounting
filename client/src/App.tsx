@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import './App.css'
 import { BookingRecordEditor } from './BookingRecordEditor'
 import { DocumentUpload } from './DocumentUpload'
+import { LanguageSelect } from './LanguageSelect'
 
 export function App() {
   const { t } = useTranslation('App')
@@ -16,6 +17,9 @@ export function App() {
             <DocumentUpload />
           </div>
           <BookingRecordEditor />
+          <div className="mt-5 border-top pt-2 text-end">
+            <LanguageSelect />
+          </div>
         </div>
       </div>
     </div>
