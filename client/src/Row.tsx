@@ -6,11 +6,11 @@ import type { IRow } from './IRow'
 const accounts = {
   debit: [
     '6170: Sonstige Aufwendungen für bezogene Leistungen',
-    'Vorsteuer'
+    'Vorsteuer',
   ],
   credit: [
-    'Verbindlichkeiten a. LL'
-  ]
+    'Verbindlichkeiten a. LL',
+  ],
 }
 
 function useInputStateHandler(options: { name: string, row: any, transform?: (value: any) => any }): [any, (event: any) => void] {
@@ -101,8 +101,8 @@ export function Row({ row, onRemove, showDate }: { row: IRow, onRemove: () => vo
           >
             {
               to === '' ?
-                accounts.debit.map(account => <option value={ account }>{ account}</option>) :
-                accounts.credit.map(account => <option value={ account }>{ account }</option>)
+                accounts.debit.map(account => <option key={ account } value={ account }>{ account }</option>) :
+                accounts.credit.map(account => <option key={ account } value={ account }>{ account }</option>)
             }
           </select>
         </div>
