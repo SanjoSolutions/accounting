@@ -49,6 +49,9 @@ i18n
           'Add row': 'Add row',
           'Create booking record': 'Create booking record',
         },
+        'Row': {
+          'to': 'to'
+        }
       },
       de: {
         'App': {
@@ -75,6 +78,9 @@ i18n
           'Add row': 'Zeile hinzufügen',
           'Create booking record': 'Buchungssatz erstellen',
         },
+        'Row': {
+          'to': 'an'
+        }
       },
     },
     lng: getLanguage() ?? 'en',

@@ -1,5 +1,6 @@
 import { identity } from '@sanjo/identity'
 import { useCallback, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { IRow } from './IRow'
 
 const accounts = {
@@ -31,6 +32,8 @@ function useInputStateHandler(options: { name: string, row: any, transform?: (va
 }
 
 export function Row({ row, onRemove, showDate }: { row: IRow, onRemove: () => void, showDate?: boolean }) {
+  const { t } = useTranslation('Row')
+
   const [date, onDateChange] = useInputStateHandler({
     name: 'date',
     row,
@@ -89,7 +92,7 @@ export function Row({ row, onRemove, showDate }: { row: IRow, onRemove: () => vo
         <div className="d-flex">
           <select className="form-select me-2" style={ { width: 'auto' } } value={ to } onChange={ onToChange }>
             <option value=""></option>
-            <option value="to">to</option>
+            <option value="to">{ t('to') }</option>
           </select>
           <select
             className="form-select"
