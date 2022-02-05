@@ -24,18 +24,18 @@ export function BookingRecordEditor() {
   rowA.date = '2022-01-01'
   rowA.documentId = 'ER1'
   rowA.account = '6170: Sonstige Aufwendungen für bezogene Leistungen'
-  rowA.debit = String(780)
+  rowA.debit = Number(780).toFixed(2)
 
   const rowB = createRow(2)
   rowB.documentId = 'ER1'
   rowB.account = 'Vorsteuer'
-  rowB.debit = String(148.20)
+  rowB.debit = Number(148.20).toFixed(2)
 
   const rowC = createRow(3)
   rowC.documentId = 'ER1'
   rowC.to = 'to'
   rowC.account = 'Verbindlichkeiten a. LL'
-  rowC.credit = String(928.20)
+  rowC.credit = Number(928.20).toFixed(2)
 
   const [rows, setRows] = useState<IRow[]>([rowA, rowB, rowC])
   const [nextId, setNextId] = useState(rowC.id + 1)
