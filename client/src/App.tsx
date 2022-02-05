@@ -11,7 +11,7 @@ export function App() {
 
   return (
     <div className="container">
-      <div className="row">
+      <div className="row mb-2">
         <div className="col">
           <h1>{ t('Create booking record') }</h1>
           <h2>{ t('Upload document') }</h2>
