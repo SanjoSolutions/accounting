@@ -21,7 +21,7 @@ export function Document(): any {
               className="form-control"
               id="netAmount"
               min="0"
-              defaultValue={ 780 }
+              defaultValue={ '780.00' }
             />
             <span className="input-group-text">€</span>
           </div>
@@ -35,7 +35,7 @@ export function Document(): any {
               className="form-control"
               id="netAmount"
               min="0"
-              defaultValue={ 148.20 }
+              defaultValue={ '148.20' }
             />
             <span className="input-group-text">€</span>
           </div>
@@ -49,7 +49,7 @@ export function Document(): any {
               className="form-control"
               id="grossAmount"
               min="0"
-              defaultValue={ 928.20 }
+              defaultValue={ '928.20' }
             />
             <span className="input-group-text">€</span>
           </div>
