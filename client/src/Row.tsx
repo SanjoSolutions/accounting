@@ -2,10 +2,10 @@ import { identity } from '@sanjo/identity'
 import { useCallback, useState } from 'react'
 import type { IRow } from './IRow'
 
-function useInputStateHandler(options: { name: string, defaultValue: any, row: any, transform?: (value: any) => any }): [any, (event: any) => void] {
+function useInputStateHandler(options: { name: string, row: any, transform?: (value: any) => any }): [any, (event: any) => void] {
   const transform = options.transform ?? identity
 
-  const [value, setValue] = useState(options.defaultValue)
+  const [value, setValue] = useState(options.row[options.name])
   const onChange = useCallback(
     (event: any) => {
       const value = event.target.value
@@ -20,54 +20,53 @@ function useInputStateHandler(options: { name: string, defaultValue: any, row: a
   return [value, onChange]
 }
 
-export function Row({ row, onRemove }: { row: IRow, onRemove: () => void }) {
+export function Row({ row, onRemove, showDate }: { row: IRow, onRemove: () => void, showDate?: boolean }) {
   const [date, onDateChange] = useInputStateHandler({
     name: 'date',
-    defaultValue: '',
     row,
     transform: value => new Date(value),
   })
 
   const [documentId, onDocumentIdChange] = useInputStateHandler({
     name: 'documentId',
-    defaultValue: '',
     row,
   })
 
   const [to, onToChange] = useInputStateHandler({
     name: 'to',
-    defaultValue: '',
     row,
   })
 
   const [account, onAccountChange] = useInputStateHandler({
     name: 'account',
-    defaultValue: '',
     row,
   })
 
   const [debit, onDebitChange] = useInputStateHandler({
     name: 'debit',
-    defaultValue: '',
     row,
   })
 
   const [credit, onCreditChange] = useInputStateHandler({
     name: 'credit',
-    defaultValue: '',
     row,
   })
 
   return (
     <tr>
-      <td>
-        <input
-          type="date"
-          className="form-control"
-          value={ date }
-          onChange={ onDateChange }
-        />
-      </td>
+      {
+        showDate !== false ?
+          <td>
+            <input
+              type="date"
+              className="form-control"
+              style={ { width: '165px' } }
+              value={ date }
+              onChange={ onDateChange }
+            />
+          </td> :
+          <td className="border-bottom-0">&nbsp;</td>
+      }
       <td>
         <input
           type="text"
@@ -90,22 +89,36 @@ export function Row({ row, onRemove }: { row: IRow, onRemove: () => void }) {
           />
         </div>
       </td>
-      <td>
-        <input
-          type="number"
-          className="form-control"
-          value={ debit}
-          onChange={onDebitChange}
-        />
-      </td>
-      <td>
-        <input
-          type="number"
-          className="form-control"
-          value={credit}
-          onChange={onCreditChange}
-        />
-      </td>
+      {
+        to === '' ?
+          <td>
+            <div className="input-group" style={ { width: '156px' } }>
+              <input
+                type="number"
+                className="form-control"
+                value={ debit }
+                onChange={ onDebitChange }
+              />
+              <span className="input-group-text">€</span>
+            </div>
+          </td> :
+          <td>&nbsp;</td>
+      }
+      {
+        to === 'to' ?
+          <td>
+            <div className="input-group" style={ { width: '156px' } }>
+              <input
+                type="number"
+                className="form-control"
+                value={ credit }
+                onChange={ onCreditChange }
+              />
+              <span className="input-group-text">€</span>
+            </div>
+          </td> :
+          <td>&nbsp;</td>
+      }
       <td>
         <button type="button" className="btn btn-secondary" onClick={ onRemove }>
           <i className="bi bi-x-lg"></i>

@@ -20,8 +20,25 @@ function createRow(id: number): IRow {
 export function BookingRecordEditor() {
   const { t } = useTranslation('BookingRecordEditor')
 
-  const [rows, setRows] = useState<IRow[]>([createRow(1)])
-  const [nextId, setNextId] = useState(1 + 1)
+  const rowA = createRow(1)
+  rowA.date = '2022-01-01'
+  rowA.documentId = 'ER1'
+  rowA.account = '6170: Sonstige Aufwendungen für bezogene Leistungen'
+  rowA.debit = String(780)
+
+  const rowB = createRow(2)
+  rowB.documentId = 'ER1'
+  rowB.account = 'Vorsteuer'
+  rowB.debit = String(148.20)
+
+  const rowC = createRow(3)
+  rowC.documentId = 'ER1'
+  rowC.to = 'to'
+  rowC.account = 'Verbindlichkeiten a. LL'
+  rowC.credit = String(928.20)
+
+  const [rows, setRows] = useState<IRow[]>([rowA, rowB, rowC])
+  const [nextId, setNextId] = useState(rowC.id + 1)
 
   const addRow = useCallback(
     () => {
@@ -54,13 +71,13 @@ export function BookingRecordEditor() {
         const bookingRecord: BookingRecordTransferData = {
           date: new Date(first(rows)!.date),
           creditSide: [],
-          debitSide: []
+          debitSide: [],
         }
         for (const row of rows) {
           const bookingRecordElement: BookingRecordElementTransferData = {
             document: row.documentId,
             account: row.account,
-            amount: Number(row.debit || row.credit)
+            amount: Number(row.debit || row.credit),
           }
           let side
           if (row.debit) {
@@ -84,26 +101,33 @@ export function BookingRecordEditor() {
 
   return (
     <form onSubmit={ onSubmit }>
-      <table className="table mb-2">
+      <table className="table table-borderless mb-2">
         <thead>
           <tr>
-            <th>{ t('Date') }</th>
-            <th>{ t('Document ID') }</th>
+            <th style={ { width: '165px' } }>{ t('Date') }</th>
+            <th style={ { width: '124px' } }>{ t('Document ID') }</th>
             <th>{ t('Booking record') }</th>
-            <th>{ t('Debit') }</th>
-            <th>{ t('Credit') }</th>
-            <th>&nbsp;</th>
+            <th style={ { width: '172px' } }>{ t('Debit') }</th>
+            <th style={ { width: '172px' } }>{ t('Credit') }</th>
+            <th style={ { width: '56px' } }>&nbsp;</th>
           </tr>
         </thead>
-        <tbody>
-          { rows.map((row, index) => <Row key={ row.id } row={ row } onRemove={ removeRow.bind(null, index) } />) }
+        <tbody style={ { borderTopWidth: '2px' } }>
+          {
+            rows.map((row, index) => <Row
+              key={ row.id }
+              row={ row }
+              onRemove={ removeRow.bind(null, index) }
+              showDate={ index === 0 }
+            />)
+          }
         </tbody>
       </table>
-      <div className="text-end mb-2">
-        <button type="button" className="btn btn-secondary" onClick={ addRow }>{ t('Add') }</button>
+      <div className="text-end mb-3">
+        <button type="button" className="btn btn-secondary" onClick={ addRow }>{ t('Add row') }</button>
       </div>
       <div className="text-end">
-        <button type="submit" className="btn btn-primary">{ t('Submit') }</button>
+        <button type="submit" className="btn btn-primary">{ t('Create booking record') }</button>
       </div>
     </form>
   )

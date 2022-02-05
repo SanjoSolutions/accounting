@@ -22,7 +22,10 @@ i18n
     resources: {
       en: {
         'App': {
-          'Document upload': 'Document upload',
+          'Create booking record': 'Create booking record',
+          'Upload document': 'Upload document',
+          'Document': 'Document',
+          'Booking record': 'Booking record'
         },
         'LanguageSelect': {
           'en': 'English',
@@ -32,23 +35,36 @@ i18n
           'Document': 'Document',
           'Upload': 'Upload',
         },
+        'Document': {
+          'Net amount': 'Net amount',
+          'Taxes': 'Taxes',
+          'Gross amount': 'Gross amount',
+        },
         'BookingRecordEditor': {
           'Date': 'Date',
           'Document ID': 'Document ID',
           'Booking record': 'Booking record',
           'Debit': 'Debit',
           'Credit': 'Credit',
-          'Add': 'Add',
-          'Submit': 'Submit',
+          'Add row': 'Add row',
+          'Create booking record': 'Create booking record',
         },
       },
       de: {
         'App': {
-          'Document upload': 'Dokument upload',
+          'Create booking record': 'Buchungssatz erstellen',
+          'Upload document': 'Dokument hochladen',
+          'Document': 'Dokument',
+          'Booking record': 'Buchungssatz'
         },
         'DocumentUpload': {
           'Document': 'Dokument',
           'Upload': 'Hochladen',
+        },
+        'Document': {
+          'Net amount': 'Nettobetrag',
+          'Taxes': 'Steuern',
+          'Gross amount': 'Bruttobetrag',
         },
         'BookingRecordEditor': {
           'Date': 'Datum',
@@ -56,8 +72,8 @@ i18n
           'Booking record': 'Buchungssatz',
           'Debit': 'Soll',
           'Credit': 'Haben',
-          'Add': 'Hinzufügen',
-          'Submit': 'Abschicken',
+          'Add row': 'Zeile hinzufügen',
+          'Create booking record': 'Buchungssatz erstellen',
         },
       },
     },
