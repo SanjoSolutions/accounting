@@ -1,7 +1,10 @@
 import { getStorage, ref, uploadBytesResumable } from 'firebase/storage'
 import React, { useCallback, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 export function DocumentUpload() {
+  const { t } = useTranslation('DocumentUpload')
+
   const fileInput = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -49,7 +52,7 @@ export function DocumentUpload() {
     </div> :
     <form onSubmit={ onSubmit }>
       <div className="mb-3">
-        <label htmlFor="file" className="form-label">Document</label>
+        <label htmlFor="file" className="form-label">{ t('Document') }</label>
         <input
           ref={ fileInput }
           className="form-control form-control-lg"
@@ -60,7 +63,7 @@ export function DocumentUpload() {
       </div>
 
       <div className="text-end">
-        <button type="submit" className="btn btn-primary btn-lg">Upload</button>
+        <button type="submit" className="btn btn-primary btn-lg">{ t('Upload') }</button>
       </div>
     </form>
   )

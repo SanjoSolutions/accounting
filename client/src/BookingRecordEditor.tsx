@@ -1,18 +1,21 @@
 import { useCallback, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Row } from './Row'
 
 export function BookingRecordEditor() {
-  const [rows, setRows] = useState([{id: 1}])
+  const { t } = useTranslation('BookingRecordEditor')
+
+  const [rows, setRows] = useState([{ id: 1 }])
   const [nextId, setNextId] = useState(1 + 1)
 
   const addRow = useCallback(
     () => {
-      setRows([...rows, {id: nextId}])
+      setRows([...rows, { id: nextId }])
       setNextId(nextId + 1)
     },
     [
       rows,
-      nextId
+      nextId,
     ],
   )
 
@@ -30,11 +33,11 @@ export function BookingRecordEditor() {
       <table className="table mb-2">
         <thead>
           <tr>
-            <th>Date</th>
-            <th>Document ID</th>
-            <th>Booking record</th>
-            <th>Debit</th>
-            <th>Credit</th>
+            <th>{ t('Date') }</th>
+            <th>{ t('Document ID') }</th>
+            <th>{ t('Booking record') }</th>
+            <th>{ t('Debit') }</th>
+            <th>{ t('Credit') }</th>
             <th>&nbsp;</th>
           </tr>
         </thead>
@@ -43,10 +46,10 @@ export function BookingRecordEditor() {
         </tbody>
       </table>
       <div className="text-end mb-2">
-        <button type="button" className="btn btn-secondary" onClick={ addRow }>Add</button>
+        <button type="button" className="btn btn-secondary" onClick={ addRow }>{ t('Add') }</button>
       </div>
       <div className="text-end">
-        <button type="button" className="btn btn-primary">Submit</button>
+        <button type="button" className="btn btn-primary">{ t('Submit') }</button>
       </div>
     </div>
   )
