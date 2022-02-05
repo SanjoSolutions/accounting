@@ -1,0 +1,1 @@
+{"version":3,"file":"InvoiceItem.d.ts","sourceRoot":"","sources":["src/InvoiceItem.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,IAAI,EAAE,MAAM,QAAQ,CAAA;AAE7B,qBAAa,WAAW;IACtB,WAAW,EAAE,MAAM,CAAK;IACxB,YAAY,EAAE,MAAM,CAAI;IACxB,IAAI,EAAE,IAAI,CAAY;IACtB,YAAY,EAAE,MAAM,CAAI;IAExB,IAAI,SAAS,IAAI,MAAM,CAEtB;CACF"}

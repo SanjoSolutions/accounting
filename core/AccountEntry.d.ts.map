@@ -1,0 +1,1 @@
+{"version":3,"file":"AccountEntry.d.ts","sourceRoot":"","sources":["src/AccountEntry.ts"],"names":[],"mappings":"AAAA,qBAAa,YAAY;IACvB,WAAW,EAAE,MAAM,CAAA;IACnB,MAAM,EAAE,MAAM,CAAA;gBAEF,WAAW,EAAE,MAAM,EAAE,MAAM,EAAE,MAAM;CAIhD"}

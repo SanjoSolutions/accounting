@@ -1,0 +1,1 @@
+{"version":3,"file":"OutgoingInvoice.spec.js","sourceRoot":"","sources":["src/OutgoingInvoice.spec.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,QAAQ,EAAE,IAAI,EAAE,MAAM,eAAe,CAAA;AAC9C,OAAO,EAAE,eAAe,EAAE,MAAM,mBAAmB,CAAA;AAEnD,QAAQ,CAAC,iBAAiB,EAAE,GAAG,EAAE;IAC/B,IAAI,CAAC,EAAE,EAAE,GAAG,EAAE;QACZ,MAAM,eAAe,GAAG,IAAI,eAAe,EAAE,CAAA;IAC/C,CAAC,CAAC,CAAA;AACJ,CAAC,CAAC,CAAA"}

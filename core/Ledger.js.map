@@ -1,0 +1,1 @@
+{"version":3,"file":"Ledger.js","sourceRoot":"","sources":["src/Ledger.ts"],"names":[],"mappings":"AAEA,MAAM,OAAO,MAAM;IACjB,QAAQ,GAAyB,IAAI,GAAG,EAAE,CAAA;IAE1C,UAAU,CAAC,OAAgB;QACzB,IAAI,CAAC,QAAQ,CAAC,GAAG,CAAC,OAAO,CAAC,IAAI,EAAE,OAAO,CAAC,CAAA;IAC1C,CAAC;CACF"}

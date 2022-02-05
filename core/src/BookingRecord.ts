@@ -24,3 +24,15 @@ export class BookingRecordElement {
     this.amount = amount
   }
 }
+
+export interface BookingRecordTransferData {
+  date: Date
+  debitSide: BookingRecordElementTransferData[]
+  creditSide: BookingRecordElementTransferData[]
+}
+
+export interface BookingRecordElementTransferData {
+  document: string
+  account: string
+  amount: number
+}

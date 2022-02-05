@@ -1,4 +1,5 @@
 {
+  "name": "accounting-core",
   "private": true,
   "type": "module",
   "scripts": {

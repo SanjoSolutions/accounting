@@ -1,0 +1,1 @@
+{"version":3,"file":"Payment.js","sourceRoot":"","sources":["src/Payment.ts"],"names":[],"mappings":"AAEA,MAAM,OAAO,OAAO;IAClB,OAAO,CAAS;IAChB,MAAM,CAAQ;IAEd,YAAY,OAAgB,EAAE,MAAc;QAC1C,IAAI,CAAC,OAAO,GAAG,OAAO,CAAA;QACtB,IAAI,CAAC,MAAM,GAAG,MAAM,CAAA;IACtB,CAAC;CACF"}

@@ -1,0 +1,1 @@
+{"version":3,"file":"BookingStamp.d.ts","sourceRoot":"","sources":["src/BookingStamp.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,UAAU,EAAE,MAAM,cAAc,CAAA;AAEzC,qBAAa,YAAY;IACvB,IAAI,EAAE,IAAI,CAAA;IACV,UAAU,EAAE,UAAU,CAAA;gBAEV,IAAI,EAAE,IAAI,EAAE,UAAU,EAAE,UAAU;CAI/C"}

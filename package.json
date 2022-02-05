@@ -1,0 +1,13 @@
+{
+  "name": "accounting",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "build": "cd all && tsc --build",
+    "build:watch": "cd all && tsc --build --watch"
+  },
+  "devDependencies": {
+    "typescript": "^4.5.5"
+  }
+}

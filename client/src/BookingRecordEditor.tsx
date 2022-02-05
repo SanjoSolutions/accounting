@@ -1,16 +1,35 @@
+import { first, last } from '@sanjo/array'
+import { BookingRecordElementTransferData, BookingRecordTransferData } from 'accounting-core/BookingRecord.js'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { IRow } from './IRow'
 import { Row } from './Row'
+
+function createRow(id: number): IRow {
+  return {
+    id,
+    date: '',
+    documentId: '',
+    to: '',
+    account: '',
+    debit: '',
+    credit: '',
+  }
+}
 
 export function BookingRecordEditor() {
   const { t } = useTranslation('BookingRecordEditor')
 
-  const [rows, setRows] = useState([{ id: 1 }])
+  const [rows, setRows] = useState<IRow[]>([createRow(1)])
   const [nextId, setNextId] = useState(1 + 1)
 
   const addRow = useCallback(
     () => {
-      setRows([...rows, { id: nextId }])
+      const row = createRow(nextId)
+      if (rows.length >= 1 && last(rows)!.to === 'to') {
+        row.to = 'to'
+      }
+      setRows([...rows, row])
       setNextId(nextId + 1)
     },
     [
@@ -28,8 +47,43 @@ export function BookingRecordEditor() {
     ],
   )
 
+  const onSubmit = useCallback(
+    async (event: any) => {
+      event.preventDefault()
+      if (rows.length >= 1) {
+        const bookingRecord: BookingRecordTransferData = {
+          date: new Date(first(rows)!.date),
+          creditSide: [],
+          debitSide: []
+        }
+        for (const row of rows) {
+          const bookingRecordElement: BookingRecordElementTransferData = {
+            document: row.documentId,
+            account: row.account,
+            amount: Number(row.debit || row.credit)
+          }
+          let side
+          if (row.debit) {
+            side = bookingRecord.debitSide
+          } else {
+            side = bookingRecord.creditSide
+          }
+          side.push(bookingRecordElement)
+        }
+        await fetch('http://localhost/booking-records', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(bookingRecord),
+        })
+      }
+    },
+    [rows],
+  )
+
   return (
-    <div>
+    <form onSubmit={ onSubmit }>
       <table className="table mb-2">
         <thead>
           <tr>
@@ -42,15 +96,15 @@ export function BookingRecordEditor() {
           </tr>
         </thead>
         <tbody>
-          { rows.map((row, index) => <Row key={ row.id } onRemove={ removeRow.bind(null, index) } />) }
+          { rows.map((row, index) => <Row key={ row.id } row={ row } onRemove={ removeRow.bind(null, index) } />) }
         </tbody>
       </table>
       <div className="text-end mb-2">
         <button type="button" className="btn btn-secondary" onClick={ addRow }>{ t('Add') }</button>
       </div>
       <div className="text-end">
-        <button type="button" className="btn btn-primary">{ t('Submit') }</button>
+        <button type="submit" className="btn btn-primary">{ t('Submit') }</button>
       </div>
-    </div>
+    </form>
   )
 }
