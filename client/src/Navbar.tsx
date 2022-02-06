@@ -7,7 +7,7 @@ export function Navbar(): any {
   return (
     <nav className="navbar navbar-expand-lg navbar-light bg-light">
       <div className="container-fluid">
-        <Link to="/" className="navbar-brand">Accounting</Link>
+        <Link to="/" className="navbar-brand">{ t('Accounting') }</Link>
         <button
           className="navbar-toggler"
           type="button"

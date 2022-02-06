@@ -32,6 +32,7 @@ i18n
     resources: {
       en: {
         'Navbar': {
+          'Accounting': 'Accounting',
           'Create booking record': 'Create booking record',
           'Settings': 'Settings'
         },
@@ -78,6 +79,7 @@ i18n
       },
       de: {
         'Navbar': {
+          'Accounting': 'Buchführung',
           'Create booking record': 'Buchungssatz erstellen',
           'Settings': 'Einstellungen'
         },
