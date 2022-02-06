@@ -27,13 +27,13 @@ export function DocumentUpload({ onDocumentUploaded }: { onDocumentUploaded: (do
       //       setUploadProgress(bytesTransferred * 100 / totalBytes)
       //     },
       //     (error) => {
+      //       setIsUploading(false)
       //       console.error(error)
       //     },
       //     async () => {
       //       setIsUploading(false)
       //       const ref = uploadTask.snapshot.ref
       //       const downloadURL = await getDownloadURL(ref)
-      //       debugger
       //       const { data: document } = await getJSON(await window.api.post('/documents', {
       //         url: downloadURL,
       //         gsURL: ref.toString(),
