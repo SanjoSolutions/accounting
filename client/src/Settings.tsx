@@ -18,9 +18,7 @@ export function Settings(): any {
 
   useEffect(() => {
     async function loadData() {
-      const response = await fetch(
-        `http://localhost/settings/${ accountId }`,
-      )
+      const response = await window.api.get(`http://localhost/settings/${ accountId }`)
       const { data } = JSON.parse(await response.text())
       const { invoiceIssuer } = data
       const { name, streetAndHouseNumber, zipCode, city, country } = invoiceIssuer
@@ -44,25 +42,15 @@ export function Settings(): any {
     async (event: any) => {
       event.preventDefault()
 
-      await fetch(
-        'http://localhost/settings',
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify({
-            invoiceIssuer: {
-              name,
-              streetAndHouseNumber,
-              zipCode,
-              city,
-              country,
-            },
-          }),
+      await window.api.put('/settings', {
+        invoiceIssuer: {
+          name,
+          streetAndHouseNumber,
+          zipCode,
+          city,
+          country,
         },
-      )
+      })
     },
     [
       name,

@@ -13,6 +13,15 @@ import { getLanguage } from './getLanguage'
 import './index.css'
 import reportWebVitals from './reportWebVitals'
 import { BrowserRouter } from "react-router-dom"
+import { Requester } from './Requester.js'
+
+window.api = new Requester('http://localhost')
+
+declare global {
+  interface Window {
+    api: Requester
+  }
+}
 
 i18n
   .use(initReactI18next) // passes i18n down to react-i18next

@@ -87,13 +87,8 @@ export function BookingRecordEditor() {
           }
           side.push(bookingRecordElement)
         }
-        await fetch('http://localhost/booking-records', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(bookingRecord),
-        })
+
+        await window.api.post('/booking-records', bookingRecord)
       }
     },
     [rows],

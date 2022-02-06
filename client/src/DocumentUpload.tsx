@@ -1,4 +1,4 @@
-import { getStorage, ref, uploadBytesResumable } from 'firebase/storage'
+import { getDownloadURL, getStorage, ref, uploadBytesResumable } from 'firebase/storage'
 import React, { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -28,8 +28,13 @@ export function DocumentUpload() {
           (error) => {
             console.error(error)
           },
-          () => {
+          async () => {
             setIsUploading(false)
+            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref)
+            const { data: document } = JSON.parse(await (await window.api.post('/documents', {
+              url: downloadURL,
+            })).text())
+            await window.api.post(`/documents/${ document.id }/parsing-requests`, {})
           },
         )
       }
@@ -38,33 +43,33 @@ export function DocumentUpload() {
   )
 
   return (
-  isUploading ?
-    <div>
-      <div className="progress" style={ { height: '36px' } }>
-        <div
-          className="progress-bar"
-          role="progressbar"
-          aria-valuenow={ uploadProgress }
-          aria-valuemin={ 0 }
-          aria-valuemax={ 100 }
-        />
-      </div>
-    </div> :
-    <form onSubmit={ onSubmit }>
-      <div className="mb-3">
-        <label htmlFor="file" className="form-label">{ t('Document') }</label>
-        <input
-          ref={ fileInput }
-          className="form-control form-control-lg"
-          id="file"
-          type="file"
-          accept=".pdf"
-        />
-      </div>
+    isUploading ?
+      <div>
+        <div className="progress" style={ { height: '36px' } }>
+          <div
+            className="progress-bar"
+            role="progressbar"
+            aria-valuenow={ uploadProgress }
+            aria-valuemin={ 0 }
+            aria-valuemax={ 100 }
+          />
+        </div>
+      </div> :
+      <form onSubmit={ onSubmit }>
+        <div className="mb-3">
+          <label htmlFor="file" className="form-label">{ t('Document') }</label>
+          <input
+            ref={ fileInput }
+            className="form-control form-control-lg"
+            id="file"
+            type="file"
+            accept=".pdf"
+          />
+        </div>
 
-      <div className="text-end">
-        <button type="submit" className="btn btn-primary btn-lg">{ t('Upload') }</button>
-      </div>
-    </form>
+        <div className="text-end">
+          <button type="submit" className="btn btn-primary btn-lg">{ t('Upload') }</button>
+        </div>
+      </form>
   )
 }

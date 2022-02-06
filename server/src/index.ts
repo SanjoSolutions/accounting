@@ -1,15 +1,17 @@
 import { Database, PersistentStorage } from '@sanjo/database'
-import { Address } from 'accounting-core/Address.js'
-import { Account } from 'accounting-core/authentication/Account.js'
 import { BookingRecord } from 'accounting-core/BookingRecord.js'
+import { Document } from 'accounting-core/src/Document'
 import cors from 'cors'
 import express from 'express'
 import pick from 'lodash/pick.js'
 import { Accounts } from './Accounts.js'
+import { Documents } from './Documents.js'
+import { v4 as generateUUID } from 'uuid'
 
 const storage = new PersistentStorage('database')
 const database = new Database(storage)
 const accounts = new Accounts(await database.createCollection('accounts'))
+const documents = new Documents(await database.createCollection('documents'))
 const bookingRecords = await database.createCollection('bookingRecords')
 
 const app = express()
@@ -45,6 +47,25 @@ app.put('/settings', async function (request, response) {
     pick(request.body.invoiceIssuer, ['name', 'streetAndHouseNumber', 'zipCode', 'city', 'country']),
   )
   await accounts.save(account)
+  response.json({
+    success: true,
+  })
+  response.end()
+})
+
+app.post('/documents', async function (request, response) {
+  const { url } = request.body
+  const document = new Document(generateUUID(), url)
+  await documents.save(document)
+  response.json({
+    success: true,
+    data: document
+  })
+  response.end()
+})
+
+app.post('/documents/:id/parsing-requests', async function (request, response) {
+
   response.json({
     success: true,
   })
