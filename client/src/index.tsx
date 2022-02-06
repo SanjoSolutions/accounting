@@ -34,6 +34,7 @@ i18n
         'Navbar': {
           'Accounting': 'Accounting',
           'Create booking record': 'Create booking record',
+          'Create balance sheet': 'Create balance sheet',
           'Settings': 'Settings'
         },
         'CreateBookingRecord': {
@@ -67,6 +68,12 @@ i18n
         'Row': {
           'to': 'to'
         },
+        'CreateBalanceSheet': {
+          'For year': 'For year',
+          'Type': 'Type',
+          'Opening balance sheet': 'Opening balance sheet',
+          'Create balance sheet': 'Create balance sheet'
+        },
         'Settings': {
           'Invoice issuer': 'Invoice issuer',
           'Name': 'Name',
@@ -81,6 +88,7 @@ i18n
         'Navbar': {
           'Accounting': 'Buchführung',
           'Create booking record': 'Buchungssatz erstellen',
+          'Create balance sheet': 'Bilanz erstellen',
           'Settings': 'Einstellungen'
         },
         'CreateBookingRecord': {
@@ -109,6 +117,12 @@ i18n
         },
         'Row': {
           'to': 'an'
+        },
+        'CreateBalanceSheet': {
+          'For year': 'Für Jahr',
+          'Type': 'Art',
+          'Opening balance sheet': 'Eröffnungsbilanz',
+          'Create balance sheet': 'Bilanz erstellen'
         },
         'Settings': {
           'Invoice issuer': 'Rechnungsaussteller',

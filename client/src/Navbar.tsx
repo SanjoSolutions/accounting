@@ -25,6 +25,13 @@ export function Navbar(): any {
               <NavLink to="/" className="nav-link" aria-current="page">{ t('Create booking record') }</NavLink>
             </li>
             <li className="nav-item">
+              <NavLink
+                to="/balance-sheets/create"
+                className="nav-link"
+                aria-current="page"
+              >{ t('Create balance sheet') }</NavLink>
+            </li>
+            <li className="nav-item">
               <NavLink to="/settings" className="nav-link">{ t('Settings') }</NavLink>
             </li>
           </ul>
