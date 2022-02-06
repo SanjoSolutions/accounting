@@ -30,9 +30,12 @@ export function DocumentUpload() {
           },
           async () => {
             setIsUploading(false)
-            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref)
+            const ref = uploadTask.snapshot.ref
+            const downloadURL = await getDownloadURL(ref)
+            debugger
             const { data: document } = JSON.parse(await (await window.api.post('/documents', {
               url: downloadURL,
+              gsURL: ref.toString()
             })).text())
             await window.api.post(`/documents/${ document.id }/parsing-requests`, {})
           },

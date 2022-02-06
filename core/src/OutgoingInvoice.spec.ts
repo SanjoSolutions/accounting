@@ -3,6 +3,6 @@ import { OutgoingInvoice } from './OutgoingInvoice'
 
 describe('OutgoingInvoice', () => {
   test('', () => {
-    const outgoingInvoice = new OutgoingInvoice()
+    const outgoingInvoice = new OutgoingInvoice('1', 'http://example.com')
   })
 })

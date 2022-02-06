@@ -9,7 +9,7 @@ import { InvoiceItem } from './InvoiceItem.js';
 import { Unit } from './Unit.js';
 describe('booking paying an invoice', () => {
     it('creates the booking records in the journal and the account entries on the accounts', () => {
-        const incomingInvoice = new IncomingInvoice();
+        const incomingInvoice = new IncomingInvoice('1', 'http://example.com');
         const invoiceItem = new InvoiceItem();
         invoiceItem.description = 'Piece of paper';
         invoiceItem.amountOfUnit = 10;

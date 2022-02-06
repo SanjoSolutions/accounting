@@ -1,1 +1,1 @@
-{"version":3,"file":"Account.d.ts","sourceRoot":"","sources":["../src/authentication/Account.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,eAAe,CAAC;AAExC,qBAAa,OAAO;IAClB,EAAE,EAAE,MAAM,CAAA;IACV,aAAa,EAAE,OAAO,CAA8B;gBAExC,EAAE,EAAE,MAAM;CAGvB"}
+{"version":3,"file":"Account.d.ts","sourceRoot":"","sources":["../src/authentication/Account.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,eAAe,CAAC;AAExC,qBAAa,OAAO;IAClB,EAAE,EAAE,MAAM,CAAA;IACV,OAAO,EAAE,OAAO,CAA8B;IAC9C,aAAa,EAAE,OAAO,CAA8B;gBAExC,EAAE,EAAE,MAAM;CAGvB"}

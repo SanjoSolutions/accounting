@@ -8,6 +8,10 @@ export class Documents {
     this.collection = collection
   }
 
+  async findOne(id: string): Promise<Document | null> {
+    return (await this.collection.find()).find((document: any) => document.id === id) ?? null
+  }
+
   async save(document: Document) {
     this.collection.insert(document)
   }

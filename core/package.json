@@ -17,6 +17,7 @@
     "typescript": "^4.5.5"
   },
   "dependencies": {
+    "@google-cloud/documentai": "^3.2.1",
     "@google-cloud/vision": "^2.4.2",
     "@sanjo/array": "^1.0.6",
     "lodash": "^4.17.21"

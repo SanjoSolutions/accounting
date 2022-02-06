@@ -10,7 +10,7 @@ import { Unit } from './Unit.js'
 
 describe('booking an incoming invoice', () => {
   it('creates the booking records in the journal and the account entries on the accounts', () => {
-    const incomingInvoice = new IncomingInvoice()
+    const incomingInvoice = new IncomingInvoice('1', 'http://example.com')
     const invoiceItem = new InvoiceItem()
     invoiceItem.description = 'Wood'
     invoiceItem.amountOfUnit = 10
@@ -46,7 +46,7 @@ describe('booking an incoming invoice', () => {
   })
 
   it('creates the booking records in the journal and the account entries on the accounts (2)', () => {
-    const incomingInvoice = new IncomingInvoice()
+    const incomingInvoice = new IncomingInvoice('1', 'http://example.com')
     const invoiceItem = new InvoiceItem()
     invoiceItem.description = 'Piece of paper'
     invoiceItem.amountOfUnit = 10

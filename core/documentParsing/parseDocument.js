@@ -27,5 +27,6 @@ export async function parseDocument(gcsSourceUri, gcsDestinationUri) {
     const [filesResponse] = await operation.promise();
     console.log(filesResponse);
     const destinationUri = filesResponse.responses[0].outputConfig.gcsDestination.uri;
+    return destinationUri;
 }
 //# sourceMappingURL=parseDocument.js.map

@@ -1,12 +1,13 @@
 import { Database, PersistentStorage } from '@sanjo/database'
 import { BookingRecord } from 'accounting-core/BookingRecord.js'
-import { Document } from 'accounting-core/src/Document'
+import { Document } from 'accounting-core/Document.js'
 import cors from 'cors'
 import express from 'express'
 import pick from 'lodash/pick.js'
 import { Accounts } from './Accounts.js'
 import { Documents } from './Documents.js'
 import { v4 as generateUUID } from 'uuid'
+import { parseInvoice } from 'accounting-core/documentParsing/parseInvoice.js'
 
 const storage = new PersistentStorage('database')
 const database = new Database(storage)
@@ -54,8 +55,9 @@ app.put('/settings', async function (request, response) {
 })
 
 app.post('/documents', async function (request, response) {
-  const { url } = request.body
+  const { url, gsURL } = request.body
   const document = new Document(generateUUID(), url)
+  document.gsURL = gsURL
   await documents.save(document)
   response.json({
     success: true,
@@ -65,9 +67,17 @@ app.post('/documents', async function (request, response) {
 })
 
 app.post('/documents/:id/parsing-requests', async function (request, response) {
-
+  const documentId = request.params.id
+  const document = await documents.findOne(documentId)
+  let success
+  if (document && document.gsURL) {
+    await parseInvoice(document.gsURL, 'gs://accounting-339615.appspot.com/output/')
+    success = true
+  } else {
+    success = false
+  }
   response.json({
-    success: true,
+    success,
   })
   response.end()
 })
