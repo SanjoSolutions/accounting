@@ -18,7 +18,7 @@ export function Settings(): any {
 
   useEffect(() => {
     async function loadData() {
-      const response = await window.api.get(`http://localhost/settings/${ accountId }`)
+      const response = await window.api.get(`/settings/${ accountId }`)
       const { data } = JSON.parse(await response.text())
       const { invoiceIssuer } = data
       const { name, streetAndHouseNumber, zipCode, city, country } = invoiceIssuer
