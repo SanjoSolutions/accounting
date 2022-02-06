@@ -63,7 +63,13 @@ i18n
           'to': 'to'
         },
         'Settings': {
-          'Invoice issuer': 'Invoice issuer'
+          'Invoice issuer': 'Invoice issuer',
+          'Name': 'Name',
+          'Street and house number': 'Street and house number',
+          'Zip code': 'Zip code',
+          'City': 'City',
+          'Country': 'Country',
+          'Save': 'Save'
         }
       },
       de: {
@@ -95,7 +101,13 @@ i18n
           'to': 'an'
         },
         'Settings': {
-          'Invoice issuer': 'Rechnungsaussteller'
+          'Invoice issuer': 'Rechnungsaussteller',
+          'Name': 'Name',
+          'Street and house number': 'Straße und Hausnummer',
+          'Zip code': 'Postleitzahl',
+          'City': 'Stadt',
+          'Country': 'Land',
+          'Save': 'Speichern'
         }
       },
     },
