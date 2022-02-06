@@ -93,6 +93,8 @@ export function BookingRecordEditor(props: {rows: IRow[]}) {
             rows.map((row, index) => <Row
               key={ row.id }
               row={ row }
+              index={ index }
+              rows={ rows }
               onRemove={ removeRow.bind(null, index) }
               showDate={ index === 0 }
             />)

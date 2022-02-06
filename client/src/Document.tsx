@@ -3,9 +3,20 @@ import { useTranslation } from 'react-i18next'
 export function Document({
   url,
   netAmount,
+  onNetAmountChange,
   taxAmount,
+  onTaxAmountChange,
   grossAmount,
-}: { url: string | null, netAmount: number | null, taxAmount: number | null, grossAmount: number | null }): any {
+  onGrossAmountChange,
+}: {
+  url: string | null,
+  netAmount: number | null,
+  onNetAmountChange: React.ChangeEventHandler<HTMLInputElement>,
+  taxAmount: number | null,
+  onTaxAmountChange: React.ChangeEventHandler<HTMLInputElement>,
+  grossAmount: number | null,
+  onGrossAmountChange: React.ChangeEventHandler<HTMLInputElement>
+}): any {
   const { t } = useTranslation('Document')
 
   return (
@@ -30,7 +41,8 @@ export function Document({
               className="form-control"
               id="netAmount"
               min="0"
-              defaultValue={ typeof netAmount === 'number' ? netAmount.toFixed(2) : '' }
+              value={ typeof netAmount === 'number' ? netAmount.toFixed(2) : '' }
+              onChange={ onNetAmountChange }
             />
             <span className="input-group-text">€</span>
           </div>
@@ -44,7 +56,8 @@ export function Document({
               className="form-control"
               id="taxAmount"
               min="0"
-              defaultValue={ typeof taxAmount === 'number' ? taxAmount.toFixed(2) : '' }
+              value={ typeof taxAmount === 'number' ? taxAmount.toFixed(2) : '' }
+              onChange={ onTaxAmountChange }
             />
             <span className="input-group-text">€</span>
           </div>
@@ -58,7 +71,8 @@ export function Document({
               className="form-control"
               id="grossAmount"
               min="0"
-              defaultValue={ typeof grossAmount === 'number' ? grossAmount.toFixed(2) : '' }
+              value={ typeof grossAmount === 'number' ? grossAmount.toFixed(2) : '' }
+              onChange={ onGrossAmountChange }
             />
             <span className="input-group-text">€</span>
           </div>

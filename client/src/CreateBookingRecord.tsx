@@ -17,6 +17,51 @@ export function CreateBookingRecord(): any {
 
   const [rows, setRows] = useState<IRow[]>([])
 
+  const onNetAmountChange = useCallback(
+    (event: any) => {
+      const value = event.target.value
+
+      setNetAmount(parseFloat(value))
+
+      const row = rows[0]
+      if (netAmount === parseFloat(row.debit)) {
+        row.debit = value
+        setRows(Array.from(rows))
+      }
+    },
+    [rows, netAmount]
+  )
+
+  const onTaxAmountChange = useCallback(
+    (event: any) => {
+      const value = event.target.value
+
+      setTaxAmount(parseFloat(value))
+
+      const row = rows[1]
+      if (taxAmount === parseFloat(row.debit)) {
+        row.debit = value
+        setRows(Array.from(rows))
+      }
+    },
+    [rows, taxAmount]
+  )
+
+  const onGrossAmountChange = useCallback(
+    (event: any) => {
+      const value = event.target.value
+
+      setGrossAmount(parseFloat(value))
+
+      const row = rows[2]
+      if (grossAmount === parseFloat(row.credit)) {
+        row.credit = value
+        setRows(Array.from(rows))
+      }
+    },
+    [rows, grossAmount]
+  )
+
   const onDocumentUploaded = useCallback(
     (document: Document) => {
       const invoice = document as unknown as IncomingInvoice
@@ -63,7 +108,15 @@ export function CreateBookingRecord(): any {
       </div>
       <h2>{ t('Document') }</h2>
       <div className="mb-3">
-        <Document url={ url } netAmount={ netAmount } taxAmount={ taxAmount } grossAmount={ grossAmount } />
+        <Document
+          url={ url }
+          netAmount={ netAmount }
+          onNetAmountChange={ onNetAmountChange }
+          taxAmount={ taxAmount }
+          onTaxAmountChange={ onTaxAmountChange }
+          grossAmount={ grossAmount }
+          onGrossAmountChange={ onGrossAmountChange }
+        />
       </div>
       <h2>{ t('Booking record') }</h2>
       <BookingRecordEditor rows={ rows } />

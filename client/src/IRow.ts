@@ -6,4 +6,5 @@ export interface IRow {
   account: string
   debit: string
   credit: string
+  hasBeenEdited: boolean
 }

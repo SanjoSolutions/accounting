@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useInputStateHandler2 } from './useInputStateHandler2.js'
+import { useInputStateHandler } from './useInputStateHandler.js'
 
 const accountId = '1'
 
@@ -9,11 +9,11 @@ export function Settings(): any {
 
   const [isLoading, setIsLoading] = useState(true)
   const [isFirstRender, setIsFirstRender] = useState(true)
-  const [name, setName, onNameChange] = useInputStateHandler2('')
-  const [streetAndHouseNumber, setStreetAndHouseNumber, onStreetAndHouseNumberChange] = useInputStateHandler2('')
-  const [zipCode, setZipCode, onZipCodeChange] = useInputStateHandler2('')
-  const [city, setCity, onCityChange] = useInputStateHandler2('')
-  const [country, setCountry, onCountryChange] = useInputStateHandler2('')
+  const [name, setName, onNameChange] = useInputStateHandler('')
+  const [streetAndHouseNumber, setStreetAndHouseNumber, onStreetAndHouseNumberChange] = useInputStateHandler('')
+  const [zipCode, setZipCode, onZipCodeChange] = useInputStateHandler('')
+  const [city, setCity, onCityChange] = useInputStateHandler('')
+  const [country, setCountry, onCountryChange] = useInputStateHandler('')
   const nameElement = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {

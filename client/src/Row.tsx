@@ -1,6 +1,6 @@
+import React, { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { IRow } from './IRow'
-import { useInputStateHandler } from './useInputStateHandler.js'
 
 const accounts = {
   debit: [
@@ -12,39 +12,38 @@ const accounts = {
   ],
 }
 
-export function Row({ row, onRemove, showDate }: { row: IRow, onRemove: () => void, showDate?: boolean }) {
+export function Row({
+  row: rowProp,
+  index,
+  rows,
+  onRemove,
+  showDate,
+}: { row: IRow, index: number, rows: IRow[], onRemove: () => void, showDate?: boolean }) {
   const { t } = useTranslation('Row')
 
-  const [date, onDateChange] = useInputStateHandler({
-    name: 'date',
-    data: row,
-    transform: value => new Date(value),
-  })
+  const [row, setRow] = useState(rowProp)
 
-  const [documentId, onDocumentIdChange] = useInputStateHandler({
-    name: 'documentId',
-    data: row,
-  })
+  useEffect(
+    () => {
+      setRow(rowProp)
+    },
+    [rowProp],
+  )
 
-  const [to, onToChange] = useInputStateHandler({
-    name: 'to',
-    data: row,
-  })
-
-  const [account, onAccountChange] = useInputStateHandler({
-    name: 'account',
-    data: row,
-  })
-
-  const [debit, onDebitChange] = useInputStateHandler({
-    name: 'debit',
-    data: row,
-  })
-
-  const [credit, onCreditChange] = useInputStateHandler({
-    name: 'credit',
-    data: row,
-  })
+  const onChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      const target = event.target
+      const { name, value } = target
+      const newRow = {
+        ...row,
+        [name]: value,
+        hasBeenEdited: true
+      }
+      rows[index] = newRow
+      setRow(newRow)
+    },
+    [row, index, rows],
+  )
 
   return (
     <tr>
@@ -52,36 +51,45 @@ export function Row({ row, onRemove, showDate }: { row: IRow, onRemove: () => vo
         showDate !== false ?
           <td>
             <input
+              name="date"
               type="date"
               className="form-control"
               style={ { width: '165px' } }
-              value={ date }
-              onChange={ onDateChange }
+              value={ row.date }
+              onChange={ onChange }
             />
           </td> :
           <td className="border-bottom-0">&nbsp;</td>
       }
       <td>
         <input
+          name="documentId"
           type="text"
           className="form-control"
-          value={ documentId }
-          onChange={ onDocumentIdChange }
+          value={ row.documentId }
+          onChange={ onChange }
         />
       </td>
       <td>
         <div className="d-flex">
-          <select className="form-select me-2" style={ { width: 'auto' } } value={ to } onChange={ onToChange }>
+          <select
+            name="to"
+            className="form-select me-2"
+            style={ { width: 'auto' } }
+            value={ row.to }
+            onChange={ onChange }
+          >
             <option value=""></option>
             <option value="to">{ t('to') }</option>
           </select>
           <select
+            name="account"
             className="form-select"
-            value={ account }
-            onChange={ onAccountChange }
+            value={ row.account }
+            onChange={ onChange }
           >
             {
-              to === '' ?
+              row.to === '' ?
                 accounts.debit.map(account => <option key={ account } value={ account }>{ account }</option>) :
                 accounts.credit.map(account => <option key={ account } value={ account }>{ account }</option>)
             }
@@ -89,14 +97,15 @@ export function Row({ row, onRemove, showDate }: { row: IRow, onRemove: () => vo
         </div>
       </td>
       {
-        to === '' ?
+        row.to === '' ?
           <td>
             <div className="input-group" style={ { width: '156px' } }>
               <input
+                name="debit"
                 type="number"
                 className="form-control"
-                value={ debit }
-                onChange={ onDebitChange }
+                value={ row.debit }
+                onChange={ onChange }
               />
               <span className="input-group-text">€</span>
             </div>
@@ -104,14 +113,15 @@ export function Row({ row, onRemove, showDate }: { row: IRow, onRemove: () => vo
           <td>&nbsp;</td>
       }
       {
-        to === 'to' ?
+        row.to === 'to' ?
           <td>
             <div className="input-group" style={ { width: '156px' } }>
               <input
+                name="credit"
                 type="number"
                 className="form-control"
-                value={ credit }
-                onChange={ onCreditChange }
+                value={ row.credit }
+                onChange={ onChange }
               />
               <span className="input-group-text">€</span>
             </div>

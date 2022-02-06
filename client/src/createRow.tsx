@@ -9,5 +9,6 @@ export function createRow(id: number): IRow {
     account: '',
     debit: '',
     credit: '',
+    hasBeenEdited: false
   }
 }
