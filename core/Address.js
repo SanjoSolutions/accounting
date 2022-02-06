@@ -1,6 +1,6 @@
 export class Address {
     name = '';
-    street_and_house_number = '';
+    streetAndHouseNumber = '';
     zipCode = '';
     city = '';
     country = '';

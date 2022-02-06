@@ -1,7 +1,6 @@
-import { identity } from '@sanjo/identity'
-import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { IRow } from './IRow'
+import { useInputStateHandler } from './useInputStateHandler.js'
 
 const accounts = {
   debit: [
@@ -13,56 +12,38 @@ const accounts = {
   ],
 }
 
-function useInputStateHandler(options: { name: string, row: any, transform?: (value: any) => any }): [any, (event: any) => void] {
-  const transform = options.transform ?? identity
-
-  const [value, setValue] = useState(options.row[options.name])
-  const onChange = useCallback(
-    (event: any) => {
-      const value = event.target.value
-      setValue(value)
-      options.row[options.name] = transform(value)
-    },
-    [
-      options,
-      transform,
-    ],
-  )
-  return [value, onChange]
-}
-
 export function Row({ row, onRemove, showDate }: { row: IRow, onRemove: () => void, showDate?: boolean }) {
   const { t } = useTranslation('Row')
 
   const [date, onDateChange] = useInputStateHandler({
     name: 'date',
-    row,
+    data: row,
     transform: value => new Date(value),
   })
 
   const [documentId, onDocumentIdChange] = useInputStateHandler({
     name: 'documentId',
-    row,
+    data: row,
   })
 
   const [to, onToChange] = useInputStateHandler({
     name: 'to',
-    row,
+    data: row,
   })
 
   const [account, onAccountChange] = useInputStateHandler({
     name: 'account',
-    row,
+    data: row,
   })
 
   const [debit, onDebitChange] = useInputStateHandler({
     name: 'debit',
-    row,
+    data: row,
   })
 
   const [credit, onCreditChange] = useInputStateHandler({
     name: 'credit',
-    row,
+    data: row,
   })
 
   return (

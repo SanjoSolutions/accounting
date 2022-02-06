@@ -12,6 +12,7 @@ import { firebaseConfig } from './firebaseConfig.js'
 import { getLanguage } from './getLanguage'
 import './index.css'
 import reportWebVitals from './reportWebVitals'
+import { BrowserRouter } from "react-router-dom"
 
 i18n
   .use(initReactI18next) // passes i18n down to react-i18next
@@ -21,7 +22,7 @@ i18n
     // or even better, manage them via a UI: https://react.i18next.com/guides/multiple-translation-files#manage-your-translations-with-a-management-gui)
     resources: {
       en: {
-        'App': {
+        'CreateBookingRecord': {
           'Create booking record': 'Create booking record',
           'Upload document': 'Upload document',
           'Document': 'Document',
@@ -51,10 +52,13 @@ i18n
         },
         'Row': {
           'to': 'to'
+        },
+        'Settings': {
+          'Invoice issuer': 'Invoice issuer'
         }
       },
       de: {
-        'App': {
+        'CreateBookingRecord': {
           'Create booking record': 'Buchungssatz erstellen',
           'Upload document': 'Dokument hochladen',
           'Document': 'Dokument',
@@ -80,6 +84,9 @@ i18n
         },
         'Row': {
           'to': 'an'
+        },
+        'Settings': {
+          'Invoice issuer': 'Rechnungsaussteller'
         }
       },
     },
@@ -105,7 +112,9 @@ declare global {
 
 ReactDOM.render(
   <React.StrictMode>
-    <App />
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
   </React.StrictMode>,
   document.getElementById('root'),
 )

@@ -1,6 +1,6 @@
 export declare class Address {
     name: string;
-    street_and_house_number: string;
+    streetAndHouseNumber: string;
     zipCode: string;
     city: string;
     country: string;
