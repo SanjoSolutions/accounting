@@ -23,8 +23,8 @@ export function CreateBookingRecord(): any {
 
       setNetAmount(parseFloat(value))
 
-      const row = rows[0]
-      if (netAmount === parseFloat(row.debit)) {
+      const row = rows.find(({id}) => id === 1)
+      if (row && netAmount === parseFloat(row.debit)) {
         row.debit = value
         setRows(Array.from(rows))
       }
@@ -38,8 +38,8 @@ export function CreateBookingRecord(): any {
 
       setTaxAmount(parseFloat(value))
 
-      const row = rows[1]
-      if (taxAmount === parseFloat(row.debit)) {
+      const row = rows.find(({ id }) => id === 2)
+      if (row && taxAmount === parseFloat(row.debit)) {
         row.debit = value
         setRows(Array.from(rows))
       }
@@ -53,8 +53,8 @@ export function CreateBookingRecord(): any {
 
       setGrossAmount(parseFloat(value))
 
-      const row = rows[2]
-      if (grossAmount === parseFloat(row.credit)) {
+      const row = rows.find(({ id }) => id === 3)
+      if (row && grossAmount === parseFloat(row.credit)) {
         row.credit = value
         setRows(Array.from(rows))
       }
