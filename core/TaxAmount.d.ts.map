@@ -1,0 +1,1 @@
+{"version":3,"file":"TaxAmount.d.ts","sourceRoot":"","sources":["src/TaxAmount.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,GAAG,EAAE,MAAM,UAAU,CAAA;AAE9B,qBAAa,SAAS;IACpB,MAAM,EAAE,MAAM,CAAA;IACd,GAAG,EAAE,GAAG,CAAA;IAER,MAAM,CAAC,mBAAmB;gBAId,MAAM,EAAE,MAAM,EAAE,GAAG,EAAE,GAAG;CAIrC"}

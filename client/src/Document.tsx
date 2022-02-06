@@ -1,16 +1,25 @@
 import { useTranslation } from 'react-i18next'
 
-export function Document(): any {
+export function Document({
+  url,
+  netAmount,
+  taxAmount,
+  grossAmount,
+}: { url: string | null, netAmount: number | null, taxAmount: number | null, grossAmount: number | null }): any {
   const { t } = useTranslation('Document')
 
   return (
     <div>
-      <iframe
-        className="w-100 mb-2"
-        style={ { minHeight: '80vh' } }
-        src="https://storage.googleapis.com/accounting-documents-public/Invoice_Example_German.pdf"
-        title="Document"
-      ></iframe>
+      {
+        url ?
+          <iframe
+            className="w-100 mb-2"
+            style={ { minHeight: '80vh' } }
+            src={ url }
+            title="Document"
+          ></iframe> :
+          null
+      }
 
       <form>
         <div className="mb-3">
@@ -21,21 +30,21 @@ export function Document(): any {
               className="form-control"
               id="netAmount"
               min="0"
-              defaultValue={ '780.00' }
+              defaultValue={ typeof netAmount === 'number' ? netAmount.toFixed(2) : '' }
             />
             <span className="input-group-text">€</span>
           </div>
         </div>
 
         <div className="mb-3">
-          <label htmlFor="netAmount" className="form-label">{ t('Taxes') }</label>
+          <label htmlFor="taxAmount" className="form-label">{ t('Taxes') }</label>
           <div className="input-group">
             <input
               type="number"
               className="form-control"
-              id="netAmount"
+              id="taxAmount"
               min="0"
-              defaultValue={ '148.20' }
+              defaultValue={ typeof taxAmount === 'number' ? taxAmount.toFixed(2) : '' }
             />
             <span className="input-group-text">€</span>
           </div>
@@ -49,7 +58,7 @@ export function Document(): any {
               className="form-control"
               id="grossAmount"
               min="0"
-              defaultValue={ '928.20' }
+              defaultValue={ typeof grossAmount === 'number' ? grossAmount.toFixed(2) : '' }
             />
             <span className="input-group-text">€</span>
           </div>

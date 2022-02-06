@@ -1,44 +1,25 @@
 import { first, last } from '@sanjo/array'
 import { BookingRecordElementTransferData, BookingRecordTransferData } from 'accounting-core/BookingRecord.js'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { createRow } from './createRow'
 import type { IRow } from './IRow'
 import { Row } from './Row'
 
-function createRow(id: number): IRow {
-  return {
-    id,
-    date: '',
-    documentId: '',
-    to: '',
-    account: '',
-    debit: '',
-    credit: '',
-  }
-}
-
-export function BookingRecordEditor() {
+export function BookingRecordEditor(props: {rows: IRow[]}) {
   const { t } = useTranslation('BookingRecordEditor')
 
-  const rowA = createRow(1)
-  rowA.date = '2022-01-01'
-  rowA.documentId = 'ER1'
-  rowA.account = '6170: Sonstige Aufwendungen für bezogene Leistungen'
-  rowA.debit = Number(780).toFixed(2)
+  const [rows, setRows] = useState<IRow[]>(props.rows)
+  const [nextId, setNextId] = useState(Math.max(...rows.map(row => row.id)) + 1)
 
-  const rowB = createRow(2)
-  rowB.documentId = 'ER1'
-  rowB.account = 'Vorsteuer'
-  rowB.debit = Number(148.20).toFixed(2)
-
-  const rowC = createRow(3)
-  rowC.documentId = 'ER1'
-  rowC.to = 'to'
-  rowC.account = 'Verbindlichkeiten a. LL'
-  rowC.credit = Number(928.20).toFixed(2)
-
-  const [rows, setRows] = useState<IRow[]>([rowA, rowB, rowC])
-  const [nextId, setNextId] = useState(rowC.id + 1)
+  useEffect(
+    () => {
+      setRows(props.rows)
+    },
+    [
+      props.rows
+    ]
+  )
 
   const addRow = useCallback(
     () => {

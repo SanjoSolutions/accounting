@@ -39,3 +39,7 @@ export class Requester {
     return `${ this._baseURL }${ path }`
   }
 }
+
+export async function getJSON(response: Response): Promise<any> {
+  return JSON.parse(await response.text())
+}

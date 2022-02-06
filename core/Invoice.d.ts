@@ -3,7 +3,7 @@ import type { BookingStamp } from './BookingStamp';
 import { Document } from './Document';
 import type { InvoiceItem } from './InvoiceItem';
 import { Period } from './Period';
-import type { Tax } from './Tax';
+import { TaxAmount } from './TaxAmount';
 import type { TaxNumber } from './TaxNumber';
 import type { VATIDNumber } from './VATIDNumber';
 export declare class Invoice extends Document {
@@ -16,8 +16,8 @@ export declare class Invoice extends Document {
     date: Date | null;
     dueTo: Date | null;
     items: InvoiceItem[];
-    subtotal: number;
-    tax: Tax | null;
+    netAmount: number;
+    tax: TaxAmount;
     total: number;
     bookingStamp: BookingStamp | null;
 }
