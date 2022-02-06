@@ -31,6 +31,10 @@ i18n
     // or even better, manage them via a UI: https://react.i18next.com/guides/multiple-translation-files#manage-your-translations-with-a-management-gui)
     resources: {
       en: {
+        'Navbar': {
+          'Create booking record': 'Create booking record',
+          'Settings': 'Settings'
+        },
         'CreateBookingRecord': {
           'Create booking record': 'Create booking record',
           'Upload document': 'Upload document',
@@ -73,6 +77,10 @@ i18n
         }
       },
       de: {
+        'Navbar': {
+          'Create booking record': 'Buchungssatz erstellen',
+          'Settings': 'Einstellungen'
+        },
         'CreateBookingRecord': {
           'Create booking record': 'Buchungssatz erstellen',
           'Upload document': 'Dokument hochladen',
