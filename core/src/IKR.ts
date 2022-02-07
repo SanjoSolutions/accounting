@@ -32,14 +32,18 @@ export function determineBalanceSheetPositionForAccount(account: Account): Balan
     return BalanceSheetPosition.CurrentAssets
   } else if (number >= 2900 && number < 3000) {
     return BalanceSheetPosition.RechnungsabgrenzungspostenAktiv
-    // FIXME: DeferredTaxAssets? (more reading about that: https://de.wikipedia.org/wiki/Latente_Steuern)
-    // FIXME: ActiveDifferenceFromAssetAllocation
+  // } else if () {
+  //   // FIXME: DeferredTaxAssets? (more reading about that: https://de.wikipedia.org/wiki/Latente_Steuern)
+  // } else if () {
+  //   // FIXME: ActiveDifferenceFromAssetAllocation
   } else if (number >= 3000 && number < 3700) {
     return BalanceSheetPosition.EquityCapital
   } else if (number >= 3700 && number < 4000) {
     return BalanceSheetPosition.Accruals
-    // FIXME: RechnungsabgrenzungspostenPassiv
-    // FIXME: DeferredTaxLiabilities
+  // } else if () {
+  //   // FIXME: RechnungsabgrenzungspostenPassiv
+  // } else if () {
+  //   // FIXME: DeferredTaxLiabilities
   } else {
     return null
   }
