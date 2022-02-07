@@ -13,7 +13,7 @@ export enum BalanceSheetPosition {
   CurrentAssets = 2,
   RechnungsabgrenzungspostenAktiv = 3,
   DeferredTaxAssets = 4,
-  ActiveDifferenceFromTheAssetCalculation = 5,
+  ActiveDifferenceFromAssetAllocation = 5,
   // Passive
   EquityCapital = 6,
   Accruals = 7,
@@ -32,8 +32,8 @@ export function determineBalanceSheetPositionForAccount(account: Account): Balan
     return BalanceSheetPosition.CurrentAssets
   } else if (number >= 2900 && number < 3000) {
     return BalanceSheetPosition.RechnungsabgrenzungspostenAktiv
-    // FIXME: DeferredTaxAssets?
-    // FIXME: ActiveDifferenceFromTheAssetCalculation
+    // FIXME: DeferredTaxAssets? (more reading about that: https://de.wikipedia.org/wiki/Latente_Steuern)
+    // FIXME: ActiveDifferenceFromAssetAllocation
   } else if (number >= 3000 && number < 3700) {
     return BalanceSheetPosition.EquityCapital
   } else if (number >= 3700 && number < 4000) {
