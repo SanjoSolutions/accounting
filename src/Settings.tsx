@@ -5,8 +5,6 @@ import { useTranslations } from 'next-intl'
 import { useInputStateHandler } from './useInputStateHandler'
 import { api } from './Requester'
 
-const accountId = '1'
-
 export function Settings(): any {
   const t = useTranslations('Settings')
 
@@ -21,7 +19,7 @@ export function Settings(): any {
 
   useEffect(() => {
     async function loadData() {
-      const response = await api.get(`/api/settings/${ accountId }`)
+      const response = await api.get('/api/settings')
       const { data } = JSON.parse(await response.text())
       const { invoiceIssuer } = data
       const { name, streetAndHouseNumber, zipCode, city, country } = invoiceIssuer

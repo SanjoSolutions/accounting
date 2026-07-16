@@ -14,12 +14,14 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@better-auth/prisma-adapter": "^1.6.23",
     "@google-cloud/documentai": "^3.2.1",
     "@google-cloud/vision": "^2.4.2",
     "@prisma/adapter-better-sqlite3": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@sanjo/array": "^1.0.6",
     "@sanjo/identity": "^2.0.3",
+    "better-auth": "^1.6.23",
     "bootstrap": "^5.1.3",
     "bootstrap-icons": "^1.7.2",
     "dotenv": "^17.4.2",
