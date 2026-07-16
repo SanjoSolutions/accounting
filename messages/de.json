@@ -1,0 +1,59 @@
+{
+  "Metadata": {
+    "title": "Buchführung",
+    "description": "Anwendung für die Buchführung"
+  },
+  "Navbar": {
+    "Accounting": "Buchführung",
+    "Create booking record": "Buchungssatz erstellen",
+    "Create balance sheet": "Bilanz erstellen",
+    "Settings": "Einstellungen"
+  },
+  "CreateBookingRecord": {
+    "Create booking record": "Buchungssatz erstellen",
+    "Upload document": "Dokument hochladen",
+    "Document": "Dokument",
+    "Booking record": "Buchungssatz"
+  },
+  "LanguageSelect": {
+    "label": "Sprache auswählen",
+    "de": "Deutsch",
+    "en": "Englisch"
+  },
+  "DocumentUpload": {
+    "Document": "Dokument",
+    "Upload": "Hochladen"
+  },
+  "Document": {
+    "Net amount": "Nettobetrag",
+    "Taxes": "Steuern",
+    "Gross amount": "Bruttobetrag"
+  },
+  "BookingRecordEditor": {
+    "Date": "Datum",
+    "Document ID": "Buchungsbeleg Nr.",
+    "Booking record": "Buchungssatz",
+    "Debit": "Soll",
+    "Credit": "Haben",
+    "Add row": "Zeile hinzufügen",
+    "Create booking record": "Buchungssatz erstellen"
+  },
+  "Row": {
+    "to": "an"
+  },
+  "CreateBalanceSheet": {
+    "For year": "Für Jahr",
+    "Type": "Art",
+    "Opening balance sheet": "Eröffnungsbilanz",
+    "Create balance sheet": "Bilanz erstellen"
+  },
+  "Settings": {
+    "Invoice issuer": "Rechnungsaussteller",
+    "Name": "Name",
+    "Street and house number": "Straße und Hausnummer",
+    "Zip code": "Postleitzahl",
+    "City": "Stadt",
+    "Country": "Land",
+    "Save": "Speichern"
+  }
+}

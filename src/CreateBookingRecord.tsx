@@ -4,7 +4,7 @@ import { first, last } from '@sanjo/array'
 import { BookingRecordElementTransferData, BookingRecordTransferData } from '@/core/BookingRecord'
 import { IncomingInvoice } from '@/core/IncomingInvoice'
 import React, { useCallback, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslations } from 'next-intl'
 import { BookingRecordEditor } from './BookingRecordEditor'
 import { createRow } from './createRow'
 import { Document } from './Document'
@@ -13,7 +13,7 @@ import { IRow } from './IRow'
 import { api } from './Requester'
 
 export function CreateBookingRecord(): any {
-  const { t } = useTranslation('CreateBookingRecord')
+  const t = useTranslations('CreateBookingRecord')
 
   const [url, setUrl] = useState<string | null>(null)
   const [netAmount, setNetAmount] = useState<number | null>(null)

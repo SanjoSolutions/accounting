@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslations } from 'next-intl'
 import type { IRow } from './IRow'
 
 const accounts = {
@@ -19,7 +19,7 @@ export function Row({
   onRemove,
   showDate,
 }: { row: IRow, index: number, rows: IRow[], onRemove: () => void, showDate?: boolean }) {
-  const { t } = useTranslation('Row')
+  const t = useTranslations('Row')
 
   const [row, setRow] = useState(rowProp)
 

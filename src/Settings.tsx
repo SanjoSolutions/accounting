@@ -1,14 +1,14 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslations } from 'next-intl'
 import { useInputStateHandler } from './useInputStateHandler'
 import { api } from './Requester'
 
 const accountId = '1'
 
 export function Settings(): any {
-  const { t } = useTranslation('Settings')
+  const t = useTranslations('Settings')
 
   const [isLoading, setIsLoading] = useState(true)
   const [isFirstRender, setIsFirstRender] = useState(true)

@@ -1,11 +1,11 @@
 "use client"
 
-import { useTranslation } from 'react-i18next'
+import { useTranslations } from 'next-intl'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 export function Navbar(): any {
-  const { t } = useTranslation('Navbar')
+  const t = useTranslations('Navbar')
   const pathname = usePathname()
 
   const navClassName = (href: string) =>

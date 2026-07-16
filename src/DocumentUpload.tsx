@@ -1,10 +1,10 @@
 import { getDownloadURL, getStorage, ref, uploadBytesResumable } from 'firebase/storage'
 import React, { useCallback, useRef, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslations } from 'next-intl'
 import { getJSON } from './Requester'
 
 export function DocumentUpload({ onDocumentUploaded }: { onDocumentUploaded: (document: Document) => void}) {
-  const { t } = useTranslation('DocumentUpload')
+  const t = useTranslations('DocumentUpload')
 
   const fileInput = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
