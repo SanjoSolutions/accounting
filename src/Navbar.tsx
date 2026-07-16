@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import type { AuthMode, CurrentUser } from './authenticationPolicy'
 import { authClient } from './auth-client'
+import { defaultFiscalYear } from './FiscalYearNavigation'
 
 export function Navbar({
   authMode,
@@ -22,7 +23,10 @@ export function Navbar({
   const [signOutError, setSignOutError] = useState<string | null>(null)
 
   const navClassName = (href: string) =>
-    `nav-link${pathname === href ? ' active' : ''}`
+    `nav-link${pathname === href || pathname.startsWith(`${href}/`) ? ' active' : ''}`
+  const year = new Date().getFullYear()
+  const annualCloseYear = defaultFiscalYear('annual-close', year)
+  const eBalanceYear = defaultFiscalYear('e-bilanz', year)
 
   return (
     <nav className="navbar navbar-expand-lg navbar-light bg-light">
@@ -42,13 +46,16 @@ export function Navbar({
         <div className="collapse navbar-collapse" id="navbarSupportedContent">
           {user && <ul className="navbar-nav me-auto mb-2 mb-lg-0">
             <li className="nav-item">
-              <Link href="/" className={navClassName('/')}>{ t('Create booking record') }</Link>
+              <Link href="/bookings" className={navClassName('/bookings')}>{ t('Bookings') }</Link>
             </li>
             <li className="nav-item">
               <Link
-                href="/balance-sheets/create"
-                className={navClassName('/balance-sheets/create')}
-              >{ t('Create balance sheet') }</Link>
+                href={`/annual-close/${annualCloseYear}`}
+                className={navClassName('/annual-close')}
+              >{ t('Annual close') }</Link>
+            </li>
+            <li className="nav-item">
+              <Link href={`/e-bilanz/${eBalanceYear}`} className={navClassName('/e-bilanz')}>{ t('E-balance') }</Link>
             </li>
             <li className="nav-item">
               <Link href="/settings" className={navClassName('/settings')}>{ t('Settings') }</Link>
