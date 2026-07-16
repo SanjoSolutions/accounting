@@ -3,6 +3,9 @@ node_modules
 /build
 /coverage
 /database
+/accounting.db
+/accounting.db-journal
+/src/generated/prisma
 /.pnp
 .pnp.js
 .DS_Store
