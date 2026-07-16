@@ -8,11 +8,12 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!await getCurrentUser(request.headers)) {
+  const user = await getCurrentUser(request.headers)
+  if (!user) {
     return Response.json({ success: false }, { status: 401 })
   }
   const { id } = await params
-  const invoice = await requestDocumentParsing(id)
+  const invoice = await requestDocumentParsing(id, user.id)
 
   if (!invoice) {
     return Response.json({ success: false }, { status: 404 })

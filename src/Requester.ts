@@ -24,6 +24,18 @@ export class Requester {
     })
   }
 
+  async postFile(path: string, file: File) {
+    return await fetch(this._constructURL(path), {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': file.type || 'application/octet-stream',
+        'X-Document-File-Name': encodeURIComponent(file.name),
+      },
+      body: file,
+    })
+  }
+
   async put(path: string, data: any) {
     return await fetch(this._constructURL(path), {
       method: 'PUT',

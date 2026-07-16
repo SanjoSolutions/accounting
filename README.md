@@ -47,3 +47,26 @@ under `src`.
 - `pnpm db:migrate` creates and applies development database migrations.
 - `pnpm db:deploy` applies existing migrations in production.
 - `pnpm test` runs the Vitest suite.
+
+## Document storage
+
+Uploaded PDF documents are stored through [Apache OpenDAL](https://opendal.apache.org/).
+The application uses the local `./storage` directory by default. Files are private and
+are served through the application instead of exposing provider URLs or credentials.
+
+Copy `.env.example` to `.env.local` and set `DOCUMENT_STORAGE_DRIVER` to select a
+backend:
+
+- `fs` for the local filesystem
+- `s3` for Amazon S3 and S3-compatible services
+- `gcs` for Google Cloud Storage
+- `azblob` for Azure Blob Storage
+
+The corresponding bucket or container and credentials are documented in
+`.env.example`. `DOCUMENT_STORAGE_OPTIONS` accepts additional OpenDAL options as a
+JSON object and can also override the named settings. Keep all storage configuration
+server-side; none of these variables may use Next.js's `NEXT_PUBLIC_` prefix.
+
+Cloud deployments must include the platform-specific optional dependency installed
+with `opendal`. The package is listed in `serverExternalPackages` so Next.js does not
+bundle its native binary.

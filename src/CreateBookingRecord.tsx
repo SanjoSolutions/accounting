@@ -3,11 +3,12 @@
 import { first, last } from '@sanjo/array'
 import { BookingRecordElementTransferData, BookingRecordTransferData } from '@/core/BookingRecord'
 import { IncomingInvoice } from '@/core/IncomingInvoice'
+import type { Document as AccountingDocument } from '@/core/Document'
 import React, { useCallback, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { BookingRecordEditor } from './BookingRecordEditor'
 import { createRow } from './createRow'
-import { Document } from './Document'
+import { Document as DocumentView } from './Document'
 import { DocumentUpload } from './DocumentUpload'
 import { IRow } from './IRow'
 import { api } from './Requester'
@@ -69,7 +70,7 @@ export function CreateBookingRecord(): any {
   )
 
   const onDocumentUploaded = useCallback(
-    (document: Document) => {
+    (document: AccountingDocument) => {
       const invoice = document as unknown as IncomingInvoice
 
       const netAmount = invoice.netAmount
@@ -178,7 +179,7 @@ export function CreateBookingRecord(): any {
       </div>
       <h2>{ t('Document') }</h2>
       <div className="mb-3">
-        <Document
+        <DocumentView
           url={ url }
           netAmount={ netAmount }
           onNetAmountChange={ onNetAmountChange }
