@@ -1,4 +1,4 @@
-import { useTranslation } from 'react-i18next'
+import { useTranslations } from 'next-intl'
 
 export function Document({
   url,
@@ -17,7 +17,7 @@ export function Document({
   grossAmount: number | null,
   onGrossAmountChange: React.ChangeEventHandler<HTMLInputElement>
 }): any {
-  const { t } = useTranslation('Document')
+  const t = useTranslations('Document')
 
   return (
     <div>

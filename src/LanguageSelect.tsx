@@ -1,30 +1,39 @@
-"use client"
+'use client'
 
-import { useCallback, type ChangeEvent } from "react"
-import { useTranslation } from "react-i18next"
-import { setLanguage } from "./setLanguage"
+import { useLocale, useTranslations } from 'next-intl'
+import { useRouter } from 'next/navigation'
+import { useCallback, useTransition, type ChangeEvent } from 'react'
+import { setLocale } from './i18n/actions'
+import { locales } from './i18n/config'
 
-export function LanguageSelect(): any {
-  const { t, i18n } = useTranslation('LanguageSelect')
+export function LanguageSelect() {
+  const locale = useLocale()
+  const t = useTranslations('LanguageSelect')
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
 
   const onChange = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) => {
-      const language = event.target.value
-      i18n.changeLanguage(language)
-      setLanguage(language)
+      const nextLocale = event.target.value
+      startTransition(async () => {
+        await setLocale(nextLocale)
+        router.refresh()
+      })
     },
-    [
-      i18n
-    ]
+    [router],
   )
 
   return (
-    <select className="form-select d-inline-block w-auto" aria-label="Language select" value={i18n.language} onChange={ onChange }>
-      {
-        Object.keys(i18n.options.resources!).map(
-          languageCode => <option key={languageCode} value={languageCode}>{ t(languageCode) }</option>
-        )
-      }
+    <select
+      className="form-select d-inline-block w-auto"
+      aria-label={t('label')}
+      value={locale}
+      onChange={onChange}
+      disabled={isPending}
+    >
+      {locales.map((languageCode) => (
+        <option key={languageCode} value={languageCode}>{t(languageCode)}</option>
+      ))}
     </select>
   )
 }

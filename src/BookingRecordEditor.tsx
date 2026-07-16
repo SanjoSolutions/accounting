@@ -1,5 +1,5 @@
 import React from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslations } from 'next-intl'
 import type { IRow } from './IRow'
 import { Row } from './Row'
 
@@ -15,7 +15,7 @@ export function BookingRecordEditor({
     onSubmit: React.FormEventHandler<HTMLFormElement>,
   },
 ) {
-  const { t } = useTranslation('BookingRecordEditor')
+  const t = useTranslations('BookingRecordEditor')
 
   return (
     <form onSubmit={ onSubmit }>

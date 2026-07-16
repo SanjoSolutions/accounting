@@ -1,0 +1,59 @@
+{
+  "Metadata": {
+    "title": "Accounting",
+    "description": "Accounting application"
+  },
+  "Navbar": {
+    "Accounting": "Accounting",
+    "Create booking record": "Create booking record",
+    "Create balance sheet": "Create balance sheet",
+    "Settings": "Settings"
+  },
+  "CreateBookingRecord": {
+    "Create booking record": "Create booking record",
+    "Upload document": "Upload document",
+    "Document": "Document",
+    "Booking record": "Booking record"
+  },
+  "LanguageSelect": {
+    "label": "Select language",
+    "de": "German",
+    "en": "English"
+  },
+  "DocumentUpload": {
+    "Document": "Document",
+    "Upload": "Upload"
+  },
+  "Document": {
+    "Net amount": "Net amount",
+    "Taxes": "Taxes",
+    "Gross amount": "Gross amount"
+  },
+  "BookingRecordEditor": {
+    "Date": "Date",
+    "Document ID": "Document ID",
+    "Booking record": "Booking record",
+    "Debit": "Debit",
+    "Credit": "Credit",
+    "Add row": "Add row",
+    "Create booking record": "Create booking record"
+  },
+  "Row": {
+    "to": "to"
+  },
+  "CreateBalanceSheet": {
+    "For year": "For year",
+    "Type": "Type",
+    "Opening balance sheet": "Opening balance sheet",
+    "Create balance sheet": "Create balance sheet"
+  },
+  "Settings": {
+    "Invoice issuer": "Invoice issuer",
+    "Name": "Name",
+    "Street and house number": "Street and house number",
+    "Zip code": "Zip code",
+    "City": "City",
+    "Country": "Country",
+    "Save": "Save"
+  }
+}

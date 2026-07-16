@@ -1,9 +1,9 @@
 "use client"
 
-import { useTranslation } from "react-i18next"
+import { useTranslations } from 'next-intl'
 
 export function CreateBalanceSheet(): any {
-  const { t } = useTranslation('CreateBalanceSheet')
+  const t = useTranslations('CreateBalanceSheet')
 
   return (
     <div>
