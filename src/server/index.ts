@@ -9,9 +9,16 @@ import { TaxAmount } from '@/core/TaxAmount'
 import { Account } from '@/core/authentication/Account'
 import fixture from './dataFixtures/results_11048337544652359545_0_Invoice_Example_English-0.json'
 import { createPrismaPersistence } from './persistence/prisma'
+import { getDocumentStorage } from './storage'
 
 const persistence = createPrismaPersistence()
 const companySettingsId = 'default'
+
+export interface DocumentFileInput {
+  content: Buffer
+  contentType: string
+  fileName: string
+}
 
 export async function createBookingRecord(data: any): Promise<void> {
   const { date, debitSide, creditSide } = data
@@ -43,19 +50,60 @@ export async function updateSettings(data: any): Promise<void> {
   await persistence.accounts.save(account)
 }
 
-export async function createDocument(data: any): Promise<Document> {
-  const document = new Document(randomUUID(), data.url)
-  document.gsURL = data.gsURL
-  await persistence.documents.save(document)
-  return document
+export async function createDocument(input: DocumentFileInput, ownerId: string): Promise<Document> {
+  validateDocumentFile(input)
+
+  const id = randomUUID()
+  const storageKey = `documents/${ encodeURIComponent(ownerId) }/${ id }.pdf`
+  const fileName = sanitizeFileName(input.fileName)
+  const contentType = 'application/pdf'
+  const storage = getDocumentStorage()
+
+  await storage.write(storageKey, input.content, { contentType, fileName })
+
+  try {
+    const document = new Document(
+      id,
+      `/api/documents/${ id }/file`,
+      storageKey,
+      fileName,
+      contentType,
+      input.content.length,
+      ownerId,
+    )
+    await persistence.documents.save(document)
+    return document
+  } catch (error) {
+    await storage.delete(storageKey).catch(() => undefined)
+    throw error
+  }
 }
 
-export async function requestDocumentParsing(documentId: string): Promise<Invoice | null> {
+export async function readDocumentFile(documentId: string, ownerId: string): Promise<{
+  content: Buffer
+  contentType: string
+  fileName: string
+} | null> {
+  const document = await persistence.documents.findOne(documentId)
+  if (!document?.storageKey || document.ownerId !== ownerId) return null
+
+  const storage = getDocumentStorage()
+  if (!await storage.exists(document.storageKey)) return null
+
+  return {
+    content: await storage.read(document.storageKey),
+    contentType: document.contentType || 'application/octet-stream',
+    fileName: document.fileName || `${ document.id }.pdf`,
+  }
+}
+
+export async function requestDocumentParsing(
+  documentId: string,
+  ownerId: string,
+): Promise<Invoice | null> {
   const document = await persistence.documents.findOne(documentId)
 
-  if (!document?.gsURL) {
-    return null
-  }
+  if (!document?.storageKey || document.ownerId !== ownerId) return null
 
   const invoice = document as Invoice
   invoice.netAmount = getMoneyValue(fixture, 'net_amount')!
@@ -67,6 +115,38 @@ export async function requestDocumentParsing(documentId: string): Promise<Invoic
   await persistence.documents.save(invoice)
   return invoice
 }
+
+export function getMaxDocumentUploadBytes(): number {
+  const maxSize = Number(process.env.DOCUMENT_STORAGE_MAX_UPLOAD_BYTES || 20 * 1024 * 1024)
+  if (!Number.isSafeInteger(maxSize) || maxSize <= 0) {
+    throw new Error('DOCUMENT_STORAGE_MAX_UPLOAD_BYTES must be a positive integer')
+  }
+  return maxSize
+}
+
+function validateDocumentFile({ content, contentType, fileName }: DocumentFileInput): void {
+  const maxSize = getMaxDocumentUploadBytes()
+  if (content.length === 0) throw new DocumentUploadError('The document is empty')
+  if (content.length > maxSize) {
+    throw new DocumentUploadError(`The document exceeds ${ maxSize } bytes`)
+  }
+  if (!fileName.toLowerCase().endsWith('.pdf')) {
+    throw new DocumentUploadError('Only PDF documents are supported')
+  }
+  if (contentType.split(';', 1)[0].trim() !== 'application/pdf') {
+    throw new DocumentUploadError('Only PDF documents are supported')
+  }
+  if (content.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    throw new DocumentUploadError('The uploaded file is not a valid PDF document')
+  }
+}
+
+function sanitizeFileName(fileName: string): string {
+  const sanitized = fileName.replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 200)
+  return sanitized.toLowerCase().endsWith('.pdf') ? sanitized : `${ sanitized }.pdf`
+}
+
+export class DocumentUploadError extends Error {}
 
 function getTaxAmount(data: any): number | null {
   const tax = getObjectWithType(data.entities, 'vat')
