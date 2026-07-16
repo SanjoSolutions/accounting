@@ -1,7 +1,2 @@
-import { CreateBookingRecord } from '../CreateBookingRecord'
-import { requirePageUser } from '@/server/authentication'
-
-export default async function HomePage() {
-  await requirePageUser()
-  return <CreateBookingRecord />
-}
+import { redirect } from 'next/navigation'
+export default function HomePage() { redirect('/bookings') }

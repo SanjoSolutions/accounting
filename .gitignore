@@ -7,6 +7,9 @@ node_modules
 /accounting.db-journal
 /src/generated/prisma
 /storage
+/.eric
+/tools/eric-bridge/bin
+/tools/eric-bridge/obj
 /.pnp
 .pnp.js
 .DS_Store

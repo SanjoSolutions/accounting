@@ -22,6 +22,91 @@ model BookingRecordEntry {
   payload String
 }
 
+model LedgerAccount {
+  id              String        @id @default(cuid())
+  ownerId         String
+  number          Int
+  name            String
+  category        String
+  eBilanzPosition String?
+  active          Boolean       @default(true)
+  journalLines    JournalLine[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([ownerId, number])
+}
+
+model FiscalYear {
+  id                  String               @id @default(cuid())
+  ownerId             String
+  year                Int
+  startsAt            DateTime
+  endsAt              DateTime
+  status              String               @default("OPEN")
+  lockedAt            DateTime?
+  closingSnapshot     String?
+  journalEntries      JournalEntry[]
+  eBalanceSubmissions EBalanceSubmission[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@unique([ownerId, year])
+}
+
+model EBalanceSubmission {
+  id                String     @id @default(cuid())
+  ownerId           String
+  year              Int
+  fiscalYearId      String
+  fiscalYear        FiscalYear @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+  kind              String
+  status            String
+  idempotencyKey    String
+  payloadHash       String
+  requestHash       String
+  requestXml        String
+  ericCode          Int?
+  ericMessage       String?
+  resultXml         String?
+  serverResponseXml String?
+  createdAt         DateTime   @default(now())
+
+  @@unique([ownerId, idempotencyKey])
+  @@index([ownerId, year, createdAt])
+}
+
+model JournalEntry {
+  id             String        @id @default(cuid())
+  sequenceNumber Int
+  bookingDate    DateTime
+  documentNumber String
+  description    String
+  source         String        @default("MANUAL")
+  externalKey    String?       @unique
+  fiscalYearId   String
+  fiscalYear     FiscalYear    @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+  lines          JournalLine[]
+  createdAt      DateTime      @default(now())
+
+  @@unique([fiscalYearId, sequenceNumber])
+  @@unique([fiscalYearId, documentNumber])
+  @@index([bookingDate])
+}
+
+model JournalLine {
+  id             String        @id @default(cuid())
+  journalEntryId String
+  journalEntry   JournalEntry  @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  accountId      String
+  account        LedgerAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  debitCents     Int           @default(0)
+  creditCents    Int           @default(0)
+  taxCode        String?
+
+  @@index([accountId])
+}
+
 model User {
   id            String        @id
   name          String

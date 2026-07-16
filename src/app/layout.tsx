@@ -33,7 +33,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <NextIntlClientProvider messages={messages}>
           <Providers>
             <Navbar authMode={authMode} signUpEnabled={isSignUpEnabled()} user={user} />
-            <main className="container">
+            <main className="container-fluid app-shell">
               <div className="row mb-2">
                 <div className="col">
                   {children}
