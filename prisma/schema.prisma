@@ -1,0 +1,23 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model AccountRecord {
+  id      String @id
+  payload String
+}
+
+model DocumentRecord {
+  id      String @id
+  payload String
+}
+
+model BookingRecordEntry {
+  id      String @id
+  payload String
+}
