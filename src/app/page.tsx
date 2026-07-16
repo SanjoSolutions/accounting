@@ -1,5 +1,7 @@
 import { CreateBookingRecord } from '../CreateBookingRecord'
+import { requirePageUser } from '@/server/authentication'
 
-export default function HomePage() {
+export default async function HomePage() {
+  await requirePageUser()
   return <CreateBookingRecord />
 }

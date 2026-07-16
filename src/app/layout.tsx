@@ -1,12 +1,15 @@
 import 'bootstrap-icons/font/bootstrap-icons.css'
 import 'bootstrap/dist/css/bootstrap.css'
 import type { Metadata } from 'next'
+import { headers } from 'next/headers'
 import { NextIntlClientProvider } from 'next-intl'
 import { getLocale, getMessages, getTranslations } from 'next-intl/server'
 import type { ReactNode } from 'react'
 import '../index.css'
 import { LanguageSelect } from '../LanguageSelect'
 import { Navbar } from '../Navbar'
+import { getAuthMode, isSignUpEnabled } from '@/server/auth-mode'
+import { getCurrentUser } from '@/server/authentication'
 import { Providers } from './providers'
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -21,13 +24,15 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const locale = await getLocale()
   const messages = await getMessages()
+  const authMode = getAuthMode()
+  const user = await getCurrentUser(await headers())
 
   return (
     <html lang={locale}>
       <body>
         <NextIntlClientProvider messages={messages}>
           <Providers>
-            <Navbar />
+            <Navbar authMode={authMode} signUpEnabled={isSignUpEnabled()} user={user} />
             <main className="container">
               <div className="row mb-2">
                 <div className="col">

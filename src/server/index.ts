@@ -11,17 +11,18 @@ import fixture from './dataFixtures/results_11048337544652359545_0_Invoice_Examp
 import { createPrismaPersistence } from './persistence/prisma'
 
 const persistence = createPrismaPersistence()
+const companySettingsId = 'default'
 
 export async function createBookingRecord(data: any): Promise<void> {
   const { date, debitSide, creditSide } = data
   await persistence.bookingRecords.save(new BookingRecord(new Date(date), debitSide, creditSide))
 }
 
-export async function getSettings(accountId: string): Promise<Account> {
-  let account = await persistence.accounts.findOne(accountId)
+export async function getSettings(): Promise<Account> {
+  let account = await persistence.accounts.findOne(companySettingsId)
 
   if (!account) {
-    account = new Account(accountId)
+    account = new Account(companySettingsId)
     await persistence.accounts.save(account)
   }
 
@@ -29,7 +30,7 @@ export async function getSettings(accountId: string): Promise<Account> {
 }
 
 export async function updateSettings(data: any): Promise<void> {
-  const account = await getSettings('1')
+  const account = await getSettings()
   const invoiceIssuer = data.invoiceIssuer ?? {}
 
   Object.assign(account.invoiceIssuer, {

@@ -1,5 +1,7 @@
 import { Settings } from '../../Settings'
+import { requirePageUser } from '@/server/authentication'
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  await requirePageUser()
   return <Settings />
 }

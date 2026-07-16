@@ -12,6 +12,24 @@ pnpm db:migrate
 pnpm dev
 ```
 
+## Authentication
+
+Authentication is disabled by default for a single user running the application
+locally. In this mode, leave `AUTH_MODE=none`. Do not expose a no-auth instance to
+an untrusted network.
+
+To require email and password authentication, copy `.env.example` to `.env`, set
+`AUTH_MODE=credentials`, set `BETTER_AUTH_URL` to the externally reachable URL,
+and generate a strong `BETTER_AUTH_SECRET`:
+
+```sh
+openssl rand -base64 32
+```
+
+After starting the application, create the first account at `/sign-up`. Set
+`BETTER_AUTH_DISABLE_SIGN_UP=true` and restart the application if additional
+accounts must not be registered. Existing users can continue to sign in.
+
 SQLite is used by default and stores its data in `accounting.db`. Override
 `DATABASE_URL` for another location. Persistence is accessed through repository
 interfaces under `src/server/persistence`, so another Prisma-supported SQL

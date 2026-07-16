@@ -2,11 +2,24 @@
 
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import { useState } from 'react'
+import type { AuthMode, CurrentUser } from './authenticationPolicy'
+import { authClient } from './auth-client'
 
-export function Navbar(): any {
+export function Navbar({
+  authMode,
+  signUpEnabled,
+  user,
+}: {
+  authMode: AuthMode
+  signUpEnabled: boolean
+  user: CurrentUser | null
+}): any {
   const t = useTranslations('Navbar')
   const pathname = usePathname()
+  const router = useRouter()
+  const [signOutError, setSignOutError] = useState<string | null>(null)
 
   const navClassName = (href: string) =>
     `nav-link${pathname === href ? ' active' : ''}`
@@ -27,7 +40,7 @@ export function Navbar(): any {
           <span className="navbar-toggler-icon" />
         </button>
         <div className="collapse navbar-collapse" id="navbarSupportedContent">
-          <ul className="navbar-nav me-auto mb-2 mb-lg-0">
+          {user && <ul className="navbar-nav me-auto mb-2 mb-lg-0">
             <li className="nav-item">
               <Link href="/" className={navClassName('/')}>{ t('Create booking record') }</Link>
             </li>
@@ -40,7 +53,34 @@ export function Navbar(): any {
             <li className="nav-item">
               <Link href="/settings" className={navClassName('/settings')}>{ t('Settings') }</Link>
             </li>
-          </ul>
+          </ul>}
+          {authMode === 'credentials' && (
+            user ? (
+              <div className="d-flex align-items-center gap-3">
+                <span className="navbar-text">{user.email}</span>
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  onClick={async () => {
+                    setSignOutError(null)
+                    const result = await authClient.signOut()
+                    if (result.error) {
+                      setSignOutError(result.error.message ?? 'Sign out failed.')
+                      return
+                    }
+                    router.push('/sign-in')
+                    router.refresh()
+                  }}
+                >Sign out</button>
+                {signOutError && <span className="text-danger" role="alert">{signOutError}</span>}
+              </div>
+            ) : (
+              <div className="d-flex gap-2">
+                <Link className="btn btn-outline-primary" href="/sign-in">Sign in</Link>
+                {signUpEnabled && <Link className="btn btn-primary" href="/sign-up">Create account</Link>}
+              </div>
+            )
+          )}
         </div>
       </div>
     </nav>
