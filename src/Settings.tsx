@@ -4,6 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useInputStateHandler } from './useInputStateHandler'
 import { api } from './Requester'
+import {
+  chartOfAccountsStandards,
+  chartOfAccountsStandardLabel,
+  type ChartOfAccountsStandard,
+} from './core/ChartOfAccounts'
 
 export function Settings(): any {
   const t = useTranslations('Settings')
@@ -15,6 +20,8 @@ export function Settings(): any {
   const [zipCode, setZipCode, onZipCodeChange] = useInputStateHandler('')
   const [city, setCity, onCityChange] = useInputStateHandler('')
   const [country, setCountry, onCountryChange] = useInputStateHandler('')
+  const [chartOfAccounts, setChartOfAccounts, onChartOfAccountsChange] =
+    useInputStateHandler<ChartOfAccountsStandard>('SKR03')
   const nameElement = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -28,6 +35,7 @@ export function Settings(): any {
       setZipCode(zipCode)
       setCity(city)
       setCountry(country)
+      setChartOfAccounts(data.chartOfAccounts ?? 'SKR03')
       setIsLoading(false)
     }
 
@@ -51,6 +59,7 @@ export function Settings(): any {
           city,
           country,
         },
+        chartOfAccounts,
       })
     },
     [
@@ -59,6 +68,7 @@ export function Settings(): any {
       zipCode,
       city,
       country,
+      chartOfAccounts,
     ],
   )
 
@@ -122,6 +132,24 @@ export function Settings(): any {
                   onChange={ onCountryChange }
                 />
               </div>
+            </fieldset>
+
+            <fieldset className="mb-3">
+              <legend>{ t('Accounting') }</legend>
+
+              <label htmlFor="chartOfAccounts" className="form-label">{ t('Chart of accounts') }</label>
+              <select
+                className="form-select"
+                id="chartOfAccounts"
+                value={ chartOfAccounts }
+                onChange={ onChartOfAccountsChange }
+              >
+                { chartOfAccountsStandards.map((standard) => (
+                  <option key={ standard } value={ standard }>
+                    { chartOfAccountsStandardLabel(standard) }
+                  </option>
+                )) }
+              </select>
             </fieldset>
 
             <div className="text-end">

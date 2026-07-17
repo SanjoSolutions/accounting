@@ -2,6 +2,7 @@ import 'server-only'
 
 import { randomUUID } from 'node:crypto'
 import { BookingRecord } from '@/core/BookingRecord'
+import { isChartOfAccountsStandard } from '@/core/ChartOfAccounts'
 import { Document } from '@/core/Document'
 import type { Invoice } from '@/core/Invoice'
 import { Tax } from '@/core/Tax'
@@ -40,6 +41,10 @@ export async function updateSettings(data: any): Promise<void> {
   const account = await getSettings()
   const invoiceIssuer = data.invoiceIssuer ?? {}
 
+  if (data.chartOfAccounts !== undefined && !isChartOfAccountsStandard(data.chartOfAccounts)) {
+    throw new TypeError('chartOfAccounts must be SKR03 or SKR04')
+  }
+
   Object.assign(account.invoiceIssuer, {
     name: invoiceIssuer.name,
     streetAndHouseNumber: invoiceIssuer.streetAndHouseNumber,
@@ -47,6 +52,9 @@ export async function updateSettings(data: any): Promise<void> {
     city: invoiceIssuer.city,
     country: invoiceIssuer.country,
   })
+  if (data.chartOfAccounts !== undefined) {
+    account.chartOfAccounts = data.chartOfAccounts
+  }
   await persistence.accounts.save(account)
 }
 

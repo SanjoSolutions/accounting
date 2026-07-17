@@ -57,6 +57,8 @@
     "Zip code": "Postleitzahl",
     "City": "Stadt",
     "Country": "Land",
+    "Accounting": "Buchhaltung",
+    "Chart of accounts": "Kontenrahmen",
     "Save": "Speichern"
   },
   "Workspaces": {
