@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { BookingDocuments, type BookingDocument } from './BookingDocuments'
 
 type Account = { id: string; number: number; name: string; category: string }
 type Line = { accountId: string; debit: string; credit: string }
@@ -11,6 +12,7 @@ type Workspace = {
   entries: Array<{
     id: string; sequenceNumber: number; bookingDate: string; documentNumber: string; description: string
     lines: Array<{ id: string; debitCents: number; creditCents: number; account: Account }>
+    documents: BookingDocument[]
   }>
   statements: { assetsCents: number; liabilitiesCents: number; equityCents: number; netIncomeCents: number }
 }
@@ -29,6 +31,8 @@ export function AccountingWorkspace() {
   const [issues, setIssues] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [success, setSuccess] = useState('')
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([])
+  const [documentsUploading, setDocumentsUploading] = useState(false)
   const yearRef = useRef(year)
   const loadRef = useRef(0)
 
@@ -67,19 +71,20 @@ export function AccountingWorkspace() {
   async function post(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setIssues([]); setSuccess('')
     const submittedYear = year
+    if (documentsUploading) { setBusy(false); return }
     if (!workspace || workspace.fiscalYear.year !== year) { setIssues([t('bookingsLoadFailed')]); setBusy(false); return }
     try {
       const response = await fetch('/api/booking-records', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ fiscalYear: year, bookingDate, documentNumber, description, lines: lines.map(line => ({ accountId: line.accountId, debitCents: toCents(line.debit), creditCents: toCents(line.credit) })) }),
+        body: JSON.stringify({ fiscalYear: year, bookingDate, documentNumber, description, documentIds: selectedDocumentIds, lines: lines.map(line => ({ accountId: line.accountId, debitCents: toCents(line.debit), creditCents: toCents(line.credit) })) }),
       })
       if (!response.ok) { const body = await response.json(); if (yearRef.current === submittedYear) setIssues(body.issues ?? [t('postingFailed')]); return }
-      if (yearRef.current === submittedYear) { setLines([emptyLine(), emptyLine()]); setDocumentNumber(''); setDescription(''); setSuccess(t('postingSaved')); await load() }
+      if (yearRef.current === submittedYear) { setLines([emptyLine(), emptyLine()]); setDocumentNumber(''); setDescription(''); setSelectedDocumentIds([]); setSuccess(t('postingSaved')); await load() }
     } catch { if (yearRef.current === submittedYear) setIssues([t('postingFailed')]) }
     finally { if (yearRef.current === submittedYear) setBusy(false) }
   }
 
-  return <div className="workspace py-4">
+  return <div className="workspace bookings-workspace py-4">
     <header className="page-heading">
       <div><span className="eyebrow">{t('generalLedger')}</span><h1>{t('bookings')}</h1><p>{t('bookingsSubtitle')}</p></div>
       <label className="year-picker">{t('fiscalYear')}<input disabled={busy} type="number" value={year} onChange={event => { const nextYear = Number(event.target.value); setWorkspace(null); setIssues([]); setSuccess(''); setYear(nextYear); if (Number(bookingDate.slice(0, 4)) !== nextYear) setBookingDate(`${nextYear}-01-01`) }} /></label>
@@ -92,14 +97,16 @@ export function AccountingWorkspace() {
       <div className="metric"><span>{t('status')}</span><strong className={`status ${currentWorkspace.fiscalYear.status.toLowerCase()}`}>{currentWorkspace.fiscalYear.status === 'OPEN' ? t('open') : t('locked')}</strong></div>
     </section>}
 
-    <div className="work-grid">
+    <BookingDocuments selectedDocumentIds={selectedDocumentIds} onSelectionChange={setSelectedDocumentIds} onUploadingChange={setDocumentsUploading}>
       <section className="panel booking-panel">
-        <div className="panel-title"><div><span className="step">{t('newPosting')}</span><h2>{t('recordTransaction')}</h2></div><span className="hint">{t('debitEqualsCredit')}</span></div>
+        <div className="panel-title"><div><span className="step">2 · {t('newPosting')}</span><h2>{t('recordTransaction')}</h2></div><span className="hint">{t('debitEqualsCredit')}</span></div>
         <form onSubmit={post}>
-          <fieldset disabled={isBookingFormDisabled(busy)}>
-          <div className="form-grid three">
+          <fieldset disabled={isBookingFormDisabled(busy, documentsUploading)}>
+          <div className="form-grid two booking-metadata-row">
             <label>{t('postingDate')}<input required type="date" value={bookingDate} onChange={event => setBookingDate(event.target.value)} /></label>
             <label>{t('documentNumber')}<input required value={documentNumber} onChange={event => setDocumentNumber(event.target.value)} placeholder={t('documentPlaceholder')} /></label>
+          </div>
+          <div className="form-grid booking-description-row">
             <label>{t('postingText')}<input required value={description} onChange={event => setDescription(event.target.value)} placeholder={t('postingPlaceholder')} /></label>
           </div>
           <div className="posting-head"><span>{t('account')}</span><span>{t('debit')}</span><span>{t('credit')}</span><span /></div>
@@ -124,6 +131,7 @@ export function AccountingWorkspace() {
           </fieldset>
         </form>
       </section>
+    </BookingDocuments>
 
       <section className="panel journal-panel">
         <div className="panel-title"><div><span className="step">{t('journal')}</span><h2>{t('postedEntries')}</h2></div><span className="hint">{t('entryCount', { count: currentWorkspace?.entries.length ?? 0 })}</span></div>
@@ -131,10 +139,10 @@ export function AccountingWorkspace() {
         <div className="journal-list">{currentWorkspace?.entries.map(entry => <article className="journal-entry" key={entry.id}>
           <div className="journal-meta"><span className="sequence">#{String(entry.sequenceNumber).padStart(4, '0')}</span><time>{formatCalendarDate(entry.bookingDate)}</time><span>{entry.documentNumber}</span></div>
           <strong>{entry.description}</strong>
+          {entry.documents?.length > 0 && <div className="journal-documents">{entry.documents.map(document => <a key={document.id} href={document.url} target="_blank" rel="noreferrer"><i className="bi bi-paperclip" />{document.fileName || t('unnamedDocument')}</a>)}</div>}
           <div className="journal-lines">{entry.lines.map(line => <div key={line.id}><span>{line.account.number} · {line.account.name}</span><span>{line.debitCents ? `Soll ${money.format(line.debitCents / 100)}` : `Haben ${money.format(line.creditCents / 100)}`}</span></div>)}</div>
         </article>)}</div>
       </section>
-    </div>
   </div>
 }
 
@@ -148,4 +156,5 @@ function formatCalendarDate(value: string) { const [year, month, day] = value.sl
 export function shouldApplyWorkspace(requestedYear: number, currentYear: number, aborted: boolean, requestId = 0, currentRequestId = requestId) {
   return !aborted && requestedYear === currentYear && requestId === currentRequestId
 }
-export function isBookingFormDisabled(busy: boolean) { return busy }
+export function isBookingFormDisabled(busy: boolean, documentsUploading = false) { return busy || documentsUploading }
+export function bookingFormRows() { return [['bookingDate', 'documentNumber'], ['description']] as const }

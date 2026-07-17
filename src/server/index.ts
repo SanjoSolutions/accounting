@@ -87,6 +87,21 @@ export async function createDocument(input: DocumentFileInput, ownerId: string):
   }
 }
 
+export async function listDocuments(ownerId: string): Promise<Document[]> {
+  return (await persistence.documents.findAllByOwner(ownerId)).map(toPublicDocument)
+}
+
+function toPublicDocument(document: Document): Document {
+  return new Document(
+    document.id,
+    document.url,
+    undefined,
+    document.fileName,
+    document.contentType,
+    document.size,
+  )
+}
+
 export async function readDocumentFile(documentId: string, ownerId: string): Promise<{
   content: Buffer
   contentType: string

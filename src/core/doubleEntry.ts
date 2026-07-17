@@ -22,6 +22,7 @@ export interface JournalEntryInput {
   documentNumber: string
   description: string
   lines: PostingLineInput[]
+  documentIds?: string[]
 }
 
 export interface LedgerBalance {
