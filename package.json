@@ -18,6 +18,7 @@
     "@better-auth/prisma-adapter": "^1.6.23",
     "@google-cloud/documentai": "^3.2.1",
     "@google-cloud/vision": "^2.4.2",
+    "@napi-rs/canvas": "1.0.2",
     "@prisma/adapter-better-sqlite3": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@sanjo/array": "^1.0.6",
@@ -31,6 +32,7 @@
     "next": "^16.2.10",
     "next-intl": "^4.13.2",
     "opendal": "^0.49.5",
+    "pdfjs-dist": "6.1.200",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "server-only": "^0.0.1"

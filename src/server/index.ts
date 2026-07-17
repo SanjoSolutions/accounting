@@ -8,6 +8,7 @@ import { Tax } from '@/core/Tax'
 import { TaxAmount } from '@/core/TaxAmount'
 import { Account } from '@/core/authentication/Account'
 import fixture from './dataFixtures/results_11048337544652359545_0_Invoice_Example_English-0.json'
+import { generateDocumentThumbnail } from './documentThumbnail'
 import { createPrismaPersistence } from './persistence/prisma'
 import { getDocumentStorage } from './storage'
 
@@ -60,6 +61,20 @@ export async function createDocument(input: DocumentFileInput, ownerId: string):
   const storage = getDocumentStorage()
 
   await storage.write(storageKey, input.content, { contentType, fileName })
+  const candidateThumbnailStorageKey = `documents/${ encodeURIComponent(ownerId) }/${ id }.webp`
+  let thumbnailStorageKey: string | undefined
+
+  try {
+    const thumbnail = await generateDocumentThumbnail(input.content)
+    await storage.write(candidateThumbnailStorageKey, thumbnail, {
+      contentType: 'image/webp',
+      fileName: `${ fileName.replace(/\.pdf$/i, '') }.webp`,
+    })
+    thumbnailStorageKey = candidateThumbnailStorageKey
+  } catch {
+    await storage.delete(candidateThumbnailStorageKey).catch(() => undefined)
+    thumbnailStorageKey = undefined
+  }
 
   try {
     const document = new Document(
@@ -70,11 +85,14 @@ export async function createDocument(input: DocumentFileInput, ownerId: string):
       contentType,
       input.content.length,
       ownerId,
+      thumbnailStorageKey,
+      thumbnailStorageKey ? `/api/documents/${ id }/thumbnail` : undefined,
     )
     await persistence.documents.save(document)
-    return document
+    return toPublicDocument(document)
   } catch (error) {
     await storage.delete(storageKey).catch(() => undefined)
+    if (thumbnailStorageKey) await storage.delete(thumbnailStorageKey).catch(() => undefined)
     throw error
   }
 }
@@ -91,6 +109,9 @@ function toPublicDocument(document: Document): Document {
     document.fileName,
     document.contentType,
     document.size,
+    undefined,
+    undefined,
+    document.thumbnailStorageKey ? `/api/documents/${ document.id }/thumbnail` : undefined,
   )
 }
 
@@ -109,6 +130,22 @@ export async function readDocumentFile(documentId: string, ownerId: string): Pro
     content: await storage.read(document.storageKey),
     contentType: document.contentType || 'application/octet-stream',
     fileName: document.fileName || `${ document.id }.pdf`,
+  }
+}
+
+export async function readDocumentThumbnail(documentId: string, ownerId: string): Promise<{
+  content: Buffer
+  contentType: string
+} | null> {
+  const document = await persistence.documents.findOne(documentId)
+  if (!document?.thumbnailStorageKey || document.ownerId !== ownerId) return null
+
+  const storage = getDocumentStorage()
+  if (!await storage.exists(document.thumbnailStorageKey)) return null
+
+  return {
+    content: await storage.read(document.thumbnailStorageKey),
+    contentType: 'image/webp',
   }
 }
 
