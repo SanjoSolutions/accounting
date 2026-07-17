@@ -13,8 +13,12 @@ model AccountRecord {
 }
 
 model DocumentRecord {
-  id      String @id
-  payload String
+  id          String                      @id
+  payload     String
+  ownerId     String?
+  attachments JournalDocumentAttachment[]
+
+  @@index([ownerId])
 }
 
 model BookingRecordEntry {
@@ -87,11 +91,22 @@ model JournalEntry {
   fiscalYearId   String
   fiscalYear     FiscalYear    @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
   lines          JournalLine[]
+  documents      JournalDocumentAttachment[]
   createdAt      DateTime      @default(now())
 
   @@unique([fiscalYearId, sequenceNumber])
   @@unique([fiscalYearId, documentNumber])
   @@index([bookingDate])
+}
+
+model JournalDocumentAttachment {
+  journalEntryId String
+  journalEntry   JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  documentId     String
+  document       DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@id([journalEntryId, documentId])
+  @@index([documentId])
 }
 
 model JournalLine {

@@ -7,9 +7,14 @@ import { validateEBalanceConcepts } from '@/core/eBilanzPackage'
 
 vi.mock('server-only', () => ({}))
 vi.mock('./persistence/client', () => ({ prisma: {} }))
-import { DEFAULT_ACCOUNTS, getEBalanceBlockingIssues, mergeSubmissionHistory, submissionResultStatus, validateDocumentNamespace } from './ledger'
+import { DEFAULT_ACCOUNTS, getEBalanceBlockingIssues, mergeSubmissionHistory, normalizeDocumentIds, submissionResultStatus, validateDocumentNamespace } from './ledger'
 
 describe('default ledger taxonomy mappings', () => {
+  it('supports zero to many unique document attachments', () => {
+    expect(normalizeDocumentIds({})).toEqual([])
+    expect(normalizeDocumentIds({ documentIds: ['one', 'two', 'one'] })).toEqual(['one', 'two'])
+    expect(() => normalizeDocumentIds({ documentIds: [''] })).toThrow('ausgewählten Belege')
+  })
   it('never records an unsent binding attempt as accepted or merely valid', () => {
     expect(submissionResultStatus(true, false)).toBe('REJECTED')
     expect(submissionResultStatus(true, true)).toBe('ACCEPTED')

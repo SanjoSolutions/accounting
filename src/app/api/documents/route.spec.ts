@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   createDocument: vi.fn(),
   getCurrentUser: vi.fn(),
   getMaxDocumentUploadBytes: vi.fn(() => 1024),
+  listDocuments: vi.fn(),
 }))
 
 vi.mock('server-only', () => ({}))
@@ -11,12 +12,13 @@ vi.mock('@/server', () => ({
   createDocument: mocks.createDocument,
   DocumentUploadError: class DocumentUploadError extends Error {},
   getMaxDocumentUploadBytes: mocks.getMaxDocumentUploadBytes,
+  listDocuments: mocks.listDocuments,
 }))
 vi.mock('@/server/authentication', () => ({
   getCurrentUser: mocks.getCurrentUser,
 }))
 
-import { POST } from './route'
+import { GET, POST } from './route'
 
 describe('document upload API', () => {
   beforeEach(() => {
@@ -31,6 +33,17 @@ describe('document upload API', () => {
 
     expect(response.status).toBe(401)
     expect(mocks.createDocument).not.toHaveBeenCalled()
+  })
+
+  it('lists only the authenticated owner documents', async () => {
+    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1' })
+    mocks.listDocuments.mockResolvedValueOnce([{ id: 'document-1', fileName: 'invoice.pdf' }])
+
+    const response = await GET(new Request('http://localhost/api/documents'))
+
+    expect(response.status).toBe(200)
+    expect(mocks.listDocuments).toHaveBeenCalledWith('user-1')
+    expect(await response.json()).toMatchObject({ data: [{ id: 'document-1' }] })
   })
 
   it('streams the document to the authenticated owner', async () => {
