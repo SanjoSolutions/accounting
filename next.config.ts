@@ -3,9 +3,11 @@ import createNextIntlPlugin from 'next-intl/plugin'
 
 export const nextConfig: NextConfig = {
   allowedDevOrigins: ['127.0.0.1'],
-  // OpenDAL ships a platform-specific native binary that must stay external to
-  // the Next.js server bundle.
-  serverExternalPackages: ['opendal'],
+  // Native dependencies used by storage and the isolated thumbnail worker.
+  serverExternalPackages: ['@napi-rs/canvas', 'opendal', 'pdfjs-dist'],
+  outputFileTracingIncludes: {
+    '/api/documents': ['./src/server/documentThumbnailWorker.mjs'],
+  },
 }
 
 const withNextIntl = createNextIntlPlugin()

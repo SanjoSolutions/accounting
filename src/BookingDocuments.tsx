@@ -9,6 +9,7 @@ export type BookingDocument = {
   url: string
   fileName?: string
   size?: number
+  thumbnailUrl?: string
 }
 
 const documentColumnStorageKey = 'accounting.bookings.document-column-percent'
@@ -125,8 +126,8 @@ export function BookingDocuments({
   )
   const activeDocument = selectedDocuments.find(document => document.id === activeDocumentId) ?? selectedDocuments[0]
 
-  function toggle(documentId: string) {
-    const next = toggleDocumentSelection(selectedDocumentIds, documentId)
+  function select(documentId: string, extendSelection: boolean) {
+    const next = selectDocument(selectedDocumentIds, documentId, extendSelection)
     onSelectionChange(next)
     if (next.includes(documentId)) setActiveDocumentId(documentId)
     else if (activeDocumentId === documentId) setActiveDocumentId(next[0] ?? null)
@@ -158,9 +159,8 @@ export function BookingDocuments({
     {dragging && <div className="viewport-drop-target" role="status"><div><i className="bi bi-cloud-arrow-up" /><strong>{t('dropDocuments')}</strong><span>{t('dropDocumentsHelp')}</span></div></div>}
     <section className="panel document-picker-panel">
       <div className="panel-title">
-        <div><span className="step">1 · {t('uploadDocuments')}</span><h2>{t('selectDocuments')}</h2><p>{t('documentsHelp')}</p></div>
+        <h2>{t('documents')}</h2>
         <div className="document-actions">
-          <span className="selection-count">{t('documentsSelected', { count: selectedDocumentIds.length })}</span>
           <button className="secondary-action" type="button" disabled={uploading} onClick={() => inputRef.current?.click()}>
             <i className="bi bi-plus-lg" /> {uploading ? t('uploadingDocuments') : t('chooseDocuments')}
           </button>
@@ -172,11 +172,13 @@ export function BookingDocuments({
         ? <div className="document-empty" onClick={() => inputRef.current?.click()}><i className="bi bi-file-earmark-arrow-up" /><strong>{t('noDocuments')}</strong><span>{t('noDocumentsHelp')}</span></div>
         : <div className="document-strip" aria-label={t('availableDocuments')}>{documents.map(document => {
           const selected = selectedDocumentIds.includes(document.id)
-          return <button key={document.id} type="button" className={`document-card ${selected ? 'selected' : ''}`} aria-pressed={selected} onClick={() => toggle(document.id)}>
-            <span className="document-icon"><i className="bi bi-file-earmark-pdf" /></span>
-            <span><strong>{document.fileName || t('unnamedDocument')}</strong><small>{formatFileSize(document.size)}</small></span>
-            <i className={`selection-mark bi ${selected ? 'bi-check-circle-fill' : 'bi-circle'}`} />
-          </button>
+          return <DocumentCard
+            key={document.id}
+            document={document}
+            selected={selected}
+            fallbackName={t('unnamedDocument')}
+            onSelect={extendSelection => select(document.id, extendSelection)}
+          />
         })}</div>}
     </section>
 
@@ -208,8 +210,114 @@ export function BookingDocuments({
   </>
 }
 
-export function toggleDocumentSelection(selectedIds: string[], documentId: string): string[] {
+export function DocumentCard({
+  document,
+  selected,
+  fallbackName,
+  onSelect,
+}: {
+  document: BookingDocument
+  selected: boolean
+  fallbackName: string
+  onSelect: (extendSelection: boolean) => void
+}) {
+  const name = documentDisplayName(document.fileName || fallbackName, fallbackName)
+  const longTouchGesture = useRef<LongTouchSelectionGesture | null>(null)
+  longTouchGesture.current ??= new LongTouchSelectionGesture()
+  const [thumbnailFailed, setThumbnailFailed] = useState(false)
+
+  useEffect(() => () => longTouchGesture.current?.dispose(), [])
+
+  function startLongTouch(event: React.PointerEvent<HTMLButtonElement>) {
+    if (event.pointerType !== 'touch') return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    longTouchGesture.current!.start(() => {
+      onSelect(selectionExtendsForActivation(false, true))
+    })
+  }
+
+  return <button
+    type="button"
+    className={`document-card ${selected ? 'selected' : ''}`}
+    aria-pressed={selected}
+    title={name}
+    onPointerDown={startLongTouch}
+    onPointerUp={() => longTouchGesture.current!.finish()}
+    onPointerCancel={() => longTouchGesture.current!.cancel()}
+    onClick={event => {
+      if (longTouchGesture.current!.consumeClick()) return
+      onSelect(selectionExtendsForActivation(event.shiftKey, false))
+    }}
+  >
+    <span className="document-thumbnail" aria-hidden="true">
+      {document.thumbnailUrl && !thumbnailFailed
+        ? <img src={document.thumbnailUrl} alt="" loading="lazy" onError={() => setThumbnailFailed(true)} />
+        : <i className="bi bi-file-earmark-pdf" />}
+    </span>
+    <strong className="document-name">{name}</strong>
+  </button>
+}
+
+export function selectDocument(selectedIds: string[], documentId: string, extendSelection: boolean): string[] {
+  if (!extendSelection) return [documentId]
   return selectedIds.includes(documentId) ? selectedIds.filter(id => id !== documentId) : [...selectedIds, documentId]
+}
+
+export const longTouchSelectionDelayMs = 500
+
+export class LongTouchSelectionGesture {
+  private timer: ReturnType<typeof setTimeout> | null = null
+  private ready = false
+  private handled = false
+  private onLongTouch: (() => void) | null = null
+
+  start(onLongTouch: () => void) {
+    this.cancel()
+    this.onLongTouch = onLongTouch
+    this.timer = setTimeout(() => {
+      this.timer = null
+      this.ready = true
+    }, longTouchSelectionDelayMs)
+  }
+
+  finish() {
+    this.clearTimer()
+    if (!this.ready) return
+    this.ready = false
+    this.handled = true
+    this.onLongTouch?.()
+    this.onLongTouch = null
+  }
+
+  cancel() {
+    this.clearTimer()
+    this.ready = false
+    this.handled = false
+    this.onLongTouch = null
+  }
+
+  consumeClick(): boolean {
+    const handled = this.handled
+    this.handled = false
+    return handled
+  }
+
+  dispose() {
+    this.cancel()
+  }
+
+  private clearTimer() {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+  }
+}
+
+export function documentDisplayName(fileName: string, fallbackName = fileName): string {
+  return fileName.replace(/\.pdf$/i, '') || fallbackName
+}
+
+export function selectionExtendsForActivation(shiftKey: boolean, longTouch: boolean): boolean {
+  return shiftKey || longTouch
 }
 
 export function mergeDocumentSelection(selectedIds: string[], uploadedDocumentId: string): string[] {
@@ -237,9 +345,4 @@ export function parseSavedDocumentColumnPercent(value: string | null): number | 
   if (value === null || value.trim() === '') return null
   const percent = Number(value)
   return Number.isFinite(percent) ? clampDocumentColumnPercent(percent) : null
-}
-
-function formatFileSize(size?: number) {
-  if (!size) return 'PDF'
-  return size < 1024 * 1024 ? `${Math.ceil(size / 1024)} KB · PDF` : `${(size / 1024 / 1024).toFixed(1)} MB · PDF`
 }
