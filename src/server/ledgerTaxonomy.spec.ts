@@ -7,9 +7,17 @@ import { validateEBalanceConcepts } from '@/core/eBilanzPackage'
 
 vi.mock('server-only', () => ({}))
 vi.mock('./persistence/client', () => ({ prisma: {} }))
-import { DEFAULT_ACCOUNTS, getEBalanceBlockingIssues, mergeSubmissionHistory, normalizeDocumentIds, submissionResultStatus, validateDocumentNamespace } from './ledger'
+import { DEFAULT_ACCOUNTS, defaultAccountsForLedger, getEBalanceBlockingIssues, mergeSubmissionHistory, normalizeDocumentIds, submissionResultStatus, validateDocumentNamespace } from './ledger'
 
 describe('default ledger taxonomy mappings', () => {
+  it('scales SKR03 defaults to the persisted DATEV account length', () => {
+    const numbers = defaultAccountsForLedger('SKR03', 5).map(([number]) => number)
+    expect(numbers).toContain(12000)
+    expect(numbers).toContain(84000)
+    expect(numbers).not.toContain(1200)
+    expect(defaultAccountsForLedger('SKR04', 4)).toEqual([])
+  })
+
   it('supports zero to many unique document attachments', () => {
     expect(normalizeDocumentIds({})).toEqual([])
     expect(normalizeDocumentIds({ documentIds: ['one', 'two', 'one'] })).toEqual(['one', 'two'])

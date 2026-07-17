@@ -41,6 +41,14 @@ model LedgerAccount {
   @@unique([ownerId, number])
 }
 
+model LedgerProfile {
+  ownerId          String  @id
+  chart            String
+  consultantNumber String?
+  clientNumber     String?
+  accountLength    Int?
+}
+
 model FiscalYear {
   id                  String               @id @default(cuid())
   ownerId             String

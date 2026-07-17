@@ -8,6 +8,8 @@ import type { AuthMode, CurrentUser } from './authenticationPolicy'
 import { authClient } from './auth-client'
 import { defaultFiscalYear } from './FiscalYearNavigation'
 
+export const exportImportHref = '/export-import'
+
 export function Navbar({
   authMode,
   signUpEnabled,
@@ -56,6 +58,9 @@ export function Navbar({
             </li>
             <li className="nav-item">
               <Link href={`/e-bilanz/${eBalanceYear}`} className={navClassName('/e-bilanz')}>{ t('E-balance') }</Link>
+            </li>
+            <li className="nav-item">
+              <Link href={exportImportHref} className={navClassName(exportImportHref)}>{ t('Export / Import') }</Link>
             </li>
             <li className="nav-item">
               <Link href="/settings" className={navClassName('/settings')}>{ t('Settings') }</Link>

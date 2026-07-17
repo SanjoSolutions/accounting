@@ -81,4 +81,9 @@ code {
     monospace;
 }
 .booking-panel fieldset { border: 0; margin: 0; min-width: 0; padding: 0; }
+.datev-panel { margin-bottom: 18px; }
+.datev-panel p { margin: 0 0 12px; }
+.datev-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+.datev-controls label { flex: 1 1 240px; }
+.datev-controls input { display: block; margin-top: 6px; width: 100%; }
 .ebalance-master-data { border: 0; margin: 0; min-width: 0; padding: 0; }

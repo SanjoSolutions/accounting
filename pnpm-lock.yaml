@@ -41,6 +41,9 @@ importers:
       bootstrap-icons:
         specifier: ^1.7.2
         version: 1.13.1
+      csv-parse:
+        specifier: ^7.0.1
+        version: 7.0.1
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
@@ -1337,6 +1340,9 @@ packages:
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+
+  csv-parse@7.0.1:
+    resolution: {integrity: sha512-+2z7Ar0APQ7Uu6fX4cn+pitRmxjZ1WPBcGmZFKmA74FCyi7Et/XZx8cjNQ5CjbZ4HCOxXCOpRBYvYH08Qa003A==}
 
   data-urls@2.0.0:
     resolution: {integrity: sha512-X5eWTSXO/BJmpdIKCRuKUgSCgAN0OwliVK3yPKbwIWU1Tdw5BRajxlzMidvh+gwko9AfQ9zIj52pzF91Q3YAvQ==}
@@ -3445,6 +3451,8 @@ snapshots:
     optional: true
 
   csstype@3.2.3: {}
+
+  csv-parse@7.0.1: {}
 
   data-urls@2.0.0:
     dependencies:
