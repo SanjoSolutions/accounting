@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { bookingFormRows, isBookingFormDisabled, shouldApplyWorkspace } from './AccountingWorkspace'
+import {
+  bookingFormRows,
+  bookingWorkspaceStorageKey,
+  clearBookingWorkspaceState,
+  consumeBookingWorkspaceSaveSuppression,
+  getBrowserBookingWorkspaceStorage,
+  isBookingFormDisabled,
+  loadBookingWorkspaceState,
+  parseBookingWorkspaceState,
+  persistBookingWorkspaceStateChange,
+  saveBookingWorkspaceState,
+  shouldApplyWorkspace,
+  type BookingWorkspaceState,
+} from './AccountingWorkspace'
 
 describe('accounting workspace request ordering', () => {
   it('applies only a non-aborted response for the currently selected year', () => {
@@ -14,10 +27,146 @@ describe('accounting workspace request ordering', () => {
     expect(isBookingFormDisabled(true)).toBe(true)
     expect(isBookingFormDisabled(false)).toBe(false)
     expect(isBookingFormDisabled(false, true)).toBe(true)
+    expect(isBookingFormDisabled(false, false, true)).toBe(true)
   })
 
   it('places posting text in its own full-width row', () => {
     expect(bookingFormRows()).toEqual([['bookingDate', 'documentNumber'], ['description']])
+  })
+
+  it('persists and restores the complete in-progress booking state', () => {
+    const values = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value) },
+      removeItem: (key: string) => { values.delete(key) },
+    }
+    const state: BookingWorkspaceState = {
+      year: 2025,
+      bookingDate: '2025-06-18',
+      documentNumber: 'RE-42',
+      description: 'Office supplies',
+      lines: [
+        { accountId: 'office', debit: '119.00', credit: '' },
+        { accountId: 'bank', debit: '', credit: '119.00' },
+      ],
+      selectedDocumentIds: ['document-1'],
+    }
+
+    saveBookingWorkspaceState(storage, 'user-1', state)
+
+    expect(loadBookingWorkspaceState(storage, 'user-1')).toEqual(state)
+    expect(loadBookingWorkspaceState(storage, 'user-2')).toBeNull()
+  })
+
+  it('persists Buchungstext synchronously when it changes', () => {
+    const values = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value) },
+      removeItem: (key: string) => { values.delete(key) },
+    }
+    const state: BookingWorkspaceState = {
+      year: 2026,
+      bookingDate: '2026-07-17',
+      documentNumber: '',
+      description: '',
+      lines: [
+        { accountId: '', debit: '', credit: '' },
+        { accountId: '', debit: '', credit: '' },
+      ],
+      selectedDocumentIds: [],
+    }
+
+    const nextState = persistBookingWorkspaceStateChange(
+      storage, 'user-1', state, { description: 'Sofort gespeicherter Buchungstext' },
+    )
+
+    expect(nextState.description).toBe('Sofort gespeicherter Buchungstext')
+    expect(loadBookingWorkspaceState(storage, 'user-1')?.description).toBe('Sofort gespeicherter Buchungstext')
+  })
+
+  it('ignores malformed persisted booking state', () => {
+    expect(parseBookingWorkspaceState('{not-json')).toBeNull()
+    expect(parseBookingWorkspaceState(JSON.stringify({ year: 2025, lines: [] }))).toBeNull()
+  })
+
+  it('keeps the last valid draft when persisting the replacement fails', () => {
+    const values = new Map<string, string>()
+    let rejectWrites = false
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (rejectWrites) throw new DOMException('Quota exceeded', 'QuotaExceededError')
+        values.set(key, value)
+      },
+      removeItem: (key: string) => { values.delete(key) },
+    }
+    const state: BookingWorkspaceState = {
+      year: 2025,
+      bookingDate: '2025-06-18',
+      documentNumber: 'RE-42',
+      description: 'Office supplies',
+      lines: [
+        { accountId: 'office', debit: '119.00', credit: '' },
+        { accountId: 'bank', debit: '', credit: '119.00' },
+      ],
+      selectedDocumentIds: [],
+    }
+    saveBookingWorkspaceState(storage, 'user-1', state)
+    rejectWrites = true
+
+    saveBookingWorkspaceState(storage, 'user-1', { ...state, description: 'Newer text' })
+
+    expect(loadBookingWorkspaceState(storage, 'user-1')).toEqual(state)
+  })
+
+  it('clears only the current user draft after a successful posting', () => {
+    const values = new Map<string, string>([
+      [bookingWorkspaceStorageKey('user-1'), '{}'],
+      [bookingWorkspaceStorageKey('user-2'), '{}'],
+    ])
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value) },
+      removeItem: (key: string) => { values.delete(key) },
+    }
+
+    expect(clearBookingWorkspaceState(storage, 'user-1')).toBe(true)
+
+    expect(values.has(bookingWorkspaceStorageKey('user-1'))).toBe(false)
+    expect(values.has(bookingWorkspaceStorageKey('user-2'))).toBe(true)
+  })
+
+  it('reports a failed clear so the reset state can be saved as a fallback', () => {
+    const storage = {
+      getItem: () => null,
+      setItem: () => undefined,
+      removeItem: () => { throw new DOMException('Access denied', 'SecurityError') },
+    }
+
+    expect(clearBookingWorkspaceState(storage, 'user-1')).toBe(false)
+  })
+
+  it('suppresses only the autosave caused by resetting a successful posting', () => {
+    const suppression = { current: true }
+
+    expect(consumeBookingWorkspaceSaveSuppression(suppression)).toBe(true)
+    expect(consumeBookingWorkspaceSaveSuppression(suppression)).toBe(false)
+  })
+
+  it('falls back to in-memory state when access to localStorage is denied', () => {
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: Object.defineProperty({}, 'localStorage', {
+        get: () => { throw new DOMException('Access denied', 'SecurityError') },
+      }),
+    })
+    try {
+      expect(getBrowserBookingWorkspaceStorage()).toBeNull()
+    } finally {
+      Reflect.deleteProperty(globalThis, 'window')
+    }
   })
 
 })
