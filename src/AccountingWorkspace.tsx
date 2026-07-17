@@ -6,6 +6,14 @@ import { BookingDocuments, type BookingDocument } from './BookingDocuments'
 
 type Account = { id: string; number: number; name: string; category: string }
 type Line = { accountId: string; debit: string; credit: string }
+export type BookingWorkspaceState = {
+  year: number
+  bookingDate: string
+  documentNumber: string
+  description: string
+  lines: Line[]
+  selectedDocumentIds: string[]
+}
 type Workspace = {
   fiscalYear: { year: number; status: string }
   accounts: Account[]
@@ -20,7 +28,7 @@ type Workspace = {
 const emptyLine = (): Line => ({ accountId: '', debit: '', credit: '' })
 const money = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' })
 
-export function AccountingWorkspace() {
+export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
   const t = useTranslations('Workspaces')
   const [year, setYear] = useState(new Date().getFullYear())
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
@@ -33,8 +41,41 @@ export function AccountingWorkspace() {
   const [success, setSuccess] = useState('')
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([])
   const [documentsUploading, setDocumentsUploading] = useState(false)
+  const [storageRestored, setStorageRestored] = useState(false)
   const yearRef = useRef(year)
   const loadRef = useRef(0)
+  const suppressNextDraftSaveRef = useRef(false)
+  const bookingWorkspaceStateRef = useRef<BookingWorkspaceState>({
+    year, bookingDate, documentNumber, description, lines, selectedDocumentIds,
+  })
+  bookingWorkspaceStateRef.current = {
+    year, bookingDate, documentNumber, description, lines, selectedDocumentIds,
+  }
+
+  useEffect(() => {
+    const storage = getBrowserBookingWorkspaceStorage()
+    const saved = storage ? loadBookingWorkspaceState(storage, ownerId) : null
+    if (saved) {
+      bookingWorkspaceStateRef.current = saved
+      setYear(saved.year)
+      setBookingDate(saved.bookingDate)
+      setDocumentNumber(saved.documentNumber)
+      setDescription(saved.description)
+      setLines(saved.lines)
+      setSelectedDocumentIds(saved.selectedDocumentIds)
+    }
+    setStorageRestored(true)
+  }, [ownerId])
+
+  useEffect(() => {
+    if (!storageRestored) return
+    if (consumeBookingWorkspaceSaveSuppression(suppressNextDraftSaveRef)) return
+    const storage = getBrowserBookingWorkspaceStorage()
+    if (!storage) return
+    saveBookingWorkspaceState(storage, ownerId, {
+      year, bookingDate, documentNumber, description, lines, selectedDocumentIds,
+    })
+  }, [storageRestored, ownerId, year, bookingDate, documentNumber, description, lines, selectedDocumentIds])
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const requestedYear = year
@@ -68,6 +109,15 @@ export function AccountingWorkspace() {
       : line))
   }
 
+  function updateDescription(value: string) {
+    setDescription(value)
+    if (!storageRestored) return
+    const storage = getBrowserBookingWorkspaceStorage()
+    if (storage) bookingWorkspaceStateRef.current = persistBookingWorkspaceStateChange(
+      storage, ownerId, bookingWorkspaceStateRef.current, { description: value },
+    )
+  }
+
   async function post(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setIssues([]); setSuccess('')
     const submittedYear = year
@@ -79,7 +129,19 @@ export function AccountingWorkspace() {
         body: JSON.stringify({ fiscalYear: year, bookingDate, documentNumber, description, documentIds: selectedDocumentIds, lines: lines.map(line => ({ accountId: line.accountId, debitCents: toCents(line.debit), creditCents: toCents(line.credit) })) }),
       })
       if (!response.ok) { const body = await response.json(); if (yearRef.current === submittedYear) setIssues(body.issues ?? [t('postingFailed')]); return }
-      if (yearRef.current === submittedYear) { setLines([emptyLine(), emptyLine()]); setDocumentNumber(''); setDescription(''); setSelectedDocumentIds([]); setSuccess(t('postingSaved')); await load() }
+      if (yearRef.current === submittedYear) {
+        const storage = getBrowserBookingWorkspaceStorage()
+        suppressNextDraftSaveRef.current = storage ? clearBookingWorkspaceState(storage, ownerId) : false
+        const clearedLines = [emptyLine(), emptyLine()]
+        bookingWorkspaceStateRef.current = {
+          ...bookingWorkspaceStateRef.current,
+          lines: clearedLines,
+          documentNumber: '',
+          description: '',
+          selectedDocumentIds: [],
+        }
+        setLines(clearedLines); setDocumentNumber(''); setDescription(''); setSelectedDocumentIds([]); setSuccess(t('postingSaved')); await load()
+      }
     } catch { if (yearRef.current === submittedYear) setIssues([t('postingFailed')]) }
     finally { if (yearRef.current === submittedYear) setBusy(false) }
   }
@@ -101,13 +163,13 @@ export function AccountingWorkspace() {
       <section className="panel booking-panel">
         <div className="panel-title"><div><span className="step">2 · {t('newPosting')}</span><h2>{t('recordTransaction')}</h2></div><span className="hint">{t('debitEqualsCredit')}</span></div>
         <form onSubmit={post}>
-          <fieldset disabled={isBookingFormDisabled(busy, documentsUploading)}>
+          <fieldset disabled={isBookingFormDisabled(busy, documentsUploading, !storageRestored)}>
           <div className="form-grid two booking-metadata-row">
             <label>{t('postingDate')}<input required type="date" value={bookingDate} onChange={event => setBookingDate(event.target.value)} /></label>
             <label>{t('documentNumber')}<input required value={documentNumber} onChange={event => setDocumentNumber(event.target.value)} placeholder={t('documentPlaceholder')} /></label>
           </div>
           <div className="form-grid booking-description-row">
-            <label>{t('postingText')}<input required value={description} onChange={event => setDescription(event.target.value)} placeholder={t('postingPlaceholder')} /></label>
+            <label>{t('postingText')}<input required value={description} onChange={event => updateDescription(event.target.value)} placeholder={t('postingPlaceholder')} /></label>
           </div>
           <div className="posting-head"><span>{t('account')}</span><span>{t('debit')}</span><span>{t('credit')}</span><span /></div>
           {lines.map((line, index) => <div className="posting-line" key={index}>
@@ -156,5 +218,95 @@ function formatCalendarDate(value: string) { const [year, month, day] = value.sl
 export function shouldApplyWorkspace(requestedYear: number, currentYear: number, aborted: boolean, requestId = 0, currentRequestId = requestId) {
   return !aborted && requestedYear === currentYear && requestId === currentRequestId
 }
-export function isBookingFormDisabled(busy: boolean, documentsUploading = false) { return busy || documentsUploading }
+export function isBookingFormDisabled(busy: boolean, documentsUploading = false, storagePending = false) {
+  return busy || documentsUploading || storagePending
+}
 export function bookingFormRows() { return [['bookingDate', 'documentNumber'], ['description']] as const }
+
+type BookingWorkspaceStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+
+export function getBrowserBookingWorkspaceStorage(): BookingWorkspaceStorage | null {
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
+export function bookingWorkspaceStorageKey(ownerId: string) {
+  return `accounting.bookings.workspace-state.${encodeURIComponent(ownerId)}`
+}
+
+export function loadBookingWorkspaceState(storage: BookingWorkspaceStorage, ownerId: string): BookingWorkspaceState | null {
+  try {
+    return parseBookingWorkspaceState(storage.getItem(bookingWorkspaceStorageKey(ownerId)))
+  } catch {
+    return null
+  }
+}
+
+export function saveBookingWorkspaceState(storage: BookingWorkspaceStorage, ownerId: string, state: BookingWorkspaceState) {
+  try {
+    storage.setItem(bookingWorkspaceStorageKey(ownerId), JSON.stringify(state))
+  } catch {
+    // Keep the last successfully stored draft when a newer autosave cannot be written.
+  }
+}
+
+export function persistBookingWorkspaceStateChange(
+  storage: BookingWorkspaceStorage,
+  ownerId: string,
+  currentState: BookingWorkspaceState,
+  changes: Partial<BookingWorkspaceState>,
+) {
+  const nextState = { ...currentState, ...changes }
+  saveBookingWorkspaceState(storage, ownerId, nextState)
+  return nextState
+}
+
+export function clearBookingWorkspaceState(storage: BookingWorkspaceStorage, ownerId: string) {
+  try {
+    storage.removeItem(bookingWorkspaceStorageKey(ownerId))
+    return true
+  } catch {
+    // localStorage can be unavailable; the posted form is still cleared in memory.
+    return false
+  }
+}
+
+export function consumeBookingWorkspaceSaveSuppression(suppression: { current: boolean }) {
+  if (!suppression.current) return false
+  suppression.current = false
+  return true
+}
+
+export function parseBookingWorkspaceState(value: string | null): BookingWorkspaceState | null {
+  if (!value) return null
+  try {
+    const state: unknown = JSON.parse(value)
+    if (!isRecord(state)
+      || !Number.isInteger(state.year)
+      || typeof state.bookingDate !== 'string'
+      || typeof state.documentNumber !== 'string'
+      || typeof state.description !== 'string'
+      || !Array.isArray(state.lines)
+      || state.lines.length < 2
+      || !state.lines.every(isLine)
+      || !Array.isArray(state.selectedDocumentIds)
+      || !state.selectedDocumentIds.every(id => typeof id === 'string')) return null
+    return state as BookingWorkspaceState
+  } catch {
+    return null
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isLine(value: unknown): value is Line {
+  return isRecord(value)
+    && typeof value.accountId === 'string'
+    && typeof value.debit === 'string'
+    && typeof value.credit === 'string'
+}
