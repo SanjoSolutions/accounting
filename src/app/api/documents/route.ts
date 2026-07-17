@@ -4,10 +4,17 @@ import {
   createDocument,
   DocumentUploadError,
   getMaxDocumentUploadBytes,
+  listDocuments,
 } from '@/server'
 import { getCurrentUser } from '@/server/authentication'
 
 export const runtime = 'nodejs'
+
+export async function GET(request: Request) {
+  const user = await getCurrentUser(request.headers)
+  if (!user) return Response.json({ success: false }, { status: 401 })
+  return Response.json({ success: true, data: await listDocuments(user.id) })
+}
 
 export async function POST(request: Request) {
   const user = await getCurrentUser(request.headers)
