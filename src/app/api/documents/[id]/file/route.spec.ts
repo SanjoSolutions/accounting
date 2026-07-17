@@ -41,6 +41,16 @@ describe('document download API', () => {
     expect(mocks.readDocumentFile).toHaveBeenCalledWith('document-1', 'user-1')
   })
 
+  it('forces active evidence formats to download instead of rendering inline', async () => {
+    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1' })
+    mocks.readDocumentFile.mockResolvedValueOnce({
+      content: Buffer.from('<invoice/>'), contentType: 'application/xml', fileName: 'invoice.xml',
+    })
+
+    const response = await download('document-1')
+    expect(response.headers.get('content-disposition')).toBe('attachment; filename="invoice.xml"')
+  })
+
   it('does not reveal a document outside the owner scope', async () => {
     mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-2' })
     mocks.readDocumentFile.mockResolvedValueOnce(null)
