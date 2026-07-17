@@ -32,8 +32,19 @@ export const DEFAULT_ACCOUNTS = [
   [8400, 'Erlöse 19 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput'],
 ] as const
 
+export function defaultAccountsForLedger(chart: string, accountLength: number | null) {
+  if (chart !== 'SKR03') return []
+  const scale = 10 ** ((accountLength ?? 4) - 4)
+  return DEFAULT_ACCOUNTS.map(([number, name, category, eBilanzPosition]) => [
+    number * scale, name, category, eBilanzPosition,
+  ] as const)
+}
+
 export async function ensureLedger(ownerId: string, year: number) {
   if (!Number.isInteger(year) || year < 1900 || year > 2200) throw new AccountingValidationError(['Ungültiges Geschäftsjahr.'])
+  const ledgerProfile = await prisma.ledgerProfile.upsert({
+    where: { ownerId }, create: { ownerId, chart: 'SKR03', accountLength: 4 }, update: {},
+  })
   const fiscalYear = await prisma.fiscalYear.upsert({
     where: { ownerId_year: { ownerId, year } },
     create: {
@@ -43,7 +54,7 @@ export async function ensureLedger(ownerId: string, year: number) {
     },
     update: {},
   })
-  for (const [number, name, category, eBilanzPosition] of DEFAULT_ACCOUNTS) {
+  for (const [number, name, category, eBilanzPosition] of defaultAccountsForLedger(ledgerProfile.chart, ledgerProfile.accountLength)) {
     await prisma.ledgerAccount.upsert({
       where: { ownerId_number: { ownerId, number } },
       create: { ownerId, number, name, category, eBilanzPosition },
