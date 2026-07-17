@@ -5,7 +5,8 @@ const mocks = vi.hoisted(() => ({ getCurrentUser: vi.fn(), importDatev: vi.fn() 
 vi.mock('server-only', () => ({}))
 vi.mock('@/server/authentication', () => ({ getCurrentUser: mocks.getCurrentUser }))
 vi.mock('@/server/datevImport', () => ({ importDatev: mocks.importDatev }))
-import { POST, readLimitedBody } from './route'
+import { readLimitedBody } from '@/server/importUpload'
+import { POST } from './route'
 
 describe('DATEV import API', () => {
   beforeEach(() => vi.clearAllMocks())

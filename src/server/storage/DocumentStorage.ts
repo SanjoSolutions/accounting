@@ -16,8 +16,26 @@ export class DocumentStorage {
   ): Promise<void> {
     await this.operator.write(key, content, {
       contentType,
-      contentDisposition: `inline; filename="${ sanitizeHeaderValue(fileName) }"`,
+      contentDisposition: storageContentDisposition(contentType, fileName),
     })
+  }
+
+  async writeIfAbsent(
+    key: string,
+    content: Buffer,
+    { contentType, fileName }: Omit<StoredDocument, 'content'>,
+  ): Promise<boolean> {
+    try {
+      await this.operator.write(key, content, {
+        contentType,
+        contentDisposition: storageContentDisposition(contentType, fileName),
+        ifNotExists: true,
+      })
+      return true
+    } catch (error) {
+      if (isConditionNotMatch(error)) return false
+      throw error
+    }
   }
 
   async read(key: string): Promise<Buffer> {
@@ -31,6 +49,16 @@ export class DocumentStorage {
   async exists(key: string): Promise<boolean> {
     return this.operator.exists(key)
   }
+}
+
+function isConditionNotMatch(error: unknown) {
+  return error instanceof Error && error.message.startsWith('ConditionNotMatch ')
+}
+
+function storageContentDisposition(contentType: string, fileName: string) {
+  const inlineTypes = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/bmp', 'image/tiff', 'image/webp'])
+  const disposition = inlineTypes.has(contentType.toLowerCase()) ? 'inline' : 'attachment'
+  return `${disposition}; filename="${sanitizeHeaderValue(fileName)}"`
 }
 
 function sanitizeHeaderValue(value: string): string {

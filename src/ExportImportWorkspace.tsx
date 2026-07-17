@@ -5,23 +5,28 @@ import { useTranslations } from 'next-intl'
 
 export function ExportImportWorkspace() {
   const t = useTranslations('Workspaces')
-  const [datevFiles, setDatevFiles] = useState<File[]>([])
+  const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [issues, setIssues] = useState<string[]>([])
   const [success, setSuccess] = useState('')
   const formRef = useRef<HTMLFormElement>(null)
 
-  async function importDatev(event: React.FormEvent) {
+  const format = detectSelectedImportFormat(files)
+
+  async function importAccountingData(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setIssues([]); setSuccess('')
     try {
-      const form = new FormData(); datevFiles.forEach(file => form.append('files', file))
-      const response = await fetch('/api/datev-import', { method: 'POST', body: form })
+      const form = new FormData(); files.forEach(file => form.append('files', file))
+      const response = await fetch('/api/accounting-import', { method: 'POST', body: form })
       const body = await response.json()
-      if (!response.ok) { setIssues(body.issues ?? [t('datevImportFailed')]); return }
-      setSuccess(t('datevImportSucceeded', { imported: body.imported, skipped: body.skipped, accounts: body.accounts }))
-      setDatevFiles([])
+      if (!response.ok) { setIssues(body.issues ?? [t('accountingImportFailed')]); return }
+      setSuccess(t('accountingImportSucceeded', {
+        imported: body.imported, skipped: body.skipped, accounts: body.accounts,
+        documents: body.documents ?? 0, years: body.years?.join(', ') ?? '',
+      }))
+      setFiles([])
       resetDatevForm(formRef.current)
-    } catch { setIssues([t('datevImportFailed')]) }
+    } catch { setIssues([t('accountingImportFailed')]) }
     finally { setBusy(false) }
   }
 
@@ -30,15 +35,15 @@ export function ExportImportWorkspace() {
       <div><span className="eyebrow">{t('dataExchange')}</span><h1>{t('exportImport')}</h1><p>{t('exportImportSubtitle')}</p></div>
     </header>
     <section className="panel datev-panel">
-      <div className="panel-title"><div><span className="step">{t('dataImport')}</span><h2>{t('datevImport')}</h2></div><span className="hint">DATEV EXTF</span></div>
-      <form ref={formRef} onSubmit={importDatev}>
-        <p>{t('datevImportHelp')}</p>
+      <div className="panel-title"><div><span className="step">{t('dataImport')}</span><h2>{t('accountingImport')}</h2></div><span className="hint">{formatLabel(format)}</span></div>
+      <form ref={formRef} onSubmit={importAccountingData}>
+        <p>{t('accountingImportHelp')}</p>
         <div className="datev-controls">
-          <label>{t('datevChooseFiles')}<input disabled={busy} type="file" accept=".csv,text/csv" multiple onChange={event => setDatevFiles(selectDatevFiles(event.target.files))} /></label>
-          <label>{t('datevChooseFolder')}<input disabled={busy} type="file" multiple {...{ webkitdirectory: '' }} onChange={event => setDatevFiles(selectDatevFiles(event.target.files))} /></label>
-          <button className="primary-action" disabled={busy || datevFiles.length === 0}>{busy ? t('datevImportBusy') : t('datevImportAction')}</button>
+          <label>{t('accountingChooseFolder')}<input disabled={busy} type="file" multiple {...{ webkitdirectory: '' }} onChange={event => setFiles(selectAccountingFiles(event.target.files))} /></label>
+          <label>{t('datevChooseFiles')}<input disabled={busy} type="file" accept=".csv,text/csv" multiple onChange={event => setFiles(selectDatevFiles(event.target.files))} /></label>
+          <button className="primary-action" disabled={busy || files.length === 0 || format === 'UNKNOWN'}>{busy ? t('accountingImportBusy') : t('accountingImportAction')}</button>
         </div>
-        {datevFiles.length > 0 && <p className="hint">{t('datevFilesSelected', { count: datevFiles.length })}</p>}
+        {files.length > 0 && <p className="hint">{t('accountingFilesSelected', { count: files.length, format: formatLabel(format) })}</p>}
         {issues.length > 0 && <div className="error-summary" role="alert"><strong>{t('pleaseReview')}</strong><ul>{issues.map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
         {success && <p className="success" role="status">{success}</p>}
       </form>
@@ -48,6 +53,28 @@ export function ExportImportWorkspace() {
 
 export function selectDatevFiles(files: FileList | ArrayLike<File> | null) {
   return Array.from(files ?? []).filter(file => file.name.toLowerCase().endsWith('.csv'))
+}
+
+export type AccountingImportFormat = 'DATEV' | 'LEXWARE_BP' | 'UNKNOWN'
+
+export function selectAccountingFiles(files: FileList | ArrayLike<File> | null) {
+  const supported = Array.from(files ?? []).filter(file => /\.(?:csv|txt|xml|dtd|pdf|jpe?g|png|gif|bmp|tiff?|rtf|docx?|xlsx?|odt|ods|odp)$/i.test(file.name))
+  return detectSelectedImportFormat(supported) === 'DATEV' ? selectDatevFiles(supported) : supported
+}
+
+export function detectSelectedImportFormat(files: ArrayLike<{ name: string }>): AccountingImportFormat {
+  const names = Array.from(files).map(file => file.name.toLowerCase())
+  const lexware = names.includes('index.xml') && names.some(name => /^jour_bp\d{4}\.txt$/.test(name))
+  const datev = names.some(name => name.endsWith('.csv'))
+  if (lexware && !datev) return 'LEXWARE_BP'
+  if (datev && !lexware) return 'DATEV'
+  return 'UNKNOWN'
+}
+
+export function formatLabel(format: AccountingImportFormat) {
+  if (format === 'DATEV') return 'DATEV EXTF'
+  if (format === 'LEXWARE_BP') return 'Lexware Betriebsprüfung'
+  return '—'
 }
 
 export function resetDatevForm(form: Pick<HTMLFormElement, 'reset'> | null) { form?.reset() }

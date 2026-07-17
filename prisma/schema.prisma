@@ -21,6 +21,20 @@ model DocumentRecord {
   @@index([ownerId])
 }
 
+model DocumentStorageClaim {
+  id         String   @id
+  importId   String
+  documentId String
+  ownerId    String
+  storageKey String
+  createdStorage Boolean @default(false)
+  createdAt  DateTime @default(now())
+
+  @@unique([importId, documentId])
+  @@index([documentId])
+  @@index([createdAt])
+}
+
 model BookingRecordEntry {
   id      String @id
   payload String

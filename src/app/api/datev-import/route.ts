@@ -3,6 +3,7 @@ import 'server-only'
 import { getCurrentUser } from '@/server/authentication'
 import { importDatev } from '@/server/datevImport'
 import { AccountingValidationError } from '@/core/doubleEntry'
+import { readLimitedBody } from '@/server/importUpload'
 
 export const runtime = 'nodejs'
 const MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -28,27 +29,4 @@ export async function POST(request: Request) {
     if (error instanceof AccountingValidationError) return Response.json({ success: false, issues: error.issues }, { status: 400 })
     return Response.json({ success: false, issues: ['Der DATEV-Import konnte nicht verarbeitet werden.'] }, { status: 500 })
   }
-}
-
-export async function readLimitedBody(request: Request, maximumBytes: number) {
-  if (!request.body) return request
-  const reader = request.body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.byteLength
-    if (total > maximumBytes) {
-      await reader.cancel()
-      throw new AccountingValidationError(['Der DATEV-Upload ist zu groß.'])
-    }
-    chunks.push(value)
-  }
-  const body = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength }
-  const headers = new Headers(request.headers)
-  headers.delete('content-length')
-  return new Request(request.url, { method: request.method, headers, body })
 }

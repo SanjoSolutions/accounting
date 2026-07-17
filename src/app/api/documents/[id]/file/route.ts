@@ -23,11 +23,17 @@ export async function GET(
     headers: {
       'Content-Type': file.contentType,
       'Content-Length': String(file.content.length),
-      'Content-Disposition': `inline; filename="${ sanitizeHeaderValue(file.fileName) }"`,
+      'Content-Disposition': documentContentDisposition(file.contentType, file.fileName),
       'Cache-Control': 'private, no-store',
       'X-Content-Type-Options': 'nosniff',
     },
   })
+}
+
+export function documentContentDisposition(contentType: string, fileName: string) {
+  const inlineTypes = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/bmp', 'image/tiff', 'image/webp'])
+  const disposition = inlineTypes.has(contentType.toLowerCase()) ? 'inline' : 'attachment'
+  return `${disposition}; filename="${sanitizeHeaderValue(fileName)}"`
 }
 
 function sanitizeHeaderValue(value: string): string {
