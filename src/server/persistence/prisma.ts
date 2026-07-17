@@ -51,12 +51,22 @@ class PrismaDocumentRepository implements DocumentRepository {
     return Object.assign(new Document(data.id, data.url), data)
   }
 
+  async findAllByOwner(ownerId: string): Promise<Document[]> {
+    const records = await this.prisma.documentRecord.findMany({ where: { ownerId }, orderBy: { id: 'desc' } })
+    return records
+      .map(record => {
+        const data = JSON.parse(record.payload) as Document
+        return Object.assign(new Document(data.id, data.url), data)
+      })
+      .filter(document => document.ownerId === ownerId)
+  }
+
   async save(document: Document): Promise<void> {
     const payload = JSON.stringify(document)
     await this.prisma.documentRecord.upsert({
       where: { id: document.id },
-      create: { id: document.id, payload },
-      update: { payload },
+      create: { id: document.id, payload, ownerId: document.ownerId },
+      update: { payload, ownerId: document.ownerId },
     })
   }
 }

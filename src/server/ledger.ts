@@ -59,7 +59,10 @@ export async function getLedgerWorkspace(ownerId: string, year: number) {
     prisma.ledgerAccount.findMany({ where: { ownerId, active: true }, orderBy: { number: 'asc' } }),
     prisma.journalEntry.findMany({
       where: { fiscalYearId: fiscalYear.id }, orderBy: { sequenceNumber: 'desc' },
-      include: { lines: { include: { account: true } } },
+      include: {
+        lines: { include: { account: true } },
+        documents: { include: { document: true } },
+      },
     }),
     getTrialBalance(ownerId, year),
   ])
@@ -77,7 +80,10 @@ export async function getLedgerWorkspace(ownerId: string, year: number) {
   return {
     fiscalYear: { year, status: fiscalYear.status, lockedAt: fiscalYear.lockedAt?.toISOString() ?? null },
     accounts,
-    entries,
+    entries: entries.map(entry => ({
+      ...entry,
+      documents: entry.documents.flatMap(attachment => publicDocumentFromPayload(attachment.document.payload)),
+    })),
     statements,
     closingIssues,
   }
@@ -85,6 +91,7 @@ export async function getLedgerWorkspace(ownerId: string, year: number) {
 
 export async function postJournalEntry(ownerId: string, input: unknown, source = 'MANUAL') {
   const validated = validateJournalEntry(input)
+  const documentIds = normalizeDocumentIds(input)
   validateDocumentNamespace(source, validated.documentNumber)
   const year = Number(validated.bookingDate.slice(0, 4))
   const fiscalYear = await ensureLedger(ownerId, year)
@@ -92,6 +99,10 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
   const accountIds = [...new Set(validated.lines.map(line => line.accountId))]
   const accounts = await prisma.ledgerAccount.findMany({ where: { id: { in: accountIds }, ownerId, active: true } })
   if (accounts.length !== accountIds.length) throw new AccountingValidationError(['Mindestens ein Konto ist ungültig oder gehört zu einem anderen Mandanten.'])
+  if (documentIds.length) {
+    const ownedDocumentCount = await prisma.documentRecord.count({ where: { id: { in: documentIds }, ownerId } })
+    if (ownedDocumentCount !== documentIds.length) throw new AccountingValidationError(['Mindestens ein ausgewählter Beleg ist ungültig oder gehört zu einem anderen Mandanten.'])
+  }
 
   try { return await prisma.$transaction(async transaction => {
     // This write acquires SQLite's writer lock before status/sequence checks. Closing
@@ -120,13 +131,31 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
           creditCents: line.creditCents,
           taxCode: line.taxCode || null,
         })) },
+        documents: { create: documentIds.map(documentId => ({ documentId })) },
       },
-      include: { lines: true },
+      include: { lines: true, documents: true },
     })
   }) } catch (error) {
     if ((error as { code?: string }).code === 'P2002') throw new AccountingValidationError(['Belegnummer oder Journalnummer ist in diesem Geschäftsjahr bereits vergeben.'])
     throw error
   }
+}
+
+export function normalizeDocumentIds(input: unknown): string[] {
+  if (!input || typeof input !== 'object') return []
+  const documentIds = (input as { documentIds?: unknown }).documentIds
+  if (documentIds === undefined) return []
+  if (!Array.isArray(documentIds) || documentIds.some(id => typeof id !== 'string' || !id.trim())) {
+    throw new AccountingValidationError(['Die ausgewählten Belege sind ungültig.'])
+  }
+  return [...new Set(documentIds.map(id => id.trim()))]
+}
+
+function publicDocumentFromPayload(payload: string) {
+  try {
+    const document = JSON.parse(payload) as { id: string; url: string; fileName?: string; contentType?: string; size?: number }
+    return [{ id: document.id, url: document.url, fileName: document.fileName, contentType: document.contentType, size: document.size }]
+  } catch { return [] }
 }
 
 export async function getTrialBalance(ownerId: string, year: number): Promise<LedgerBalance[]> {

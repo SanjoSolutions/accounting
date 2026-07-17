@@ -9,6 +9,7 @@ export interface AccountRepository {
 
 export interface DocumentRepository {
   findOne(id: string): Promise<Document | null>
+  findAllByOwner(ownerId: string): Promise<Document[]>
   save(document: Document): Promise<void>
 }
 
