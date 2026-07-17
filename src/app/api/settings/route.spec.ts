@@ -15,7 +15,7 @@ vi.mock('@/server', () => ({
   updateSettings: mocks.updateSettings,
 }))
 
-import { GET } from './route'
+import { GET, PUT } from './route'
 
 const originalAuthMode = process.env.AUTH_MODE
 
@@ -59,5 +59,35 @@ describe('settings API authentication', () => {
 
     expect(response.status).toBe(200)
     expect(mocks.getSettings).toHaveBeenCalledOnce()
+  })
+
+  it('saves SKR04 as the selected chart of accounts', async () => {
+    process.env.AUTH_MODE = 'none'
+    const settings = {
+      chartOfAccounts: 'SKR04',
+      invoiceIssuer: { name: 'Example GmbH' },
+    }
+
+    const response = await PUT(new Request('http://localhost/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mocks.updateSettings).toHaveBeenCalledWith(settings)
+  })
+
+  it('rejects an unsupported chart of accounts', async () => {
+    process.env.AUTH_MODE = 'none'
+
+    const response = await PUT(new Request('http://localhost/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chartOfAccounts: 'SKR05' }),
+    }))
+
+    expect(response.status).toBe(400)
+    expect(mocks.updateSettings).not.toHaveBeenCalled()
   })
 })

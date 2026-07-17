@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Address } from '@/core/Address'
 import type { BookingRecord } from '@/core/BookingRecord'
+import { isChartOfAccountsStandard } from '@/core/ChartOfAccounts'
 import { Document } from '@/core/Document'
 import { Account } from '@/core/authentication/Account'
 import type { PrismaClient } from '@/generated/prisma/client'
@@ -23,6 +24,9 @@ class PrismaAccountRepository implements AccountRepository {
     const account = new Account(data.id)
     account.address = Object.assign(new Address(), data.address)
     account.invoiceIssuer = Object.assign(new Address(), data.invoiceIssuer)
+    if (isChartOfAccountsStandard(data.chartOfAccounts)) {
+      account.chartOfAccounts = data.chartOfAccounts
+    }
     return account
   }
 
