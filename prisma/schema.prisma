@@ -8,8 +8,56 @@ datasource db {
 }
 
 model AccountRecord {
-  id      String @id
+  id        String @id
+  ownerId   String? @unique
+  payload   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CompanyProfileVersion {
+  id String @id @default(cuid())
+  ownerId String
+  effectiveFrom DateTime
+  effectiveTo DateTime?
   payload String
+  createdBy String
+  reason String
+  createdAt DateTime @default(now())
+  @@unique([ownerId, effectiveFrom])
+  @@index([ownerId, effectiveFrom, effectiveTo])
+}
+
+model AuditEvent {
+  id String @id
+  ownerId String
+  actorId String
+  occurredAt DateTime
+  action String
+  reason String
+  objectType String
+  objectId String
+  semanticDelta String
+  previousHash String?
+  hash String
+  createdAt DateTime @default(now())
+  @@unique([ownerId, hash])
+  @@index([ownerId, occurredAt])
+}
+
+model BackupManifest {
+  id String @id @default(cuid())
+  ownerId String
+  createdAt DateTime @default(now())
+  databaseHash String
+  objectStoreHash String
+  encryptionKeyId String
+  storageRegion String
+  recoveryPointAt DateTime
+  verifiedAt DateTime?
+  restoredAt DateTime?
+  manifest String
+  @@index([ownerId, createdAt])
 }
 
 model DocumentRecord {
@@ -35,6 +83,37 @@ model DocumentStorageClaim {
   @@index([createdAt])
 }
 
+model RetainedArtifact {
+  id String @id @default(cuid())
+  ownerId String
+  objectType String
+  objectId String
+  version Int
+  retentionClass String
+  contentHash String
+  provenance String
+  storageKey String?
+  periodEndsAt DateTime
+  retainUntil DateTime
+  legalHoldUntil DateTime?
+  disposedAt DateTime?
+  createdAt DateTime @default(now())
+  @@unique([ownerId, objectType, objectId, version])
+  @@index([ownerId, retainUntil, legalHoldUntil])
+}
+
+model FixityCheck {
+  id String @id @default(cuid())
+  ownerId String
+  artifactId String
+  expectedHash String
+  actualHash String?
+  status String
+  readable Boolean
+  checkedAt DateTime @default(now())
+  @@index([ownerId, artifactId, checkedAt])
+}
+
 model BookingRecordEntry {
   id      String @id
   payload String
@@ -53,6 +132,25 @@ model LedgerAccount {
   updatedAt       DateTime      @updatedAt
 
   @@unique([ownerId, number])
+}
+
+model AccountMappingVersion {
+  id String @id @default(cuid())
+  ownerId String
+  chartId String
+  accountNumber Int
+  effectiveFrom DateTime
+  effectiveTo DateTime?
+  accountName String
+  accountType String
+  normalBalance String
+  hgbPosition String
+  eBilanzPosition String
+  vatCode String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  @@unique([ownerId, chartId, accountNumber, effectiveFrom])
+  @@index([ownerId, effectiveFrom, effectiveTo])
 }
 
 model LedgerProfile {
@@ -78,6 +176,8 @@ model FiscalYear {
   updatedAt           DateTime             @updatedAt
 
   @@unique([ownerId, year])
+  @@unique([ownerId, startsAt, endsAt])
+  @@index([ownerId, startsAt, endsAt])
 }
 
 model EBalanceSubmission {
@@ -109,6 +209,11 @@ model JournalEntry {
   documentNumber String
   description    String
   source         String        @default("MANUAL")
+  state          String        @default("POSTED")
+  entryDate      DateTime?     @default(now())
+  lateReason     String?
+  reversalOfId   String?       @unique
+  replacementOfId String?      @unique
   externalKey    String?       @unique
   fiscalYearId   String
   fiscalYear     FiscalYear    @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
@@ -119,6 +224,19 @@ model JournalEntry {
   @@unique([fiscalYearId, sequenceNumber])
   @@unique([fiscalYearId, documentNumber])
   @@index([bookingDate])
+}
+
+model PeriodReopenRequest {
+  id String @id @default(cuid())
+  ownerId String
+  fiscalYearId String
+  requestedBy String
+  approvedBy String?
+  reason String
+  status String
+  requestedAt DateTime @default(now())
+  decidedAt DateTime?
+  @@index([ownerId, fiscalYearId, requestedAt])
 }
 
 model JournalDocumentAttachment {
