@@ -7,7 +7,7 @@ import { validateEBalanceConcepts } from '@/core/eBilanzPackage'
 
 vi.mock('server-only', () => ({}))
 vi.mock('./persistence/client', () => ({ prisma: {} }))
-import { DEFAULT_ACCOUNTS, defaultAccountsForLedger, getEBalanceBlockingIssues, mergeSubmissionHistory, normalizeDocumentIds, submissionResultStatus, validateDocumentNamespace } from './ledger'
+import { accountSemanticFingerprint, DEFAULT_ACCOUNTS, defaultAccountsForLedger, getEBalanceBlockingIssues, inferExistingLedgerChart, inferExistingLedgerProfile, legacyLedgerClaimApplies, mergeSubmissionHistory, nextCalendarDay, normalizeDocumentIds, postingDateBoundary, postingOrderPeriodYear, requireLegacyLedgerProfile, selectBootstrapChart, selectedChartFromSettingsPayload, selectPostingPeriod, submissionResultStatus, successorOverlapBounds, validateDocumentNamespace, validateLegacyLedgerClaim, validateNumericPeriodBootstrap, validatePostingSuccessorBootstrap, validateSuccessorContiguity, validateSuccessorOverlap } from './ledger'
 
 describe('default ledger taxonomy mappings', () => {
   it('scales SKR03 defaults to the persisted DATEV account length', () => {
@@ -15,7 +15,7 @@ describe('default ledger taxonomy mappings', () => {
     expect(numbers).toContain(12000)
     expect(numbers).toContain(84000)
     expect(numbers).not.toContain(1200)
-    expect(defaultAccountsForLedger('SKR04', 4)).toEqual([])
+    expect(defaultAccountsForLedger('SKR04', 4).length).toBeGreaterThan(0)
   })
 
   it('supports zero to many unique document attachments', () => {
@@ -23,6 +23,71 @@ describe('default ledger taxonomy mappings', () => {
     expect(normalizeDocumentIds({ documentIds: ['one', 'two', 'one'] })).toEqual(['one', 'two'])
     expect(() => normalizeDocumentIds({ documentIds: [''] })).toThrow('ausgewählten Belege')
   })
+  it('bootstraps only an empty tenant and rejects uncovered or overlapping posting dates', () => {
+    expect(selectPostingPeriod([], 0)).toBeNull()
+    expect(() => selectPostingPeriod([], 1)).toThrow('Keine Geschäftsjahresperiode')
+    expect(() => selectPostingPeriod([{ id: 'a' }, { id: 'b' }], 2)).toThrow('überlappender')
+  })
+  it('requires an existing successor to begin exactly after the closing period', () => {
+    expect(() => validateSuccessorContiguity(new Date('2026-07-01'), new Date('2026-07-01'))).not.toThrow()
+    expect(() => validateSuccessorContiguity(new Date('2026-07-01'), new Date('2026-07-02'))).toThrow('lückenlos')
+  })
+
+  it('rejects every other fiscal period overlapping the proposed successor', () => {
+    expect(() => validateSuccessorOverlap('expected-successor', ['expected-successor'])).not.toThrow()
+    expect(() => validateSuccessorOverlap('expected-successor', ['expected-successor', 'legacy-overlap'])).toThrow(/überschneidet/)
+    expect(() => validateSuccessorOverlap(undefined, ['wrong-year-key'])).toThrow(/überschneidet/)
+  })
+  it('uses a persisted short successor range instead of a synthetic twelve-month overlap window', () => {
+    const proposedStart = new Date('2026-01-01T00:00:00.000Z')
+    const proposedEnd = new Date('2026-12-31T23:59:59.999Z')
+    const shortSuccessor = { startsAt: proposedStart, endsAt: new Date('2026-06-30T23:59:59.999Z') }
+    expect(successorOverlapBounds(shortSuccessor, proposedStart, proposedEnd)).toEqual(shortSuccessor)
+    expect(successorOverlapBounds(null, proposedStart, proposedEnd)).toEqual({ startsAt: proposedStart, endsAt: proposedEnd })
+  })
+  it('queries fiscal endpoints by inclusive booking-day boundary', () => {
+    expect(postingDateBoundary('2025-12-31')).toEqual(new Date('2025-12-31T00:00:00.000Z'))
+    expect(postingDateBoundary('2025-12-31').getTime()).toBeLessThan(new Date('2025-12-31T12:00:00.000Z').getTime())
+  })
+  it('starts a successor on the next calendar day regardless of stored end time', () => {
+    expect(nextCalendarDay(new Date('2025-06-30T00:00:00.000Z'))).toEqual(new Date('2025-07-01T00:00:00.000Z'))
+    expect(nextCalendarDay(new Date('2025-06-30T23:59:59.999Z'))).toEqual(new Date('2025-07-01T00:00:00.000Z'))
+  })
+  it('selects the tenant active chart for bootstrap and honors legacy SKR04 payloads', () => { expect(selectedChartFromSettingsPayload('{"activeChart":"CUSTOM:mine"}')).toBe('CUSTOM:mine'); expect(selectedChartFromSettingsPayload('{"chartOfAccounts":"SKR04"}')).toBe('SKR04'); expect(selectedChartFromSettingsPayload('{}')).toBe('SKR03') })
+  it('does not bootstrap a calendar year over an existing deviating topology', () => { expect(() => validateNumericPeriodBootstrap(false, 1)).toThrow(/Periodentopologie/); expect(() => validateNumericPeriodBootstrap(false, 0)).not.toThrow(); expect(() => validateNumericPeriodBootstrap(true, 2)).not.toThrow() })
+  it('bootstraps only a contiguous, non-overlapping posting successor after rollover', () => {
+    const proposedStart = new Date('2026-01-01T00:00:00.000Z')
+    const proposedEnd = new Date('2026-12-31T23:59:59.999Z')
+    expect(() => validatePostingSuccessorBootstrap([{ year: 2025, startsAt: new Date('2025-01-01'), endsAt: new Date('2025-12-31T23:59:59.999Z') }], 2026, proposedStart, proposedEnd)).not.toThrow()
+    expect(() => validatePostingSuccessorBootstrap([{ year: 2025, startsAt: new Date('2025-01-01'), endsAt: new Date('2025-12-30T23:59:59.999Z') }], 2026, proposedStart, proposedEnd)).toThrow(/lückenlos/)
+    expect(() => validatePostingSuccessorBootstrap([{ year: 2027, startsAt: new Date('2026-06-01'), endsAt: new Date('2027-05-31T23:59:59.999Z') }], 2026, proposedStart, proposedEnd)).toThrow(/überschneiden/)
+  })
+  it('claims unowned legacy settings only for local no-auth or an operator-mapped credential tenant', () => { const previous = process.env.AUTH_MODE; process.env.AUTH_MODE = 'credentials'; expect(() => validateLegacyLedgerClaim(undefined, 'owner', ['owner'])).toThrow(/nicht eindeutig/); expect(() => validateLegacyLedgerClaim('owner', 'owner', ['owner'])).not.toThrow(); expect(() => validateLegacyLedgerClaim('local', 'local', ['local'])).not.toThrow(); expect(() => validateLegacyLedgerClaim('local', 'local', [])).toThrow(/nicht eindeutig/); expect(() => validateLegacyLedgerClaim('other', 'owner', ['other'])).toThrow(/anderen Mandanten/); process.env.AUTH_MODE = 'none'; expect(() => validateLegacyLedgerClaim(undefined, 'local', [])).not.toThrow(); if (previous === undefined) delete process.env.AUTH_MODE; else process.env.AUTH_MODE = previous })
+  it('ignores an operator-mapped legacy record for every nonmatching tenant', () => {
+    expect(legacyLedgerClaimApplies('tenant-a', 'tenant-a')).toBe(true)
+    expect(legacyLedgerClaimApplies('tenant-a', 'tenant-b')).toBe(false)
+    expect(legacyLedgerClaimApplies(undefined, 'tenant-b')).toBe(true)
+  })
+  it('infers and backfills existing ledger semantics before trusting stale legacy settings', () => { expect(inferExistingLedgerChart([1000, 8400])).toBe('SKR03'); expect(inferExistingLedgerChart([1600, 4400])).toBe('SKR04'); expect(() => inferExistingLedgerChart([8400, 4400])).toThrow(/widersprüchliche/) })
+
+  it('infers account width together with chart and fails closed on mixed signatures', () => {
+    expect(inferExistingLedgerProfile([10000, 84000])).toEqual({ chart: 'SKR03', accountLength: 5 })
+    expect(inferExistingLedgerProfile([16000, 44000])).toEqual({ chart: 'SKR04', accountLength: 5 })
+    expect(() => inferExistingLedgerProfile([8400, 84000])).toThrow(/Kontenlängen-Signaturen/)
+    expect(() => inferExistingLedgerProfile([84000, 44000])).toThrow(/Kontenrahmen-/)
+  })
+  it('requires safely inferable legacy ledger semantics before settings can establish a profile', () => {
+    expect(requireLegacyLedgerProfile([1000, 8400], true)).toEqual({ chart: 'SKR03', accountLength: 4 })
+    expect(() => requireLegacyLedgerProfile([1234], true)).toThrow(/keinem eindeutigen Kontenrahmen/)
+    expect(() => requireLegacyLedgerProfile([], true)).toThrow(/keinem eindeutigen Kontenrahmen/)
+    expect(requireLegacyLedgerProfile([], false)).toBeUndefined()
+  })
+
+  it('keeps an authoritative ledger profile without inspecting stale account signatures', () => {
+    expect(selectBootstrapChart('CUSTOM:active', [8400, 4400], JSON.stringify({ activeChart: 'SKR04' }))).toBe('CUSTOM:active')
+  })
+  it('uses the selected deviating fiscal period identity for posting-order checks', () => { expect(postingOrderPeriodYear({ year: 2025 })).toBe(2025) })
+  it('detects in-place account semantic or chart changes across the posting lock', () => { const account = { id: '1', number: 1600, name: 'Payables', category: 'LIABILITY', eBilanzPosition: 'liability', active: true }; const original = accountSemanticFingerprint('SKR03', [account]); expect(accountSemanticFingerprint('SKR03', [{ ...account }])).toBe(original); expect(accountSemanticFingerprint('SKR04', [account])).not.toBe(original); expect(accountSemanticFingerprint('SKR03', [{ ...account, name: 'Cash', category: 'ASSET' }])).not.toBe(original) })
   it('never records an unsent binding attempt as accepted or merely valid', () => {
     expect(submissionResultStatus(true, false)).toBe('REJECTED')
     expect(submissionResultStatus(true, true)).toBe('ACCEPTED')

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -28,10 +28,9 @@ describe('credential authentication flow', () => {
     const databasePath = join(directory, 'authentication.db')
 
     const database = new DatabaseSync(databasePath)
-    for (const migration of [
-      '20260716144316_init',
-      '20260716151904_add_better_auth',
-    ]) {
+    const migrations = (await readdir(resolve(process.cwd(), 'prisma', 'migrations'), { withFileTypes: true }))
+      .filter(entry => entry.isDirectory()).map(entry => entry.name).sort()
+    for (const migration of migrations) {
       const sql = await readFile(
         resolve(process.cwd(), 'prisma', 'migrations', migration, 'migration.sql'),
         'utf8',
@@ -76,7 +75,7 @@ describe('credential authentication flow', () => {
     expect(settingsResponse.status).toBe(200)
     await expect(settingsResponse.json()).resolves.toMatchObject({
       success: true,
-      data: { id: 'default' },
+      data: { id: expect.stringMatching(/^company:/) },
     })
   }, 20_000)
 })

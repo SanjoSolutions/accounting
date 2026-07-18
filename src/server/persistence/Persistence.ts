@@ -4,6 +4,7 @@ import type { Account } from '@/core/authentication/Account'
 
 export interface AccountRepository {
   findOne(id: string): Promise<Account | null>
+  claimLegacyDefault(id: string, ownerId: string): Promise<Account | null>
   save(account: Account): Promise<void>
 }
 

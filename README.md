@@ -1,5 +1,15 @@
 # Accounting
 
+## Legacy settings migration
+
+Before enabling credential authentication on a database that contains the old global
+`AccountRecord` with id `default`, set `LEGACY_SETTINGS_OWNER_ID` to the verified sole
+owner of that company data. Start the application once and request settings as that
+owner; the claim atomically rewrites both the database key and serialized payload.
+Remove the variable after verifying that `company:<owner-id>` exists. Without an
+unambiguous sole tenant or this explicit operator mapping, access fails closed with an
+actionable migration error rather than exposing the legacy record.
+
 This work is devoted to God.
 
 ## Development
