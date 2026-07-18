@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
-  getSettings: vi.fn(async () => ({ id: 'default' })),
+  getSettings: vi.fn(async () => ({ id: 'company:local' })),
   updateSettings: vi.fn(),
 }))
 
@@ -16,6 +16,7 @@ vi.mock('@/server', () => ({
 }))
 
 import { GET, PUT } from './route'
+import { CompanyProfileValidationError } from '@/server/compliance/companyProfile'
 
 const originalAuthMode = process.env.AUTH_MODE
 
@@ -36,6 +37,7 @@ describe('settings API authentication', () => {
 
     expect(response.status).toBe(200)
     expect(mocks.getSettings).toHaveBeenCalledOnce()
+    expect(mocks.getSettings).toHaveBeenCalledWith('local')
     expect(mocks.getSession).not.toHaveBeenCalled()
   })
 
@@ -59,6 +61,7 @@ describe('settings API authentication', () => {
 
     expect(response.status).toBe(200)
     expect(mocks.getSettings).toHaveBeenCalledOnce()
+    expect(mocks.getSettings).toHaveBeenCalledWith('user-1')
   })
 
   it('saves SKR04 as the selected chart of accounts', async () => {
@@ -75,7 +78,14 @@ describe('settings API authentication', () => {
     }))
 
     expect(response.status).toBe(200)
-    expect(mocks.updateSettings).toHaveBeenCalledWith(settings)
+    expect(mocks.updateSettings).toHaveBeenCalledWith(settings, 'local', 'local')
+  })
+
+  it('never shares settings between authenticated tenants', async () => {
+    process.env.AUTH_MODE = 'credentials'
+    mocks.getSession.mockResolvedValueOnce({ user: { id: 'tenant-b', name: 'B', email: 'b@example.com' } })
+    await GET(new Request('http://localhost/api/settings'))
+    expect(mocks.getSettings).toHaveBeenCalledWith('tenant-b')
   })
 
   it('rejects an unsupported chart of accounts', async () => {
@@ -89,5 +99,20 @@ describe('settings API authentication', () => {
 
     expect(response.status).toBe(400)
     expect(mocks.updateSettings).not.toHaveBeenCalled()
+  })
+
+  it('does not expose or misclassify persistence failures as client validation', async () => {
+    process.env.AUTH_MODE = 'none'
+    mocks.updateSettings.mockRejectedValueOnce(new Error('database contains sensitive detail'))
+    await expect(PUT(new Request('http://localhost/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' }))).rejects.toThrow('database contains sensitive detail')
+  })
+
+  it('returns 400 only for dedicated company-profile validation failures', async () => {
+    process.env.AUTH_MODE = 'none'
+    mocks.updateSettings.mockRejectedValueOnce(new CompanyProfileValidationError('companyName is required'))
+    const response = await PUT(new Request('http://localhost/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' }))
+    expect(response.status).toBe(400)
+    mocks.updateSettings.mockRejectedValueOnce(new TypeError('unexpected programming error'))
+    await expect(PUT(new Request('http://localhost/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' }))).rejects.toThrow('unexpected programming error')
   })
 })

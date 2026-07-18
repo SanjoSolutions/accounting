@@ -1,20 +1,23 @@
 import 'server-only'
 import { isChartOfAccountsStandard } from '@/core/ChartOfAccounts'
 import { getSettings, updateSettings } from '@/server'
+import { CompanyProfileValidationError } from '@/server/compliance/companyProfile'
 import { getCurrentUser } from '@/server/authentication'
 
 export const runtime = 'nodejs'
 
 export async function GET(request: Request) {
-  if (!await getCurrentUser(request.headers)) {
+  const user = await getCurrentUser(request.headers)
+  if (!user) {
     return Response.json({ success: false }, { status: 401 })
   }
-  const settings = await getSettings()
+  const settings = await getSettings(user.id)
   return Response.json({ success: true, data: settings })
 }
 
 export async function PUT(request: Request) {
-  if (!await getCurrentUser(request.headers)) {
+  const user = await getCurrentUser(request.headers)
+  if (!user) {
     return Response.json({ success: false }, { status: 401 })
   }
   const data = await request.json()
@@ -24,6 +27,10 @@ export async function PUT(request: Request) {
       { status: 400 },
     )
   }
-  await updateSettings(data)
+  try { await updateSettings(data, user.id, user.id) }
+  catch (error) {
+    if (error instanceof CompanyProfileValidationError) return Response.json({ success: false, error: error.message }, { status: 400 })
+    throw error
+  }
   return Response.json({ success: true })
 }
