@@ -28,6 +28,17 @@ model CompanyProfileVersion {
   @@index([ownerId, effectiveFrom, effectiveTo])
 }
 
+model CompanyProfileAddressConfirmation {
+  id String @id @default(cuid())
+  ownerId String
+  profileVersionId String @unique
+  payload String
+  createdBy String
+  reason String
+  createdAt DateTime @default(now())
+  @@index([ownerId, createdAt])
+}
+
 model AuditEvent {
   id String @id
   ownerId String
@@ -40,9 +51,19 @@ model AuditEvent {
   semanticDelta String
   previousHash String?
   hash String
+  integrityKeyId String @default("default")
   createdAt DateTime @default(now())
   @@unique([ownerId, hash])
   @@index([ownerId, occurredAt])
+}
+
+model AuditHead {
+  ownerId String @id
+  headHash String?
+  legacyHeadHash String?
+  legacyEventCount Int @default(0)
+  version Int @default(0)
+  updatedAt DateTime @updatedAt
 }
 
 model BackupManifest {
@@ -57,7 +78,19 @@ model BackupManifest {
   verifiedAt DateTime?
   restoredAt DateTime?
   manifest String
+  payloadStorageKey String?
+  status String @default("CREATED")
   @@index([ownerId, createdAt])
+}
+
+model CompliancePolicy {
+  ownerId String @id
+  allowedStorageRegions String
+  operatorIds String
+  recoveryPointObjectiveMinutes Int
+  recoveryTimeObjectiveMinutes Int
+  backupKeyId String
+  updatedAt DateTime @updatedAt
 }
 
 model DocumentRecord {
@@ -96,7 +129,11 @@ model RetainedArtifact {
   periodEndsAt DateTime
   retainUntil DateTime
   legalHoldUntil DateTime?
+  legalHoldReason String?
+  lastFixityAt DateTime?
   disposedAt DateTime?
+  disposalRequestedAt DateTime?
+  storageDeletedAt DateTime?
   createdAt DateTime @default(now())
   @@unique([ownerId, objectType, objectId, version])
   @@index([ownerId, retainUntil, legalHoldUntil])
@@ -165,6 +202,7 @@ model FiscalYear {
   id                  String               @id @default(cuid())
   ownerId             String
   year                Int
+  label               String?
   startsAt            DateTime
   endsAt              DateTime
   status              String               @default("OPEN")
@@ -226,17 +264,48 @@ model JournalEntry {
   @@index([bookingDate])
 }
 
+model JournalDraft {
+  id String @id @default(cuid())
+  ownerId String
+  fiscalYearId String
+  payload String
+  version Int @default(1)
+  status String @default("DRAFT")
+  postedEntryId String?
+  createdBy String
+  updatedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([ownerId, fiscalYearId, status])
+}
+
 model PeriodReopenRequest {
   id String @id @default(cuid())
   ownerId String
   fiscalYearId String
   requestedBy String
+  closeGenerationAt DateTime?
   approvedBy String?
   reason String
   status String
   requestedAt DateTime @default(now())
   decidedAt DateTime?
   @@index([ownerId, fiscalYearId, requestedAt])
+}
+
+model FilingAmendment {
+  id String @id @default(cuid())
+  ownerId String
+  kind String
+  originalObjectId String
+  requestPayload String
+  responsePayload String?
+  receiptPayload String?
+  reason String
+  status String @default("DRAFT")
+  createdBy String
+  createdAt DateTime @default(now())
+  @@index([ownerId, kind, originalObjectId, createdAt])
 }
 
 model JournalDocumentAttachment {

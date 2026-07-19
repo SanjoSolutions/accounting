@@ -46,17 +46,33 @@ export class RetentionRegistry {
   versions(ownerId: string, objectId: string) { return this.#versions.filter(item => item.ownerId === ownerId && item.objectId === objectId).map(item => { const disposedAt = this.#disposed.get(this.#key(item)); return { ...structuredClone(item), ...(disposedAt ? { disposedAt, content: new Uint8Array() } : {}) } }) }
 }
 
-export interface BackupInput { ownerId: string; database: Uint8Array; objects: Record<string, Uint8Array>; recoveryPointAt: string; region: string; keyId: string }
-export interface EncryptedBackup { ownerId: string; recoveryPointAt: string; region: string; keyId: string; databaseHash: string; objectsHash: string; iv: string; tag: string; encrypted: string }
+export interface BackupInput { backupId: string; ownerId: string; database: Uint8Array; objects: Record<string, Uint8Array>; recoveryPointAt: string; region: string; keyId: string }
+export interface EncryptedBackup { backupId: string; ownerId: string; recoveryPointAt: string; region: string; keyId: string; databaseHash: string; objectsHash: string; iv: string; tag: string; encrypted: string }
 const backupMetadata = (backup: Omit<EncryptedBackup, 'iv' | 'tag' | 'encrypted'>) => JSON.stringify(backup)
 export function createBackup(input: BackupInput, key: Uint8Array, allowedRegions: string[]): EncryptedBackup {
   if (key.length !== 32) throw new Error('Backup encryption key must be 256 bit')
   if (!allowedRegions.includes(input.region)) throw new Error('Storage region is outside the approved jurisdiction')
   const objects = Object.fromEntries(Object.entries(input.objects).sort(([a], [b]) => a.localeCompare(b)).map(([name, data]) => [name, Buffer.from(data).toString('base64')]))
   const payload = JSON.stringify({ database: Buffer.from(input.database).toString('base64'), objects })
-  const metadata = { ownerId: input.ownerId, recoveryPointAt: input.recoveryPointAt, region: input.region, keyId: input.keyId, databaseHash: sha256(input.database), objectsHash: sha256(JSON.stringify(objects)) }
+  const metadata = { backupId: input.backupId, ownerId: input.ownerId, recoveryPointAt: input.recoveryPointAt, region: input.region, keyId: input.keyId, databaseHash: sha256(input.database), objectsHash: sha256(JSON.stringify(objects)) }
   const iv = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', key, iv); cipher.setAAD(Buffer.from(backupMetadata(metadata))); const encrypted = Buffer.concat([cipher.update(payload), cipher.final()])
   return { ...metadata, iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), encrypted: encrypted.toString('base64') }
+}
+export function resolveBackupKey(keyId: string, env: Readonly<Record<string, string | undefined>> = process.env): Buffer {
+  let encoded: string | undefined
+  if (env.COMPLIANCE_BACKUP_KEYS_BASE64) {
+    const parsed: unknown = JSON.parse(env.COMPLIANCE_BACKUP_KEYS_BASE64)
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object' || Object.values(parsed).some(value => typeof value !== 'string')) throw new Error('COMPLIANCE_BACKUP_KEYS_BASE64 must be a JSON object of base64 keys')
+    encoded = (parsed as Record<string, string>)[keyId]
+  }
+  if (!encoded && env.COMPLIANCE_BACKUP_KEY_ID === keyId) encoded = env.COMPLIANCE_BACKUP_KEY_BASE64
+  if (!encoded) throw new Error(`No backup encryption key is configured for key ID ${keyId}`)
+  const key = Buffer.from(encoded, 'base64')
+  if (key.length !== 32) throw new Error(`Backup encryption key ${keyId} must encode 256 bits`)
+  return key
+}
+export function backupMatchesManifest(backup: EncryptedBackup, manifest: { id: string; ownerId: string; databaseHash: string; objectStoreHash: string; encryptionKeyId: string; storageRegion: string; recoveryPointAt: Date }): boolean {
+  return backup.backupId === manifest.id && backup.ownerId === manifest.ownerId && backup.databaseHash === manifest.databaseHash && backup.objectsHash === manifest.objectStoreHash && backup.keyId === manifest.encryptionKeyId && backup.region === manifest.storageRegion && Number.isFinite(new Date(backup.recoveryPointAt).getTime()) && new Date(backup.recoveryPointAt).getTime() === manifest.recoveryPointAt.getTime()
 }
 export function restoreBackup(backup: EncryptedBackup, key: Uint8Array): { database: Buffer; objects: Record<string, Buffer>; verifiedAt: string } {
   const { iv, tag, encrypted, ...metadata } = backup

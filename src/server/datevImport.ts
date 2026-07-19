@@ -4,10 +4,23 @@ import { createHash, randomUUID } from 'node:crypto'
 import { parseDatevFiles, type DatevFile, type DatevImport } from '@/core/datev'
 import { AccountingValidationError } from '@/core/doubleEntry'
 import { prisma } from './persistence/client'
-import { DEFAULT_ACCOUNTS } from './ledger'
+import { DEFAULT_ACCOUNTS, isStandardPostingPeriod } from './ledger'
+import { appendAuditEvent } from './compliance/auditPersistence'
 
 const MAX_BOOKINGS = 200
 const MAX_ACCOUNTS = 1_000
+
+export interface DatevFiscalPeriod { id: string; startsAt: Date; endsAt: Date }
+export function resolveDatevPeriods<T extends DatevFiscalPeriod>(periods: T[], bookingDates: string[]): Map<string, T> {
+  const resolved = new Map<string, T>()
+  for (const bookingDate of bookingDates) {
+    const instant = new Date(`${bookingDate}T00:00:00.000Z`)
+    const matches = periods.filter(period => period.startsAt <= instant && period.endsAt >= instant)
+    if (matches.length !== 1) throw new AccountingValidationError([matches.length ? `Die DATEV-Buchung am ${bookingDate} fällt in überlappende Geschäftsjahre.` : `Keine Geschäftsjahresperiode deckt die DATEV-Buchung am ${bookingDate} ab.`])
+    resolved.set(bookingDate, matches[0])
+  }
+  return resolved
+}
 
 export async function importDatev(ownerId: string, files: DatevFile[]) {
   const parsed = parseDatevFiles(files)
@@ -33,17 +46,19 @@ export async function importDatev(ownerId: string, files: DatevFile[]) {
   }
 
   return prisma.$transaction(async transaction => {
-    const fiscalYears = new Map<number, { id: string; status: string }>()
-    for (const year of years) {
-      const fiscalYear = await transaction.fiscalYear.upsert({
-        where: { ownerId_year: { ownerId, year } },
-        create: { ownerId, year, startsAt: new Date(Date.UTC(year, 0, 1)), endsAt: new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999)) },
-        update: {},
-      })
+    const bookingDates = [...new Set(unique.map(booking => booking.bookingDate))].sort()
+    const existingPeriods = await transaction.fiscalYear.findMany({ where: { ownerId }, orderBy: { startsAt: 'asc' } })
+    if (!existingPeriods.length) for (const year of years) existingPeriods.push(await transaction.fiscalYear.upsert({
+      where: { ownerId_year: { ownerId, year } },
+      create: { ownerId, year, startsAt: new Date(Date.UTC(year, 0, 1)), endsAt: new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999)) }, update: {},
+    }))
+    const periodByBookingDate = resolveDatevPeriods(existingPeriods, bookingDates)
+    const fiscalYears = new Map<string, { id: string; status: string; year: number; endsAt: Date }>()
+    for (const fiscalYear of [...new Map([...periodByBookingDate.values()].map(period => [period.id, period])).values()].sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime())) {
       // Acquire the fiscal-year write locks in chronological order before the
       // idempotency query, so concurrent imports cannot use the same GUID.
       await transaction.fiscalYear.updateMany({ where: { id: fiscalYear.id }, data: { updatedAt: new Date() } })
-      fiscalYears.set(year, await transaction.fiscalYear.findUniqueOrThrow({ where: { id: fiscalYear.id }, select: { id: true, status: true } }))
+      fiscalYears.set(fiscalYear.id, await transaction.fiscalYear.findUniqueOrThrow({ where: { id: fiscalYear.id }, select: { id: true, status: true, year: true, endsAt: true } }))
     }
     const ledgerProfile = await transaction.ledgerProfile.upsert({
       where: { ownerId },
@@ -87,11 +102,12 @@ export async function importDatev(ownerId: string, files: DatevFile[]) {
       }
     }
     const pending = unique.filter(booking => booking.externalKey === null || !existing.has(booking.externalKey))
-    const pendingYears = new Set(pending.map(booking => Number(booking.bookingDate.slice(0, 4))))
-    for (const year of years.filter(year => pendingYears.has(year))) {
-      if (fiscalYears.get(year)?.status !== 'OPEN') throw new AccountingValidationError([`Das Geschäftsjahr ${year} ist gesperrt.`])
-      const closedSuccessor = await transaction.fiscalYear.findFirst({ where: { ownerId, year: { gt: year }, status: 'CLOSED' }, select: { year: true }, orderBy: { year: 'asc' } })
-      if (closedSuccessor) throw new AccountingValidationError([`In ${year} kann nicht mehr importiert werden, weil das Folgejahr ${closedSuccessor.year} bereits abgeschlossen ist.`])
+    const pendingPeriodIds = new Set(pending.map(booking => periodByBookingDate.get(booking.bookingDate)!.id))
+    for (const periodId of pendingPeriodIds) {
+      const period = fiscalYears.get(periodId)!
+      if (!isStandardPostingPeriod(period.status)) throw new AccountingValidationError([`Das Geschäftsjahr ${period.year} ist gesperrt; wiedereröffnete Perioden dürfen nur über den kontrollierten Korrekturworkflow geändert werden.`])
+      const closedSuccessor = await transaction.fiscalYear.findFirst({ where: { ownerId, startsAt: { gt: period.endsAt }, status: 'CLOSED' }, select: { year: true }, orderBy: { startsAt: 'asc' } })
+      if (closedSuccessor) throw new AccountingValidationError([`In ${period.year} kann nicht mehr importiert werden, weil das Folgejahr ${closedSuccessor.year} bereits abgeschlossen ist.`])
     }
 
     const defaults = new Map<number, typeof DEFAULT_ACCOUNTS[number]>(DEFAULT_ACCOUNTS.map(account => [account[0], account]))
@@ -122,12 +138,11 @@ export async function importDatev(ownerId: string, files: DatevFile[]) {
     if (accountIds.size !== parsed.accounts.length) throw new AccountingValidationError(['Mindestens ein DATEV-Konto ist inaktiv und kann nicht bebucht werden.'])
 
     let imported = 0
-    for (const year of years) {
-      const fiscalYear = fiscalYears.get(year)!
+    for (const fiscalYear of fiscalYears.values()) {
       let sequenceNumber = (await transaction.journalEntry.findFirst({
         where: { fiscalYearId: fiscalYear.id }, orderBy: { sequenceNumber: 'desc' }, select: { sequenceNumber: true },
       }))?.sequenceNumber ?? 0
-      for (const booking of pending.filter(booking => booking.bookingDate.startsWith(`${year}-`))) {
+      for (const booking of pending.filter(booking => periodByBookingDate.get(booking.bookingDate)!.id === fiscalYear.id)) {
         if (booking.accountNumber === booking.contraAccountNumber) throw new AccountingValidationError([`DATEV-Buchung ${booking.documentNumber || booking.digest.slice(0, 8)} verwendet dasselbe Konto auf beiden Seiten.`])
         const lines = createDatevLines(booking).map(line => ({
           accountId: accountIds.get(line.accountNumber)!, debitCents: line.debitCents, creditCents: line.creditCents, taxCode: booking.taxCode ?? null,
@@ -143,7 +158,9 @@ export async function importDatev(ownerId: string, files: DatevFile[]) {
         imported++
       }
     }
-    return { imported, skipped: parsed.bookings.length - imported, accounts: parsed.accounts.length, years }
+    const result = { imported, skipped: parsed.bookings.length - imported, accounts: parsed.accounts.length, years }
+    await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'DATEV_IMPORT_COMPLETED', reason: 'Authenticated DATEV import', objectType: 'AccountingImport', objectId: `DATEV:${prepared[0]?.digest ?? randomUUID()}`, after: result })
+    return result
   })
 }
 

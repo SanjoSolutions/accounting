@@ -1,7 +1,7 @@
 import 'server-only'
 import { isChartOfAccountsStandard } from '@/core/ChartOfAccounts'
 import { getSettings, updateSettings } from '@/server'
-import { CompanyProfileValidationError } from '@/server/compliance/companyProfile'
+import { CompanyProfileValidationError, deriveReportApplicability, validateCompanyProfile } from '@/server/compliance/companyProfile'
 import { getCurrentUser } from '@/server/authentication'
 
 export const runtime = 'nodejs'
@@ -12,7 +12,9 @@ export async function GET(request: Request) {
     return Response.json({ success: false }, { status: 401 })
   }
   const settings = await getSettings(user.id)
-  return Response.json({ success: true, data: settings })
+  const profile = settings.companyProfile
+  const reportApplicability = profile && validateCompanyProfile(profile).length === 0 ? deriveReportApplicability(profile) : null
+  return Response.json({ success: true, data: { ...settings, reportApplicability } })
 }
 
 export async function PUT(request: Request) {

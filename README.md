@@ -80,3 +80,16 @@ server-side; none of these variables may use Next.js's `NEXT_PUBLIC_` prefix.
 Cloud deployments must include the platform-specific optional dependency installed
 with `opendal`. The package is listed in `serverExternalPackages` so Next.js does not
 bundle its native binary.
+
+Compliance backups are encrypted before they are written through the same OpenDAL
+object-storage interface, while the operational database stores only the payload
+locator and authenticated manifest metadata. Configure `AUDIT_INTEGRITY_KEYS`,
+`AUDIT_INTEGRITY_KEY_ID`, and `COMPLIANCE_BACKUP_KEYS_BASE64` as server-side secrets.
+Each audit event records its key ID; retain historical audit keys for the life of the
+audit log. A single audit key can instead use `AUDIT_INTEGRITY_SECRET`. The backup keyring is keyed by
+the policy's key ID; keep historical keys available until every backup encrypted with
+them has expired. A single-key deployment can use the paired
+`COMPLIANCE_BACKUP_KEY_ID` and `COMPLIANCE_BACKUP_KEY_BASE64` variables instead.
+`DOCUMENT_STORAGE_REGION` is the deployment-authoritative region used for the storage
+backend; backup requests and the compliance allowlist must match it exactly. For S3,
+this is also the provider region passed to OpenDAL.

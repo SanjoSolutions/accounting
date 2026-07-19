@@ -6,6 +6,8 @@ import { AccountingValidationError } from '@/core/doubleEntry'
 import { parseLexwareAuditFiles, type LexwareAuditBooking, type LexwareAuditFile } from '@/core/lexwareAudit'
 import { prisma } from './persistence/client'
 import { getDocumentStorage } from './storage'
+import { appendAuditEvent } from './compliance/auditPersistence'
+import { retentionDeadline } from './compliance/retention'
 
 const IMPORT_TRANSACTION_MAX_WAIT_MS = 60_000
 const IMPORT_TRANSACTION_TIMEOUT_MS = 15 * 60_000
@@ -109,7 +111,6 @@ export async function importLexwareAudit(ownerId: string, files: LexwareAuditFil
         }
       }
       const pending = prepared.filter(booking => !existing.has(booking.externalKey))
-      const pendingDocumentNames = new Set(pending.flatMap(booking => booking.documentName ? [booking.documentName.toLowerCase()] : []))
       const pendingYears = new Set(pending.map(booking => booking.year))
       for (const year of parsed.years.filter(year => pendingYears.has(year))) {
         if (fiscalYears.get(year)?.status !== 'OPEN') throw new AccountingValidationError([`Das Geschäftsjahr ${year} ist gesperrt.`])
@@ -136,9 +137,8 @@ export async function importLexwareAudit(ownerId: string, files: LexwareAuditFil
       const accountIds = new Map(accountRows.map(account => [account.number, account.id]))
       if (accountIds.size !== parsed.accounts.length) throw new AccountingValidationError(['Mindestens ein Lexware-Konto ist inaktiv und kann nicht bebucht werden.'])
 
-      const pendingDocumentImports = documentImports.filter(document => pendingDocumentNames.has(document.normalizedName))
       const documentIds = new Map<string, string>()
-      for (const imported of pendingDocumentImports) {
+      for (const imported of documentImports) {
         const document = new Document(
           imported.id,
           `/api/documents/${imported.id}/file`,
@@ -152,6 +152,24 @@ export async function importLexwareAudit(ownerId: string, files: LexwareAuditFil
           where: { id: imported.id },
           create: { id: imported.id, payload: JSON.stringify({ ...document, sourceHash: imported.contentHash }), ownerId },
           update: {},
+        })
+        const definition = prepared
+          .filter(item => item.documentName?.toLowerCase() === imported.normalizedName)
+          .map(item => fiscalYearDefinitions.get(item.year))
+          .filter((item): item is NonNullable<typeof item> => Boolean(item))
+          .sort((left, right) => right.endsAt.localeCompare(left.endsAt))[0]
+        const fallbackPeriodEnd = `${new Date().getUTCFullYear() + 1}-12-31`
+        const periodEnd = definition?.endsAt ?? fallbackPeriodEnd
+        const deadline = retentionDeadline('INVOICE', periodEnd)
+        const artifactKey = { ownerId, objectType: 'Document', objectId: imported.id, version: 1 }
+        const retained = await transaction.retainedArtifact.findUnique({ where: { ownerId_objectType_objectId_version: artifactKey } })
+        const periodEndsAt = new Date(`${periodEnd}T23:59:59.999Z`)
+        const retainUntil = new Date(`${deadline.retainUntil}T23:59:59.999Z`)
+        const extend = retained && (periodEndsAt > retained.periodEndsAt || retainUntil > retained.retainUntil)
+        await transaction.retainedArtifact.upsert({
+          where: { ownerId_objectType_objectId_version: artifactKey },
+          create: { ...artifactKey, retentionClass: 'INVOICE', contentHash: imported.contentHash, provenance: 'Lexware Betriebsprüfung import', storageKey: imported.storageKey, periodEndsAt, retainUntil },
+          update: extend ? { periodEndsAt: periodEndsAt > retained.periodEndsAt ? periodEndsAt : retained.periodEndsAt, retainUntil: retainUntil > retained.retainUntil ? retainUntil : retained.retainUntil } : {},
         })
         documentIds.set(imported.normalizedName, imported.id)
       }
@@ -184,7 +202,7 @@ export async function importLexwareAudit(ownerId: string, files: LexwareAuditFil
           importedCount++
         }
       }
-      return {
+      const result = {
         format: 'LEXWARE_BP' as const,
         imported: importedCount,
         skipped: parsed.bookings.length - importedCount,
@@ -192,6 +210,8 @@ export async function importLexwareAudit(ownerId: string, files: LexwareAuditFil
         documents: documentImports.length,
         years: parsed.years,
       }
+      await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'LEXWARE_IMPORT_COMPLETED', reason: 'Authenticated Lexware Betriebsprüfung import', objectType: 'AccountingImport', objectId: `LEXWARE_BP:${importId}`, after: result })
+      return result
     }, { maxWait: IMPORT_TRANSACTION_MAX_WAIT_MS, timeout: IMPORT_TRANSACTION_TIMEOUT_MS })
     await prisma.documentStorageClaim.deleteMany({ where: { importId } }).catch(() => undefined)
     return result
