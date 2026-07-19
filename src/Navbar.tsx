@@ -30,6 +30,7 @@ export function Navbar({
   const year = new Date().getFullYear()
   const annualCloseYear = defaultFiscalYear('annual-close', year)
   const eBalanceYear = defaultFiscalYear('e-bilanz', year)
+  const taxYear = defaultFiscalYear('tax', year)
 
   return (
     <nav className="navbar navbar-expand-lg navbar-light bg-light">
@@ -59,6 +60,9 @@ export function Navbar({
             </li>
             <li className="nav-item">
               <Link href={`/e-bilanz/${eBalanceYear}`} className={navClassName('/e-bilanz')}>{ t('E-balance') }</Link>
+            </li>
+            <li className="nav-item">
+              <Link href={`/tax/${taxYear}`} className={navClassName('/tax')}>{ t('Tax filings') }</Link>
             </li>
             <li className="nav-item">
               <Link href={exportImportHref} className={navClassName(exportImportHref)}>{ t('ExportImport') }</Link>

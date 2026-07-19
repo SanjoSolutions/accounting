@@ -43,7 +43,9 @@ export const DEFAULT_SKR04_ACCOUNTS = [
   [1600, 'Kasse', 'ASSET', 'bs.ass.currAss.cashEquiv.cash'],
   [1800, 'Bank', 'ASSET', 'bs.ass.currAss.cashEquiv.bank'],
   [1200, 'Forderungen aus Lieferungen und Leistungen', 'ASSET', 'bs.ass.currAss.receiv.trade'],
+  [1406, 'Abziehbare Vorsteuer 19 %', 'ASSET', 'bs.ass.currAss.receiv.other.vat'],
   [3300, 'Verbindlichkeiten aus Lieferungen und Leistungen', 'LIABILITY', 'bs.eqLiab.liab.trade'],
+  [3806, 'Umsatzsteuer 19 %', 'LIABILITY', 'bs.eqLiab.liab.other.theroffTax.vat'],
   [4400, 'Erlöse 19 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput'],
 ] as const
 
