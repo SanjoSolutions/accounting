@@ -4,7 +4,7 @@
   "type": "module",
   "version": "0.1.0",
   "scripts": {
-    "dev": "next dev",
+    "dev": "prisma migrate deploy && prisma generate && next dev",
     "start": "next start",
     "build": "prisma generate && next build",
     "postinstall": "prisma generate",
