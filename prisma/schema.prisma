@@ -8,22 +8,23 @@ datasource db {
 }
 
 model AccountRecord {
-  id        String @id
-  ownerId   String? @unique
+  id        String   @id
+  ownerId   String?  @unique
   payload   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model CompanyProfileVersion {
-  id String @id @default(cuid())
-  ownerId String
+  id            String    @id @default(cuid())
+  ownerId       String
   effectiveFrom DateTime
-  effectiveTo DateTime?
-  payload String
-  createdBy String
-  reason String
-  createdAt DateTime @default(now())
+  effectiveTo   DateTime?
+  payload       String
+  createdBy     String
+  reason        String
+  createdAt     DateTime  @default(now())
+
   @@unique([ownerId, effectiveFrom])
   @@index([ownerId, effectiveFrom, effectiveTo])
 }
@@ -40,14 +41,14 @@ model CompanyProfileAddressConfirmation {
 }
 
 model AuditEvent {
-  id String @id
-  ownerId String
-  actorId String
-  occurredAt DateTime
-  action String
-  reason String
-  objectType String
-  objectId String
+  id            String   @id
+  ownerId       String
+  actorId       String
+  occurredAt    DateTime
+  action        String
+  reason        String
+  objectType    String
+  objectId      String
   semanticDelta String
   previousHash String?
   hash String
@@ -67,13 +68,13 @@ model AuditHead {
 }
 
 model BackupManifest {
-  id String @id @default(cuid())
-  ownerId String
-  createdAt DateTime @default(now())
-  databaseHash String
+  id              String    @id @default(cuid())
+  ownerId         String
+  createdAt       DateTime  @default(now())
+  databaseHash    String
   objectStoreHash String
   encryptionKeyId String
-  storageRegion String
+  storageRegion   String
   recoveryPointAt DateTime
   verifiedAt DateTime?
   restoredAt DateTime?
@@ -94,22 +95,23 @@ model CompliancePolicy {
 }
 
 model DocumentRecord {
-  id          String                      @id
-  payload     String
-  ownerId     String?
-  attachments JournalDocumentAttachment[]
+  id                String                      @id
+  payload           String
+  ownerId           String?
+  attachments       JournalDocumentAttachment[]
+  structuredInvoice StructuredInvoice?
 
   @@index([ownerId])
 }
 
 model DocumentStorageClaim {
-  id         String   @id
-  importId   String
-  documentId String
-  ownerId    String
-  storageKey String
-  createdStorage Boolean @default(false)
-  createdAt  DateTime @default(now())
+  id             String   @id
+  importId       String
+  documentId     String
+  ownerId        String
+  storageKey     String
+  createdStorage Boolean  @default(false)
+  createdAt      DateTime @default(now())
 
   @@unique([importId, documentId])
   @@index([documentId])
@@ -117,17 +119,17 @@ model DocumentStorageClaim {
 }
 
 model RetainedArtifact {
-  id String @id @default(cuid())
-  ownerId String
-  objectType String
-  objectId String
-  version Int
+  id             String    @id @default(cuid())
+  ownerId        String
+  objectType     String
+  objectId       String
+  version        Int
   retentionClass String
-  contentHash String
-  provenance String
-  storageKey String?
-  periodEndsAt DateTime
-  retainUntil DateTime
+  contentHash    String
+  provenance     String
+  storageKey     String?
+  periodEndsAt   DateTime
+  retainUntil    DateTime
   legalHoldUntil DateTime?
   legalHoldReason String?
   lastFixityAt DateTime?
@@ -140,14 +142,15 @@ model RetainedArtifact {
 }
 
 model FixityCheck {
-  id String @id @default(cuid())
-  ownerId String
-  artifactId String
+  id           String   @id @default(cuid())
+  ownerId      String
+  artifactId   String
   expectedHash String
-  actualHash String?
-  status String
-  readable Boolean
-  checkedAt DateTime @default(now())
+  actualHash   String?
+  status       String
+  readable     Boolean
+  checkedAt    DateTime @default(now())
+
   @@index([ownerId, artifactId, checkedAt])
 }
 
@@ -172,20 +175,21 @@ model LedgerAccount {
 }
 
 model AccountMappingVersion {
-  id String @id @default(cuid())
-  ownerId String
-  chartId String
-  accountNumber Int
-  effectiveFrom DateTime
-  effectiveTo DateTime?
-  accountName String
-  accountType String
-  normalBalance String
-  hgbPosition String
+  id              String    @id @default(cuid())
+  ownerId         String
+  chartId         String
+  accountNumber   Int
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  accountName     String
+  accountType     String
+  normalBalance   String
+  hgbPosition     String
   eBilanzPosition String
-  vatCode String?
-  active Boolean @default(true)
-  createdAt DateTime @default(now())
+  vatCode         String?
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+
   @@unique([ownerId, chartId, accountNumber, effectiveFrom])
   @@index([ownerId, effectiveFrom, effectiveTo])
 }
@@ -241,23 +245,23 @@ model EBalanceSubmission {
 }
 
 model JournalEntry {
-  id             String        @id @default(cuid())
-  sequenceNumber Int
-  bookingDate    DateTime
-  documentNumber String
-  description    String
-  source         String        @default("MANUAL")
-  state          String        @default("POSTED")
-  entryDate      DateTime?     @default(now())
-  lateReason     String?
-  reversalOfId   String?       @unique
-  replacementOfId String?      @unique
-  externalKey    String?       @unique
-  fiscalYearId   String
-  fiscalYear     FiscalYear    @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
-  lines          JournalLine[]
-  documents      JournalDocumentAttachment[]
-  createdAt      DateTime      @default(now())
+  id              String                      @id @default(cuid())
+  sequenceNumber  Int
+  bookingDate     DateTime
+  documentNumber  String
+  description     String
+  source          String                      @default("MANUAL")
+  state           String                      @default("POSTED")
+  entryDate       DateTime?                   @default(now())
+  lateReason      String?
+  reversalOfId    String?                     @unique
+  replacementOfId String?                     @unique
+  externalKey     String?                     @unique
+  fiscalYearId    String
+  fiscalYear      FiscalYear                  @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+  lines           JournalLine[]
+  documents       JournalDocumentAttachment[]
+  createdAt       DateTime                    @default(now())
 
   @@unique([fiscalYearId, sequenceNumber])
   @@unique([fiscalYearId, documentNumber])
@@ -280,8 +284,8 @@ model JournalDraft {
 }
 
 model PeriodReopenRequest {
-  id String @id @default(cuid())
-  ownerId String
+  id           String    @id @default(cuid())
+  ownerId      String
   fiscalYearId String
   requestedBy String
   closeGenerationAt DateTime?
@@ -319,16 +323,219 @@ model JournalDocumentAttachment {
 }
 
 model JournalLine {
-  id             String        @id @default(cuid())
-  journalEntryId String
-  journalEntry   JournalEntry  @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
-  accountId      String
-  account        LedgerAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
-  debitCents     Int           @default(0)
-  creditCents    Int           @default(0)
-  taxCode        String?
+  id                 String            @id @default(cuid())
+  journalEntryId     String
+  journalEntry       JournalEntry      @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  accountId          String
+  account            LedgerAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  debitCents         Int               @default(0)
+  creditCents        Int               @default(0)
+  taxCode            String?
+  taxPoint           DateTime?
+  taxJurisdiction    String?
+  netBaseCents       Int?
+  taxRateBasisPoints Int?
+  taxAmountCents     Int?
+  deductibleTaxCents Int?
+  taxRuleId          String?
+  taxRuleVersion     Int?
+  taxReason          String?
+  vatPosting         VatPostingRecord?
 
   @@index([accountId])
+}
+
+model StructuredInvoice {
+  id                 String         @id @default(cuid())
+  ownerId            String
+  documentId         String         @unique
+  document           DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  syntax             String
+  kind               String
+  direction          String
+  issuerKey          String
+  invoiceNumber      String
+  issueDate          DateTime
+  structuredHash     String
+  visualHash         String?
+  originalMediaType  String
+  structuredOriginal Bytes
+  visualOriginal     Bytes?
+  data               String
+  provenance         String
+  renderedHtml       String
+  correctsId         String?
+  createdAt          DateTime       @default(now())
+
+  @@unique([ownerId, direction, issuerKey, invoiceNumber])
+  @@unique([ownerId, structuredHash])
+  @@index([ownerId, issueDate])
+  @@index([ownerId, correctsId])
+}
+
+model InvoiceNumberSequence {
+  ownerId   String
+  year      Int
+  nextValue Int    @default(1)
+
+  @@id([ownerId, year])
+}
+
+model InvoiceNumberReservation {
+  id                  String   @id @default(cuid())
+  ownerId             String
+  year                Int
+  sequenceValue       Int
+  invoiceNumber       String
+  status              String
+  structuredInvoiceId String?
+  failureReason       String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([ownerId, year, sequenceValue])
+  @@unique([ownerId, invoiceNumber])
+  @@index([ownerId, status, createdAt])
+}
+
+model InvoiceIssuanceRequest {
+  id                  String   @id @default(cuid())
+  ownerId             String
+  requestKey          String
+  requestHash         String
+  status              String   @default("PROCESSING")
+  reservationId       String?
+  storageKey          String?
+  structuredInvoiceId String?
+  error               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([ownerId, requestKey])
+  @@index([ownerId, status, updatedAt])
+}
+
+model VatPostingRecord {
+  id                 String       @id @default(cuid())
+  ownerId            String
+  sourceId           String
+  journalLineId      String?      @unique
+  journalLine        JournalLine? @relation(fields: [journalLineId], references: [id], onDelete: Restrict)
+  documentId         String?
+  taxPoint           DateTime
+  jurisdiction       String
+  netBaseCents       Int
+  rateBasisPoints    Int
+  taxCents           Int
+  deductibleTaxCents Int
+  grossCents         Int
+  outputTaxCents     Int
+  inputTaxCents      Int
+  ruleId             String
+  ruleVersion        Int
+  vatCase            String
+  reason             String
+  returnBoxes        String
+  source             String
+  createdAt          DateTime     @default(now())
+
+  @@unique([ownerId, sourceId])
+  @@index([ownerId, taxPoint])
+  @@index([ownerId, documentId])
+}
+
+model VatReversalMarker {
+  ownerId   String
+  marker    String
+  createdAt DateTime @default(now())
+
+  @@id([ownerId, marker])
+}
+
+model TaxWorkflowRecord {
+  submissionId      String    @id
+  ownerId           String
+  kind              String
+  period            String
+  state             String
+  revision          Int
+  idempotencyKey    String
+  payload           String
+  receipt           String?
+  correctsId        String?
+  actionReservation String?
+  deadline          DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([ownerId, idempotencyKey])
+  @@index([ownerId, kind, period, updatedAt])
+  @@index([ownerId, correctsId])
+}
+
+model TaxSubmissionRequest {
+  id           String   @id @default(cuid())
+  ownerId      String
+  requestKey   String
+  datasetHash  String
+  filingKey    String?  @unique
+  status       String   @default("PROCESSING")
+  submissionId String?
+  error        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([ownerId, requestKey])
+  @@index([ownerId, createdAt])
+}
+
+model TaxAdjustmentRecord {
+  id                String
+  ownerId           String
+  year              Int
+  ruleVersion       String
+  field             String
+  layer             String
+  amountCents       Int
+  reason            String
+  sourceDocumentIds String
+  legalBasis        String
+  treatment         String
+  createdAt         DateTime @default(now())
+
+  @@id([ownerId, id])
+  @@index([ownerId, year])
+}
+
+model TaxDatasetPreparationRecord {
+  id            String   @id @default(cuid())
+  ownerId       String
+  kind          String
+  period        String
+  datasetHash   String
+  sourcePayload String?
+  createdAt     DateTime @default(now())
+
+  @@unique([ownerId, datasetHash])
+  @@index([ownerId, kind, period, createdAt])
+}
+
+model TaxAssessmentRecord {
+  id                      String
+  ownerId                 String
+  kind                    String
+  period                  String
+  assessedAmountCents     Int
+  receivedAt              DateTime
+  documentHash            String
+  declarationSubmissionId String
+  differenceCents         Int
+  needsReview             Boolean
+  createdAt               DateTime @default(now())
+
+  @@id([ownerId, id])
+  @@index([ownerId, kind, period])
+  @@index([ownerId, declarationSubmissionId])
 }
 
 model User {

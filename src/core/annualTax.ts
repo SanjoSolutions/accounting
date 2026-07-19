@@ -3,8 +3,22 @@ import { TaxDeclarationError, germanNationalHolidays, isExactAcceptedDeclaration
 
 export type LegalForm = 'GMBH' | 'UG' | 'AG' | 'SOLE_PROPRIETOR' | 'GBR' | 'OHG' | 'KG' | 'GMBH_CO_KG'
 export interface AnnualTaxProfile { companyId: string; legalForm: LegalForm; tradeBusiness: boolean; establishments: number; adviserExtension: boolean; fiscalYearEnd: string; municipalityCode?: string; tradeTaxMultiplierBasisPoints?: number; establishmentAllocations?: Readonly<Record<string, number>> }
+export function parseAnnualTaxYear(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 1000 || (value as number) > 9999) throw new TaxDeclarationError(['Annual tax year must be a four-digit calendar year.'])
+  return value as number
+}
 export interface TaxAdjustment { id: string; ruleVersion: string; effectiveFor: string; field: string; layer: 'income-tax' | 'trade-tax'; amountCents: number; reason: string; sourceDocumentIds: readonly string[]; legalBasis: string; treatment: 'add-back' | 'deduction' }
 export interface AnnualTaxValue { field: string; amountCents: number; ledgerEntryIds: readonly string[]; eBilanzFacts: readonly string[]; adjustmentIds: readonly string[] }
+export function parseAnnualTaxValues(value: unknown): AnnualTaxValue[] {
+  if (!Array.isArray(value)) throw new TaxDeclarationError(['Annual tax values must be an array.'])
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new TaxDeclarationError([`Annual tax value ${index + 1} must be an object.`])
+    const candidate = item as Partial<AnnualTaxValue>
+    const lists = [candidate.ledgerEntryIds, candidate.eBilanzFacts, candidate.adjustmentIds]
+    if (typeof candidate.field !== 'string' || !candidate.field.trim() || !Number.isSafeInteger(candidate.amountCents) || lists.some(list => !Array.isArray(list) || list.some(id => typeof id !== 'string' || !id.trim()) || new Set(list).size !== list.length)) throw new TaxDeclarationError([`Annual tax value ${index + 1} requires a field, safe-integer cents, and unique nonblank drilldown IDs.`])
+    return { field: candidate.field, amountCents: candidate.amountCents!, ledgerEntryIds: [...candidate.ledgerEntryIds!], eBilanzFacts: [...candidate.eBilanzFacts!], adjustmentIds: [...candidate.adjustmentIds!] }
+  })
+}
 export interface AnnualTaxLiabilityEvidence { taxpayerId: string; filingPeriod: string; field: 'KST_SCHULD' | 'GEWST_SCHULD' | 'EST_SCHULD'; amountCents: number; provider: string; calculationId: string }
 export interface AnnualTaxLiabilityAuthority { configurationId: string; attest(claim: Omit<AnnualTaxLiabilityEvidence, 'provider' | 'calculationId'>): Promise<{ verified: boolean; calculationId?: string }> }
 const trustedAnnualTaxLiabilityAuthorities = new WeakSet<object>()
@@ -75,7 +89,7 @@ export function reconcileAnnualTax(args: { taxpayerId?: string; filingPeriod: st
     if ([...value.ledgerEntryIds, ...value.eBilanzFacts, ...value.adjustmentIds].some(id => !id.trim())) discrepancies.push(`Field ${value.field || '(blank)'} contains blank provenance identifiers.`)
     if (seenFields.has(value.field)) discrepancies.push(`Declaration field ${value.field} is duplicated.`)
     seenFields.add(value.field)
-    if (!value.ledgerEntryIds.length && !value.eBilanzFacts.length && !value.adjustmentIds.some(id => known.has(id))) discrepancies.push(`Field ${value.field} has no drilldown source.`)
+    if (!value.ledgerEntryIds.length && !value.eBilanzFacts.length && !value.adjustmentIds.some(id => known.has(id)) && !(value.field === 'HGB_RESULT' && value.amountCents === 0 && args.hgbResultCents === 0 && args.ledgerResultCents === 0)) discrepancies.push(`Field ${value.field} has no drilldown source.`)
     if (value.adjustmentIds.some(id => !known.has(id))) discrepancies.push(`Field ${value.field} references an unknown adjustment.`)
     for (const id of value.adjustmentIds) { const adjustment = args.adjustments.find(item => item.id === id); if (adjustment && adjustment.field !== value.field) discrepancies.push(`Adjustment ${id} targets ${adjustment.field}, not declaration field ${value.field}.`) }
   }

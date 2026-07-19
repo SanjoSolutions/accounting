@@ -16,7 +16,8 @@ export const STANDARD_CHARTS = {
   ],
   SKR04: [
     mapping(1600, 'Kasse', 'ASSET', 'bs.ass.currAss.cashEquiv.cash'), mapping(1800, 'Bank', 'ASSET', 'bs.ass.currAss.cashEquiv.bank'),
-    mapping(1200, 'Forderungen aus Lieferungen und Leistungen', 'ASSET', 'bs.ass.currAss.receiv.trade'), mapping(3300, 'Verbindlichkeiten aus Lieferungen und Leistungen', 'LIABILITY', 'bs.eqLiab.liab.trade'),
+    mapping(1200, 'Forderungen aus Lieferungen und Leistungen', 'ASSET', 'bs.ass.currAss.receiv.trade'), mapping(1406, 'Abziehbare Vorsteuer 19 %', 'ASSET', 'bs.ass.currAss.receiv.other.vat', 'V19'),
+    mapping(3300, 'Verbindlichkeiten aus Lieferungen und Leistungen', 'LIABILITY', 'bs.eqLiab.liab.trade'), mapping(3806, 'Umsatzsteuer 19 %', 'LIABILITY', 'bs.eqLiab.liab.other.theroffTax.vat', 'U19'),
     mapping(4400, 'Erlöse 19 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput', 'U19'),
   ],
 } as const

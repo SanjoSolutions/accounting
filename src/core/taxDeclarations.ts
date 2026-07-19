@@ -249,7 +249,7 @@ export class DeclarationWorkflow {
     internallyConstructedWorkflows.add(this)
     Object.freeze(this)
   }
-  static create(dataset: DeclarationDataset, now = new Date().toISOString()) { return new DeclarationWorkflow({ dataset, events: [event(now, 'created', { datasetHash: datasetHash(dataset) })] }) }
+  static create(dataset: DeclarationDataset, now = new Date().toISOString(), submissionId?: string) { if (submissionId !== undefined && !submissionId.trim()) throw new TaxDeclarationError(['A supplied declaration submission identity must be nonblank.']); return new DeclarationWorkflow({ dataset, submissionId, events: [event(now, 'created', { datasetHash: declarationDatasetHash(dataset) })] }) }
   static restorePersisted(args: { dataset: DeclarationDataset; state: 'submitting' | 'cancelling' | 'uncertain' | 'accepted' | 'rejected' | 'corrected' | 'cancelled'; events: readonly DeclarationEvent[]; idempotencyKey: string; receipt?: string; correctsId?: string; submissionId: string; gatewayId: string; workflowStoreId: string }, capability: symbol) { if (capability !== WORKFLOW_STORE_CAPABILITY) throw new TaxDeclarationError(['Persisted workflows can only be restored by the configured durable store.']); return new DeclarationWorkflow(args) }
   validated(result: ValidationResult, capability: symbol, gatewayId: string, workflowStoreId: string, now = new Date().toISOString()): DeclarationWorkflow {
     this.requireInternal()
@@ -268,7 +268,7 @@ export class DeclarationWorkflow {
     this.requireInternal()
     if (this.state === 'submitting' || this.state === 'uncertain' || this.state === 'accepted') return this
     this.requireState('approved')
-    const key = this.idempotencyKey ?? createHash('sha256').update(`${this.submissionId}:${datasetHash(this.dataset)}`).digest('hex')
+    const key = this.idempotencyKey ?? createHash('sha256').update(`${this.submissionId}:${declarationDatasetHash(this.dataset)}`).digest('hex')
     return this.transition('submitting', now, 'submission-started', { idempotencyKey: key }, undefined, { idempotencyKey: key })
   }
   submitted(outcome: 'accepted' | 'rejected' | 'uncertain', receipt: string | undefined, errors: readonly string[], capability: symbol, now = new Date().toISOString()): DeclarationWorkflow {
@@ -300,12 +300,13 @@ export class DeclarationWorkflow {
     const active = officiallyAcceptedWorkflows.has(this); const actionable = actionableAcceptedWorkflows.has(this); officiallyAcceptedWorkflows.delete(this); actionableAcceptedWorkflows.delete(this); if (active) officiallyAcceptedWorkflows.add(transitioned); if (actionable) actionableAcceptedWorkflows.add(transitioned)
     return transitioned
   }
-  correction(dataset: DeclarationDataset, now = new Date().toISOString()): { original: DeclarationWorkflow; correction: DeclarationWorkflow } {
+  correction(dataset: DeclarationDataset, now = new Date().toISOString(), submissionId?: string): { original: DeclarationWorkflow; correction: DeclarationWorkflow } {
     this.requireInternal()
     this.requireState('accepted')
     if (!officiallyAcceptedWorkflows.has(this) || !actionableAcceptedWorkflows.has(this) || !hasDeclarationLifecycle(this, 'accepted')) throw new TaxDeclarationError(['Corrections require the exact actionable officially accepted workflow.'])
     if (dataset.kind !== this.dataset.kind || dataset.period !== this.dataset.period || dataset.taxpayerId !== this.dataset.taxpayerId) throw new TaxDeclarationError(['A correction must have the same kind, period and taxpayer as the accepted declaration.'])
-    const correction = new DeclarationWorkflow({ dataset, correctsId: this.submissionId, gatewayId: this.gatewayId, workflowStoreId: this.workflowStoreId, events: [event(now, 'created-as-correction', { correctsId: this.submissionId, originalReceipt: this.receipt ?? '', datasetHash: datasetHash(dataset) }, undefined, this.events.at(-1)?.at)] })
+    if (submissionId !== undefined && !submissionId.trim()) throw new TaxDeclarationError(['A supplied correction submission identity must be nonblank.'])
+    const correction = new DeclarationWorkflow({ dataset, submissionId, correctsId: this.submissionId, gatewayId: this.gatewayId, workflowStoreId: this.workflowStoreId, events: [event(now, 'created-as-correction', { correctsId: this.submissionId, originalReceipt: this.receipt ?? '', datasetHash: declarationDatasetHash(dataset) }, undefined, this.events.at(-1)?.at)] })
     return { original: this, correction }
   }
   finalizedByCorrection(correction: DeclarationWorkflow, capability: symbol, now = new Date().toISOString()): DeclarationWorkflow {
@@ -402,7 +403,7 @@ async function validatePersistedWorkflow(candidate: unknown, requestedSubmission
   if (record.version !== 1 || !Number.isSafeInteger(record.revision) || record.revision !== snapshot?.events?.length || !snapshot || typeof record.authenticationTag !== 'string' || !record.authenticationTag.trim() || !await authenticator.verify(canonicalPayload, record.authenticationTag)) throw new TaxDeclarationError(['Persisted workflow authenticated integrity check failed.'])
   if (!['submitting', 'cancelling', 'uncertain', 'accepted', 'rejected', 'corrected', 'cancelled'].includes(snapshot.state) || snapshot.submissionId !== requestedSubmissionId || !snapshot.gatewayId?.trim() || !snapshot.workflowStoreId?.trim() || !snapshot.idempotencyKey?.trim() || !snapshot.dataset || typeof snapshot.dataset !== 'object' || !snapshot.dataset.taxpayerId?.trim() || !snapshot.dataset.formVersion?.trim() || (['accepted', 'corrected', 'cancelled'].includes(snapshot.state) && !snapshot.receipt?.trim())) throw new TaxDeclarationError(['Persisted workflow identity, state, receipt or dataset is invalid.'])
   if (!Array.isArray(snapshot.events) || !snapshot.events.length || snapshot.events.some((item, index) => !item || typeof item.id !== 'string' || !item.id.trim() || typeof item.type !== 'string' || !item.type.trim() || !isCanonicalInstant(item.at) || index > 0 && Date.parse(item.at) < Date.parse(snapshot.events[index - 1].at) || !item.payload || typeof item.payload !== 'object' || Array.isArray(item.payload)) || new Set(snapshot.events.map(item => item.id)).size !== snapshot.events.length) throw new TaxDeclarationError(['Persisted workflow event history is invalid.'])
-  const first = snapshot.events[0]; const last = snapshot.events.at(-1)!; const expectedDatasetHash = datasetHash(snapshot.dataset)
+  const first = snapshot.events[0]; const last = snapshot.events.at(-1)!; const expectedDatasetHash = declarationDatasetHash(snapshot.dataset)
   const hasAcceptedSubmission = snapshot.events.some(item => item.type === 'submission-accepted')
   if (first.payload.datasetHash !== expectedDatasetHash || !['created', 'created-as-correction'].includes(first.type) || (snapshot.state === 'submitting' ? last.type !== 'submission-started' : snapshot.state === 'cancelling' ? last.type !== 'cancellation-started' : snapshot.state === 'uncertain' ? !['submission-uncertain', 'cancellation-uncertain'].includes(last.type) : snapshot.state === 'rejected' ? last.type !== 'submission-rejected' : snapshot.state === 'corrected' ? last.type !== 'correction-accepted' : snapshot.state === 'cancelled' ? last.type !== 'cancellation-accepted' : !hasAcceptedSubmission)) throw new TaxDeclarationError(['Persisted workflow history does not match its dataset and lifecycle state.'])
   const hasCancellationAttempt = snapshot.events.some(item => item.type === 'cancellation-started')
@@ -496,7 +497,7 @@ export function germanNationalHolidays(fromYear: number, toYear: number): Readon
 
 function isCanonicalInstant(value: unknown): value is string { if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) return false; const normalized = value.includes('.') ? value : value.replace(/Z$/, '.000Z'); const parsed = new Date(value); return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === normalized }
 function event(at: string, type: string, payload: Record<string, unknown>, actor?: string, previousAt?: string): DeclarationEvent { if (!isCanonicalInstant(at) || previousAt && Date.parse(at) < Date.parse(previousAt)) throw new TaxDeclarationError(['Declaration event timestamp must be a canonical date-time no earlier than the preceding event.']); return deepFreeze({ id: randomUUID(), at, type, ...(actor !== undefined ? { actor } : {}), payload }) }
-function datasetHash(dataset: DeclarationDataset) { return createHash('sha256').update(stableJson(dataset)).digest('hex') }
+export function declarationDatasetHash(dataset: DeclarationDataset) { return createHash('sha256').update(stableJson(dataset)).digest('hex') }
 function stableJson(value: unknown): string {
   const active = new WeakSet<object>(); let nodes = 0
   const encode = (item: unknown, depth: number): string => {

@@ -493,8 +493,13 @@ function parseSafeXml(xml: string): XmlNode {
     const raw = trimXmlWhitespace(token.tag!)
     if (raw.startsWith('?')) {
       const validDeclaration = /^\?xml[ \t\r\n]+version=(?:"1\.0"|'1\.0')(?:[ \t\r\n]+encoding=(?:"UTF-8"|'UTF-8'|"utf-8"|'utf-8'))?(?:[ \t\r\n]+standalone=(?:"(?:yes|no)"|'(?:yes|no)'))?[ \t\r\n]*\?$/.test(raw)
-      if (declarationSeen || token.index !== 0 || !validDeclaration || document.children.length || stack.length !== 1) throw new EInvoiceValidationError(['Only one complete leading XML declaration is allowed.'])
-      declarationSeen = true; continue
+      if (validDeclaration) {
+        if (declarationSeen || token.index !== 0 || document.children.length || stack.length !== 1) throw new EInvoiceValidationError(['Only one complete leading XML declaration is allowed.'])
+        declarationSeen = true; continue
+      }
+      if (/^\?xml(?:[ \t\r\n]|\?)/i.test(raw)) throw new EInvoiceValidationError(['Only one complete leading XML declaration is allowed.'])
+      if (!/^\?[A-Za-z_][A-Za-z0-9_.-]*(?:[ \t\r\n][^<>]*)?\?$/.test(raw)) throw new EInvoiceValidationError(['Malformed XML processing instruction.'])
+      continue
     }
     if (raw.startsWith('/')) {
       if (stack.length === 1) throw new EInvoiceValidationError(['Malformed XML closing tag.'])

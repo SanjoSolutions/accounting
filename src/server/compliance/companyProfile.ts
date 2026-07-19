@@ -1,4 +1,4 @@
-export type LegalForm = 'SOLE_TRADER' | 'GMBH' | 'UG' | 'AG' | 'OHG' | 'KG' | 'GBR' | 'PARTNERSHIP' | 'OTHER'
+export type LegalForm = 'SOLE_TRADER' | 'GMBH' | 'UG' | 'AG' | 'OHG' | 'KG' | 'GMBH_CO_KG' | 'GBR' | 'PARTNERSHIP' | 'OTHER'
 export type VatRegime = 'STANDARD' | 'SMALL_BUSINESS' | 'EXEMPT'
 export type FilingFrequency = 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'
 
@@ -17,6 +17,14 @@ export interface CompanyProfile {
   sizeClass: 'MICRO' | 'SMALL' | 'MEDIUM' | 'LARGE'
   chart: 'SKR03' | 'SKR04' | `CUSTOM:${string}`
   elections: string[]
+  annualTaxProfile?: {
+    tradeBusiness: boolean
+    establishments: number
+    adviserExtension: boolean
+    municipalityCode?: string
+    tradeTaxMultiplierBasisPoints?: number
+    establishmentAllocations?: Record<string, number>
+  }
   applicabilityOverrides?: Partial<Record<ReportKind, boolean>>
 }
 
@@ -96,7 +104,7 @@ export function validateCompanyProfile(profile: unknown): string[] {
   if ((value.registerCourt === undefined) !== (value.registerNumber === undefined)) issues.push('registerCourt and registerNumber must be supplied together')
   if (typeof value.taxNumber !== 'string' || !/^[A-Z0-9:/ -]{8,20}$/i.test(value.taxNumber)) issues.push('taxNumber has an invalid format')
   if (value.vatId !== undefined && (typeof value.vatId !== 'string' || !/^DE\d{9}$/.test(value.vatId))) issues.push('vatId must be a German VAT ID')
-  if (!['SOLE_TRADER', 'GMBH', 'UG', 'AG', 'OHG', 'KG', 'GBR', 'PARTNERSHIP', 'OTHER'].includes(value.legalForm ?? '')) issues.push('legalForm is invalid')
+  if (!['SOLE_TRADER', 'GMBH', 'UG', 'AG', 'OHG', 'KG', 'GMBH_CO_KG', 'GBR', 'PARTNERSHIP', 'OTHER'].includes(value.legalForm ?? '')) issues.push('legalForm is invalid')
   if (!['STANDARD', 'SMALL_BUSINESS', 'EXEMPT'].includes(value.vatRegime ?? '')) issues.push('vatRegime is invalid')
   if (!['MONTHLY', 'QUARTERLY', 'ANNUAL'].includes(value.vatFilingFrequency ?? '')) issues.push('vatFilingFrequency is invalid')
   if (!['MICRO', 'SMALL', 'MEDIUM', 'LARGE'].includes(value.sizeClass ?? '')) issues.push('sizeClass is invalid')
@@ -106,6 +114,15 @@ export function validateCompanyProfile(profile: unknown): string[] {
   }
   if (typeof value.chart !== 'string' || !['SKR03', 'SKR04'].includes(value.chart) && !/^CUSTOM:.+/.test(value.chart)) issues.push('chart is invalid')
   if (!Array.isArray(value.elections) || value.elections.some(item => typeof item !== 'string')) issues.push('elections must be a string array')
+  if (value.annualTaxProfile !== undefined) {
+    const facts = value.annualTaxProfile
+    if (!facts || typeof facts !== 'object' || Array.isArray(facts) || typeof facts.tradeBusiness !== 'boolean' || !Number.isSafeInteger(facts.establishments) || facts.establishments < 1 || typeof facts.adviserExtension !== 'boolean') issues.push('annualTaxProfile requires canonical trade, establishment and adviser facts')
+    if (facts && typeof facts === 'object' && !Array.isArray(facts)) {
+      if (facts.municipalityCode !== undefined && (typeof facts.municipalityCode !== 'string' || !facts.municipalityCode.trim())) issues.push('annualTaxProfile municipalityCode is invalid')
+      if (facts.tradeTaxMultiplierBasisPoints !== undefined && (!Number.isSafeInteger(facts.tradeTaxMultiplierBasisPoints) || facts.tradeTaxMultiplierBasisPoints <= 0)) issues.push('annualTaxProfile tradeTaxMultiplierBasisPoints is invalid')
+      if (facts.establishmentAllocations !== undefined && (!facts.establishmentAllocations || typeof facts.establishmentAllocations !== 'object' || Array.isArray(facts.establishmentAllocations) || Object.entries(facts.establishmentAllocations).some(([id, share]) => !id.trim() || !Number.isSafeInteger(share) || share < 0))) issues.push('annualTaxProfile establishmentAllocations is invalid')
+    }
+  }
   if (value.applicabilityOverrides !== undefined && (!value.applicabilityOverrides || typeof value.applicabilityOverrides !== 'object' || Array.isArray(value.applicabilityOverrides) || Object.entries(value.applicabilityOverrides).some(([key, item]) => !['VAT_ADVANCE', 'VAT_ANNUAL', 'E_BILANZ', 'HGB_FINANCIAL_STATEMENTS'].includes(key) || typeof item !== 'boolean'))) issues.push('applicabilityOverrides is invalid')
   return issues
 }

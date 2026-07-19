@@ -8,6 +8,7 @@
     "Bookings": "Buchungen",
     "Annual close": "Jahresabschluss",
     "E-balance": "E-Bilanz",
+    "Tax filings": "Steuermeldungen",
     "ExportImport": "Export / Import",
     "Compliance": "Compliance",
     "Create booking record": "Buchungssatz erstellen",
@@ -70,6 +71,9 @@
     "Chart of accounts": "Kontenrahmen",
     "Save": "Speichern",
     "Load failed": "Die Einstellungen konnten nicht geladen werden."
+  },
+  "Tax": {
+    "eyebrow": "Steuerdeklaration", "title": "Steuermeldungen {year}", "subtitle": "Umsatzsteuer- und Jahressteuererklärungen vorbereiten, prüfen, freigeben und mit unveränderlicher Historie übermitteln.", "loadFailed": "Die Steuermeldungen konnten nicht geladen werden.", "annualProfileRequired": "Konfigurieren Sie das verbindliche Jahressteuerprofil, um Pflichten und Fristen zu ermitteln. Die Umsatzsteuerhistorie bleibt verfügbar.", "actionFailed": "Die amtliche Steueraktion ist fehlgeschlagen.", "validated": "Das amtliche Gateway hat den Datensatz geprüft.", "submitted": "Die Erklärung wurde übermittelt und archiviert.", "recovered": "Das amtliche Übermittlungsergebnis wurde wiederhergestellt und archiviert.", "submissionPending": "Das Übermittlungsergebnis ist noch unbekannt. Stellen Sie das amtliche Ergebnis über die unveränderliche Historie wieder her.", "submissionRejected": "Das amtliche Gateway hat die Erklärung abgelehnt.", "applicability": "Anwendbare Jahreserklärungen", "deadline": "Aktuelle Frist: {date}", "professionalReview": "Vor dem Produktiveinsatz ist die Prüfung durch eine deutsche Steuerfachkraft erforderlich.", "loading": "Wird geladen …", "prepare": "Erklärung vorbereiten", "kind": "Formular", "period": "Zeitraum", "fields": "Amtliche Felder (Cent als Ganzzahl)", "confirm": "Ich gebe diese verbindliche Übermittlung ausdrücklich frei.", "validate": "Amtlich prüfen", "submit": "Verbindlich senden", "history": "Unveränderliche Übermittlungshistorie", "state": "Status", "receipt": "Protokoll", "action": "Aktion", "recover": "Ergebnis wiederherstellen", "empty": "Es wurden noch keine Steuererklärungen übermittelt."
   },
   "Workspaces": {
     "generalLedger": "Grundbuch & Hauptbuch", "bookings": "Buchungen", "bookingsSubtitle": "Centgenau, ausgeglichen und nach Festschreibung unveränderbar.", "fiscalYear": "Geschäftsjahr", "fiscalYearNavigation": "Geschäftsjahr auswählen", "previousFiscalYear": "Vorheriges Geschäftsjahr {year}", "nextFiscalYear": "Nächstes Geschäftsjahr {year}", "openFiscalYear": "Öffnen",
