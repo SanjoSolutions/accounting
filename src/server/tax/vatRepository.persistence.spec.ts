@@ -127,8 +127,7 @@ describe('persistent VAT detail and reconciliation integration', () => {
   it('fails closed when the effective profile does not authorize monthly advance VAT returns', async () => {
     const row = await prisma.companyProfileVersion.findUniqueOrThrow({ where: { id: 'profile-a' } })
     const quarterly = { ...JSON.parse(row.payload), vatFilingFrequency: 'QUARTERLY' }
-    await prisma.companyProfileVersion.update({ where: { id: 'profile-a' }, data: { payload: JSON.stringify(quarterly) } })
-    await expect(api.prepareReconciledVatDataset('tenant-a', '2026-01')).rejects.toThrow(/STANDARD.*MONTHLY/)
-    await prisma.companyProfileVersion.update({ where: { id: 'profile-a' }, data: { payload: row.payload } })
+    await prisma.companyProfileVersion.create({ data: { id: 'profile-quarterly', ownerId: 'tenant-quarterly', effectiveFrom: new Date('2026-01-01'), effectiveTo: new Date('2026-12-31'), payload: JSON.stringify(quarterly), createdBy: 'tester', reason: 'quarterly filing test' } })
+    await expect(api.prepareReconciledVatDataset('tenant-quarterly', '2026-01')).rejects.toThrow(/STANDARD.*MONTHLY/)
   })
 })
