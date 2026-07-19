@@ -15,6 +15,7 @@ describe('ERiC configuration', () => {
 
   it('keeps the certificate PIN outside environment configuration', () => {
     const configuration = getEricConfiguration({
+      NODE_ENV: 'test',
       ERIC_BRIDGE_PATH: 'bridge.exe', ERIC_RUNTIME_DIR: 'runtime', ERIC_HERSTELLER_ID: '123',
       ERIC_CERTIFICATE_PATH: 'certificate.pfx', ERIC_PIN: 'must-not-be-read',
     })
