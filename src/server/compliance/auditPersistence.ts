@@ -13,8 +13,12 @@ function integrityKeyring(): { currentKeyId: string; keys: Record<string, string
   }
   const configured = process.env.AUDIT_INTEGRITY_SECRET
   if (configured && configured.length >= 32) return { currentKeyId: 'default', keys: { default: configured } }
-  if (process.env.NODE_ENV === 'test') return { currentKeyId: 'default', keys: { default: 'local-audit-integrity-key-32-bytes!' } }
+  if (allowsLocalIntegrityKey(process.env)) return { currentKeyId: 'default', keys: { default: 'local-audit-integrity-key-32-bytes!' } }
   throw new Error('AUDIT_INTEGRITY_SECRET must contain at least 32 characters')
+}
+
+function allowsLocalIntegrityKey(env: NodeJS.ProcessEnv) {
+  return env.NODE_ENV === 'test' || (env.NODE_ENV === 'development' && (env.AUTH_MODE ?? 'none') === 'none')
 }
 
 function integritySecret(keyId: string): string {

@@ -2,6 +2,35 @@ import { describe, expect, it, vi } from 'vitest'
 import { appendAuditEvent, verifyAuditChain } from './auditPersistence'
 
 describe('durable append-only audit persistence', () => {
+  it('uses the local integrity key only for unauthenticated development', async () => {
+    const previous = {
+      nodeEnv: process.env.NODE_ENV,
+      authMode: process.env.AUTH_MODE,
+      secret: process.env.AUDIT_INTEGRITY_SECRET,
+      keys: process.env.AUDIT_INTEGRITY_KEYS,
+    }
+    const transaction = auditTransaction()
+    try {
+      Object.assign(process.env, { NODE_ENV: 'development' })
+      delete process.env.AUTH_MODE
+      delete process.env.AUDIT_INTEGRITY_SECRET
+      delete process.env.AUDIT_INTEGRITY_KEYS
+      await expect(appendAuditEvent(transaction as never, {
+        ownerId: 'local', actorId: 'local', action: 'IMPORT', reason: 'local import', objectType: 'AccountingImport', objectId: '1',
+      })).resolves.toBeDefined()
+
+      process.env.AUTH_MODE = 'credentials'
+      await expect(appendAuditEvent(transaction as never, {
+        ownerId: 'user', actorId: 'user', action: 'IMPORT', reason: 'configured import', objectType: 'AccountingImport', objectId: '2',
+      })).rejects.toThrow(/AUDIT_INTEGRITY_SECRET/)
+    } finally {
+      restoreEnvironment('NODE_ENV', previous.nodeEnv)
+      restoreEnvironment('AUTH_MODE', previous.authMode)
+      restoreEnvironment('AUDIT_INTEGRITY_SECRET', previous.secret)
+      restoreEnvironment('AUDIT_INTEGRITY_KEYS', previous.keys)
+    }
+  })
+
   it('serializes through a per-tenant head and produces a verifiable semantic chain', async () => {
     const heads = new Map<string, { ownerId: string; headHash: string | null; version: number }>()
     const events: any[] = []
@@ -97,3 +126,20 @@ describe('durable append-only audit persistence', () => {
     }
   })
 })
+
+function auditTransaction() {
+  let head = { ownerId: 'local', headHash: null as string | null, version: 0 }
+  return {
+    auditHead: {
+      upsert: vi.fn(async () => { head.version++ }),
+      findUniqueOrThrow: vi.fn(async () => head),
+      update: vi.fn(async ({ data }: any) => { head = { ...head, ...data } }),
+    },
+    auditEvent: { create: vi.fn(async ({ data }: any) => data) },
+  }
+}
+
+function restoreEnvironment(name: string, value: string | undefined) {
+  if (value === undefined) delete process.env[name]
+  else process.env[name] = value
+}

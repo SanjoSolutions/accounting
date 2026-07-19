@@ -42,6 +42,7 @@ export async function POST(request: Request) {
     throw new AccountingValidationError(['Das Importformat wurde nicht erkannt. Unterstützt werden DATEV EXTF und Lexware Buchhaltung „Daten Betriebsprüfung“.'])
   } catch (error) {
     if (error instanceof AccountingValidationError) return Response.json({ success: false, issues: error.issues }, { status: 400 })
+    console.error('Accounting import failed', error)
     return Response.json({ success: false, issues: ['Der Buchhaltungsimport konnte nicht verarbeitet werden.'] }, { status: 500 })
   }
 }
