@@ -1,0 +1,668 @@
+{
+  "balanceSheet": [
+    {
+      "accountIds": [
+        "1000"
+      ],
+      "amountCents": 100000,
+      "code": "A.ASSETS",
+      "comparativeCents": 90000,
+      "label": "A.ASSETS"
+    },
+    {
+      "accountIds": [
+        "1100"
+      ],
+      "amountCents": 60000,
+      "code": "A.FIXED",
+      "comparativeCents": 55000,
+      "label": "A.FIXED"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.INTANGIBLE",
+      "comparativeCents": 0,
+      "label": "A.INTANGIBLE"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.INTANGIBLE_RIGHTS",
+      "comparativeCents": 0,
+      "label": "A.INTANGIBLE_RIGHTS"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.GOODWILL",
+      "comparativeCents": 0,
+      "label": "A.GOODWILL"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.INTANGIBLE_ADVANCES",
+      "comparativeCents": 0,
+      "label": "A.INTANGIBLE_ADVANCES"
+    },
+    {
+      "accountIds": [
+        "1100"
+      ],
+      "amountCents": 60000,
+      "code": "A.TANGIBLE",
+      "comparativeCents": 55000,
+      "label": "A.TANGIBLE"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.LAND_BUILDINGS",
+      "comparativeCents": 0,
+      "label": "A.LAND_BUILDINGS"
+    },
+    {
+      "accountIds": [
+        "1100"
+      ],
+      "amountCents": 60000,
+      "code": "A.TECHNICAL_MACHINERY",
+      "comparativeCents": 55000,
+      "label": "A.TECHNICAL_MACHINERY"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.OTHER_EQUIPMENT",
+      "comparativeCents": 0,
+      "label": "A.OTHER_EQUIPMENT"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.TANGIBLE_ADVANCES",
+      "comparativeCents": 0,
+      "label": "A.TANGIBLE_ADVANCES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.FINANCIAL",
+      "comparativeCents": 0,
+      "label": "A.FINANCIAL"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.AFFILIATED_SHARES",
+      "comparativeCents": 0,
+      "label": "A.AFFILIATED_SHARES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.AFFILIATED_LOANS",
+      "comparativeCents": 0,
+      "label": "A.AFFILIATED_LOANS"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.PARTICIPATIONS",
+      "comparativeCents": 0,
+      "label": "A.PARTICIPATIONS"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.PARTICIPATION_LOANS",
+      "comparativeCents": 0,
+      "label": "A.PARTICIPATION_LOANS"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.INVESTMENTS",
+      "comparativeCents": 0,
+      "label": "A.INVESTMENTS"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.OTHER_LOANS",
+      "comparativeCents": 0,
+      "label": "A.OTHER_LOANS"
+    },
+    {
+      "accountIds": [
+        "1200"
+      ],
+      "amountCents": 35000,
+      "code": "A.CURRENT",
+      "comparativeCents": 30000,
+      "label": "A.CURRENT"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.INVENTORIES",
+      "comparativeCents": 0,
+      "label": "A.INVENTORIES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.RAW_MATERIALS",
+      "comparativeCents": 0,
+      "label": "A.RAW_MATERIALS"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.WIP",
+      "comparativeCents": 0,
+      "label": "A.WIP"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.FINISHED_GOODS",
+      "comparativeCents": 0,
+      "label": "A.FINISHED_GOODS"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.INVENTORY_ADVANCES",
+      "comparativeCents": 0,
+      "label": "A.INVENTORY_ADVANCES"
+    },
+    {
+      "accountIds": [
+        "1200"
+      ],
+      "amountCents": 35000,
+      "code": "A.RECEIVABLES",
+      "comparativeCents": 30000,
+      "label": "A.RECEIVABLES"
+    },
+    {
+      "accountIds": [
+        "1200"
+      ],
+      "amountCents": 35000,
+      "code": "A.TRADE_RECEIVABLES",
+      "comparativeCents": 30000,
+      "label": "A.TRADE_RECEIVABLES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.AFFILIATED_RECEIVABLES",
+      "comparativeCents": 0,
+      "label": "A.AFFILIATED_RECEIVABLES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.PARTICIPATION_RECEIVABLES",
+      "comparativeCents": 0,
+      "label": "A.PARTICIPATION_RECEIVABLES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.OTHER_RECEIVABLES",
+      "comparativeCents": 0,
+      "label": "A.OTHER_RECEIVABLES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.SECURITIES",
+      "comparativeCents": 0,
+      "label": "A.SECURITIES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.AFFILIATED_SECURITIES",
+      "comparativeCents": 0,
+      "label": "A.AFFILIATED_SECURITIES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.OTHER_SECURITIES",
+      "comparativeCents": 0,
+      "label": "A.OTHER_SECURITIES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.CASH",
+      "comparativeCents": 0,
+      "label": "A.CASH"
+    },
+    {
+      "accountIds": [
+        "1300"
+      ],
+      "amountCents": 5000,
+      "code": "A.PREPAID",
+      "comparativeCents": 5000,
+      "label": "A.PREPAID"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.DEFERRED_TAX",
+      "comparativeCents": 0,
+      "label": "A.DEFERRED_TAX"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "A.PENSION_DIFFERENCE",
+      "comparativeCents": 0,
+      "label": "A.PENSION_DIFFERENCE"
+    },
+    {
+      "accountIds": [
+        "2900"
+      ],
+      "amountCents": 100000,
+      "code": "B.EQUITY_LIABILITIES",
+      "comparativeCents": 90000,
+      "label": "B.EQUITY_LIABILITIES"
+    },
+    {
+      "accountIds": [
+        "2000"
+      ],
+      "amountCents": 40000,
+      "code": "B.EQUITY",
+      "comparativeCents": 35000,
+      "label": "B.EQUITY"
+    },
+    {
+      "accountIds": [
+        "2000"
+      ],
+      "amountCents": 10000,
+      "code": "B.SUBSCRIBED_CAPITAL",
+      "comparativeCents": 15000,
+      "label": "B.SUBSCRIBED_CAPITAL"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.CAPITAL_RESERVE",
+      "comparativeCents": 0,
+      "label": "B.CAPITAL_RESERVE"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.REVENUE_RESERVES",
+      "comparativeCents": 0,
+      "label": "B.REVENUE_RESERVES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.LEGAL_RESERVE",
+      "comparativeCents": 0,
+      "label": "B.LEGAL_RESERVE"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.TREASURY_RESERVE",
+      "comparativeCents": 0,
+      "label": "B.TREASURY_RESERVE"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.STATUTORY_RESERVES",
+      "comparativeCents": 0,
+      "label": "B.STATUTORY_RESERVES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.OTHER_RESERVES",
+      "comparativeCents": 0,
+      "label": "B.OTHER_RESERVES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.CARRYFORWARD",
+      "comparativeCents": 0,
+      "label": "B.CARRYFORWARD"
+    },
+    {
+      "accountIds": [
+        "net"
+      ],
+      "amountCents": 30000,
+      "code": "B.NET_INCOME",
+      "comparativeCents": 20000,
+      "label": "B.NET_INCOME"
+    },
+    {
+      "accountIds": [
+        "2100"
+      ],
+      "amountCents": 10000,
+      "code": "B.PROVISIONS",
+      "comparativeCents": 10000,
+      "label": "B.PROVISIONS"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.PENSION_PROVISIONS",
+      "comparativeCents": 0,
+      "label": "B.PENSION_PROVISIONS"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.TAX_PROVISIONS",
+      "comparativeCents": 0,
+      "label": "B.TAX_PROVISIONS"
+    },
+    {
+      "accountIds": [
+        "2100"
+      ],
+      "amountCents": 10000,
+      "code": "B.OTHER_PROVISIONS",
+      "comparativeCents": 10000,
+      "label": "B.OTHER_PROVISIONS"
+    },
+    {
+      "accountIds": [
+        "2200"
+      ],
+      "amountCents": 45000,
+      "code": "B.LIABILITIES",
+      "comparativeCents": 40000,
+      "label": "B.LIABILITIES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.BONDS",
+      "comparativeCents": 0,
+      "label": "B.BONDS"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.BANK_LIABILITIES",
+      "comparativeCents": 0,
+      "label": "B.BANK_LIABILITIES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.ADVANCES",
+      "comparativeCents": 0,
+      "label": "B.ADVANCES"
+    },
+    {
+      "accountIds": [
+        "2200"
+      ],
+      "amountCents": 45000,
+      "code": "B.TRADE_LIABILITIES",
+      "comparativeCents": 40000,
+      "label": "B.TRADE_LIABILITIES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.BILLS",
+      "comparativeCents": 0,
+      "label": "B.BILLS"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.AFFILIATED_LIABILITIES",
+      "comparativeCents": 0,
+      "label": "B.AFFILIATED_LIABILITIES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.PARTICIPATION_LIABILITIES",
+      "comparativeCents": 0,
+      "label": "B.PARTICIPATION_LIABILITIES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.OTHER_LIABILITIES",
+      "comparativeCents": 0,
+      "label": "B.OTHER_LIABILITIES"
+    },
+    {
+      "accountIds": [
+        "2300"
+      ],
+      "amountCents": 5000,
+      "code": "B.DEFERRED",
+      "comparativeCents": 5000,
+      "label": "B.DEFERRED"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "B.DEFERRED_TAX",
+      "comparativeCents": 0,
+      "label": "B.DEFERRED_TAX"
+    }
+  ],
+  "checks": {
+    "accrual": true,
+    "continuity": true,
+    "nonOffsetting": true,
+    "provisions": true,
+    "valuation": true
+  },
+  "fiscalPeriodEnd": "2026-12-31",
+  "fiscalPeriodStart": "2026-01-01",
+  "fiscalTimeZone": "Europe/Berlin",
+  "fiscalYear": 2026,
+  "incomeStatement": [
+    {
+      "accountIds": [
+        "8400"
+      ],
+      "amountCents": 200000,
+      "code": "REVENUE",
+      "comparativeCents": 180000,
+      "label": "REVENUE"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "INVENTORY_CHANGE",
+      "comparativeCents": 0,
+      "label": "INVENTORY_CHANGE"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "OWN_WORK",
+      "comparativeCents": 0,
+      "label": "OWN_WORK"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "OTHER_INCOME",
+      "comparativeCents": 0,
+      "label": "OTHER_INCOME"
+    },
+    {
+      "accountIds": [
+        "6000"
+      ],
+      "amountCents": -100000,
+      "code": "MATERIAL_RAW",
+      "comparativeCents": -90000,
+      "label": "MATERIAL_RAW"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "MATERIAL_SERVICES",
+      "comparativeCents": 0,
+      "label": "MATERIAL_SERVICES"
+    },
+    {
+      "accountIds": [
+        "6200"
+      ],
+      "amountCents": -50000,
+      "code": "PERSONNEL_WAGES",
+      "comparativeCents": -45000,
+      "label": "PERSONNEL_WAGES"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "PERSONNEL_SOCIAL",
+      "comparativeCents": 0,
+      "label": "PERSONNEL_SOCIAL"
+    },
+    {
+      "accountIds": [
+        "6300"
+      ],
+      "amountCents": -10000,
+      "code": "DEPRECIATION_FIXED",
+      "comparativeCents": -10000,
+      "label": "DEPRECIATION_FIXED"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "DEPRECIATION_CURRENT",
+      "comparativeCents": 0,
+      "label": "DEPRECIATION_CURRENT"
+    },
+    {
+      "accountIds": [
+        "6500"
+      ],
+      "amountCents": -5000,
+      "code": "OTHER_EXPENSE",
+      "comparativeCents": -5000,
+      "label": "OTHER_EXPENSE"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "PARTICIPATION_INCOME",
+      "comparativeCents": 0,
+      "label": "PARTICIPATION_INCOME"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "AFFILIATED_INCOME",
+      "comparativeCents": 0,
+      "label": "AFFILIATED_INCOME"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "INTEREST_INCOME",
+      "comparativeCents": 0,
+      "label": "INTEREST_INCOME"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "FINANCIAL_DEPRECIATION",
+      "comparativeCents": 0,
+      "label": "FINANCIAL_DEPRECIATION"
+    },
+    {
+      "accountIds": [
+        "7000"
+      ],
+      "amountCents": -2000,
+      "code": "INTEREST_EXPENSE",
+      "comparativeCents": -3000,
+      "label": "INTEREST_EXPENSE"
+    },
+    {
+      "accountIds": [
+        "7600"
+      ],
+      "amountCents": -3000,
+      "code": "INCOME_TAX",
+      "comparativeCents": -7000,
+      "label": "INCOME_TAX"
+    },
+    {
+      "accountIds": [
+        "net"
+      ],
+      "amountCents": 30000,
+      "code": "RESULT_AFTER_TAX",
+      "comparativeCents": 20000,
+      "label": "RESULT_AFTER_TAX"
+    },
+    {
+      "accountIds": [],
+      "amountCents": 0,
+      "code": "OTHER_TAX",
+      "comparativeCents": 0,
+      "label": "OTHER_TAX"
+    },
+    {
+      "accountIds": [
+        "net"
+      ],
+      "amountCents": 30000,
+      "code": "NET_INCOME",
+      "comparativeCents": 20000,
+      "label": "NET_INCOME"
+    }
+  ],
+  "managementReport": "Lagebericht",
+  "method": "GKV",
+  "notes": [
+    "Anhang"
+  ],
+  "policies": [
+    "Fortführung und Einzelbewertung"
+  ],
+  "preparedAt": "2027-03-01T10:00:00Z",
+  "preparedBy": "Preparer",
+  "previousFiscalPeriodEnd": "2025-12-31",
+  "previousFiscalPeriodId": "2025-01-01/2025-12-31",
+  "previousFiscalPeriodStart": "2025-01-01",
+  "previousFiscalYear": 2025,
+  "profile": {
+    "currency": "EUR",
+    "language": "de",
+    "legalForm": "GmbH",
+    "legalName": "Beispiel GmbH",
+    "registerCourt": "Berlin",
+    "registerNumber": "HRB 1",
+    "registeredOffice": "Berlin",
+    "size": "MEDIUM",
+    "tenantId": "tenant-a"
+  }
+}
