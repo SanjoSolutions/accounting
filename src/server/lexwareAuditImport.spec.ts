@@ -25,6 +25,7 @@ const state = vi.hoisted(() => ({
   transactionOptions: [] as any[],
   storageEvents: [] as string[],
   transactionTail: Promise.resolve() as Promise<void>,
+  retainedArtifact: null as any,
 }))
 const parsed = vi.hoisted(() => ({
   chart: 'SKR03' as const,
@@ -95,6 +96,10 @@ const transaction = vi.hoisted(() => ({
     findUnique: vi.fn(async ({ where }: any) => state.committedDocuments.has(where.id) ? { id: where.id } : null),
     findMany: vi.fn(async ({ where }: any) => [...state.committedDocuments].filter(id => where.id.in.includes(id)).map(id => ({ id }))),
   },
+  retainedArtifact: {
+    findUnique: vi.fn(async () => state.retainedArtifact),
+    upsert: vi.fn(async ({ create, update }: any) => { state.retainedArtifact = state.retainedArtifact ? { ...state.retainedArtifact, ...update } : create; return state.retainedArtifact }),
+  },
   documentStorageClaim: {
     findMany: vi.fn(async ({ where }: any) => state.claims.filter(claim =>
       where.importId ? claim.importId === where.importId : where.documentId.in.includes(claim.documentId),
@@ -132,6 +137,7 @@ const storage = vi.hoisted(() => ({
 }))
 
 vi.mock('server-only', () => ({}))
+vi.mock('./compliance/auditPersistence', () => ({ appendAuditEvent: vi.fn() }))
 vi.mock('@/core/lexwareAudit', () => ({ parseLexwareAuditFiles: () => parsed }))
 vi.mock('./storage', () => ({ getDocumentStorage: () => storage }))
 vi.mock('./persistence/client', () => ({
@@ -175,8 +181,10 @@ describe('Lexware Betriebsprüfung persistence', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     state.existing = []; state.entries = []; state.accounts.clear(); state.documents = []; state.claims = []; state.committedDocuments.clear(); state.stored.clear()
-    state.yearOpen = true; state.mismatchedFiscalYear = false; state.extraFiscalYear = null; state.failTransaction = false; state.failJournalCreate = false; state.transactionOptions = []; state.storageEvents = []; state.transactionTail = Promise.resolve()
+    state.yearOpen = true; state.mismatchedFiscalYear = false; state.extraFiscalYear = null; state.failTransaction = false; state.failJournalCreate = false; state.transactionOptions = []; state.storageEvents = []; state.transactionTail = Promise.resolve(); state.retainedArtifact = null
     parsed.bookings[1].documentNumber = '1'
+    parsed.bookings[0].documentName = null
+    parsed.documents.clear()
     parsed.documents.set('invoice.pdf', { name: 'Invoice.PDF', bytes: new TextEncoder().encode('%PDF-test'), contentType: 'application/pdf' })
   })
 
@@ -201,6 +209,27 @@ describe('Lexware Betriebsprüfung persistence', () => {
     expect(storage.writeIfAbsent).toHaveBeenCalledOnce()
     expect(state.storageEvents.slice(0, 2)).toEqual(['claim-marked', 'storage-write'])
     expect(state.documents[0].create).toMatchObject({ ownerId: 'owner-1', payload: expect.stringContaining('Invoice.PDF') })
+  })
+
+  it('retains a shared document through the latest referenced fiscal period', async () => {
+    parsed.bookings[0].documentName = 'invoice.pdf'
+    await importLexwareAudit('owner-1', [])
+    expect(transaction.retainedArtifact.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ periodEndsAt: new Date('2025-09-30T23:59:59.999Z'), retainUntil: new Date('2033-12-31T23:59:59.999Z') }) }))
+  })
+
+  it('persists and retains unreferenced evidence with a conservative fallback period', async () => {
+    parsed.documents.set('readme.pdf', { name: 'README.PDF', bytes: new TextEncoder().encode('%PDF-evidence'), contentType: 'application/pdf' })
+    await importLexwareAudit('owner-1', [])
+    expect(state.documents).toHaveLength(2)
+    const evidenceId = state.documents.find(row => row.create.payload.includes('README.PDF'))!.create.id
+    const evidenceRetention = transaction.retainedArtifact.upsert.mock.calls.map(call => call[0]).find(call => call.create.objectId === evidenceId)
+    expect(evidenceRetention.create).toMatchObject({ periodEndsAt: new Date(`${new Date().getUTCFullYear() + 1}-12-31T23:59:59.999Z`) })
+  })
+
+  it('monotonically extends an existing document retention boundary on a later import', async () => {
+    state.retainedArtifact = { periodEndsAt: new Date('2024-09-30T23:59:59.999Z'), retainUntil: new Date('2032-12-31T23:59:59.999Z') }
+    await importLexwareAudit('owner-1', [])
+    expect(transaction.retainedArtifact.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { periodEndsAt: new Date('2025-09-30T23:59:59.999Z'), retainUntil: new Date('2033-12-31T23:59:59.999Z') } }))
   })
 
   it('skips bookings with matching stable Lexware identities', async () => {

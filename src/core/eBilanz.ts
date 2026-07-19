@@ -27,7 +27,7 @@ export interface EBalanceMasterData {
   legalForm: EBalanceLegalForm
 }
 
-export const E_BALANCE_LEGAL_FORMS = ['EUN', 'GMBH', 'UG', 'AG'] as const
+export const E_BALANCE_LEGAL_FORMS = ['EUN', 'GMBH', 'UG', 'AG', 'OHG', 'KG', 'GBR', 'PG'] as const
 export type EBalanceLegalForm = typeof E_BALANCE_LEGAL_FORMS[number]
 
 export function parseEBalanceMasterData(body: unknown): EBalanceMasterData {

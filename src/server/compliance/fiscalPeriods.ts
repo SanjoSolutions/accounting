@@ -37,4 +37,18 @@ export function createSuccessorPeriod(current: FiscalPeriod, id: string, label: 
   return successor
 }
 
+export function validateReopenTopology(periodYear: number, closedSuccessorYears: number[]): string[] {
+  const successor = closedSuccessorYears.filter(year => year > periodYear).sort((left, right) => left - right)[0]
+  return successor === undefined ? [] : [`Period cannot be reopened while successor ${successor} is closed`]
+}
+
+export function validateReferenceYearOrder(periods: Array<{ referenceYear: number; startsAt: string }>): string[] {
+  const ordered = [...periods].sort((left, right) => left.startsAt.localeCompare(right.startsAt))
+  return ordered.some((period, index) => index > 0 && period.referenceYear <= ordered[index - 1].referenceYear) ? ['reference years must increase with chronological fiscal-period order'] : []
+}
+
+export function matchesCloseGeneration(period: { status: string; lockedAt: Date | null }, closeGenerationAt: Date): boolean {
+  return period.status === 'CLOSED' && Boolean(period.lockedAt && period.lockedAt.getTime() === closeGenerationAt.getTime())
+}
+
 export const periodDates = (period: FiscalPeriod) => ({ fiscalYearStart: period.startsAt, fiscalYearEnd: period.endsAt, balanceSheetDate: period.endsAt, openingDate: period.startsAt })

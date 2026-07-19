@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { getOpenDalConfig } from './config'
+import { getAuthoritativeStorageRegion, getOpenDalConfig } from './config'
 
 describe('getOpenDalConfig', () => {
   it('uses a local storage directory by default', () => {
@@ -29,5 +29,9 @@ describe('getOpenDalConfig', () => {
   it('rejects missing provider configuration', () => {
     expect(() => getOpenDalConfig({ DOCUMENT_STORAGE_DRIVER: 'gcs' }))
       .toThrow('DOCUMENT_STORAGE_BUCKET is required')
+  })
+  it('uses deployment storage configuration as the authoritative compliance region', () => {
+    expect(getAuthoritativeStorageRegion({ DOCUMENT_STORAGE_REGION: 'eu-central-1' })).toBe('eu-central-1')
+    expect(() => getAuthoritativeStorageRegion({})).toThrow(/required/)
   })
 })

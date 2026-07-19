@@ -9,9 +9,17 @@
     "Annual close": "Jahresabschluss",
     "E-balance": "E-Bilanz",
     "ExportImport": "Export / Import",
+    "Compliance": "Compliance",
     "Create booking record": "Buchungssatz erstellen",
     "Create balance sheet": "Bilanz erstellen",
     "Settings": "Einstellungen"
+  },
+  "Compliance": {
+    "eyebrow": "Governance und Betrieb", "title": "Compliance-Leitstand", "subtitle": "Mandantenbezogene Stammdaten, Geschäftsjahre, nachvollziehbare Korrekturen, Aufbewahrung und Notfallvorsorge.", "refresh": "Aktualisieren", "loadFailed": "Compliance-Daten konnten nicht geladen werden.", "actionFailed": "Die Compliance-Aktion ist fehlgeschlagen.", "reasonRequired": "Eine dokumentierte Begründung ist erforderlich.", "mappingArrayRequired": "Mappings müssen als JSON-Liste angegeben werden.", "overrideBooleanRequired": "Anwendbarkeitsabweichungen dürfen nur Wahrheitswerte enthalten.", "profileSaved": "Das maßgebliche Profil wurde gespeichert.", "periodCreated": "Die Geschäftsjahresperiode wurde angelegt.", "chartActivated": "Der individuelle Kontenrahmen wurde importiert und aktiviert.", "operationCompleted": "Der Vorgang wurde abgeschlossen.",
+    "profile": "Maßgebliches Unternehmens- und Steuerprofil", "auditVerified": "Prüfkette verifiziert", "auditUnverified": "Prüfkette nicht verifiziert", "companyName": "Unternehmensname", "street": "Registeranschrift Straße und Hausnummer", "postalCode": "Registeranschrift Postleitzahl", "city": "Registeranschrift Ort", "country": "Registeranschrift Land", "legalForm": "Rechtsform", "registerCourt": "Registergericht", "registerNumber": "Registernummer", "taxNumber": "Steuernummer", "vatId": "USt-IdNr.", "taxOffice": "Finanzamt", "vatRegime": "Umsatzsteuerregelung", "filingFrequency": "USt-Voranmeldungszeitraum", "activity": "Geschäftstätigkeit", "sizeClass": "Größenklasse", "chart": "Maßgeblicher Kontenrahmen", "elections": "Wahlrechte (kommagetrennt)", "applicabilityOverrides": "Dokumentierte Berichtsabweichungen (JSON)", "changeReason": "Änderungsgrund", "saveProfile": "Profil wirksam speichern", "report": "Bericht", "applicable": "Anwendbar", "basis": "Grundlage", "yes": "Ja", "no": "Nein", "override": "Dokumentierte Abweichung",
+    "periods": "Geschäftsjahresperioden", "periodHint": "Kalenderjahr, abweichendes oder kurzes Geschäftsjahr (höchstens zwölf Monate)", "referenceYear": "Bezugsjahr", "label": "Bezeichnung", "startsAt": "Beginn", "endsAt": "Ende", "reason": "Begründung", "createPeriod": "Stabile Periode anlegen",
+    "chartLifecycle": "Kontenrahmen- und Mapping-Lebenszyklus", "customChartId": "ID des individuellen Kontenrahmens", "mappingJson": "Wirksame Kontenzuordnungen (JSON)", "activateChart": "Atomar importieren und aktivieren", "mappingHistory": "Wirksame Mapping-Historie",
+    "workflows": "Kontrollierte Abläufe und Betreiberfunktionen", "workflowHint": "Entwurf, Festschreibung, Storno/Ersatz, Wiederöffnung, Berichtigung, Aufbewahrung, Sicherung und Wiederherstellung", "operation": "Vorgang", "operationPayload": "Vorgangsparameter (JSON)", "execute": "Kontrollierten Vorgang ausführen", "drafts": "Entwürfe", "reopenRequests": "Wiederöffnungsanträge", "amendments": "Berichtigungen", "profileAddressMigrations": "Bestätigungen historischer Anschriften", "retainedArtifacts": "Aufbewahrte Artefakte", "backups": "Sicherungen und Wiederherstellungsübungen", "operatorPolicy": "Jurisdiktions- und Wiederherstellungsrichtlinie"
   },
   "CreateBookingRecord": {
     "Create booking record": "Buchungssatz erstellen",
