@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { prisma } from './persistence/client'
@@ -20,6 +21,11 @@ import { createEBalancePackage, validateEBalanceConcepts } from '@/core/eBilanzP
 import { createElsterEBalanceEnvelope } from '@/core/elsterEnvelope'
 import type { Prisma } from '@/generated/prisma/client'
 import { createEricTicket, EricProcessingError, getEricConfiguration, hashEricRequest, runEric } from './eric'
+import { appendAuditEvent } from './compliance/auditPersistence'
+import { retentionDeadline, sha256 } from './compliance/retention'
+import { profilePayloadWithConfirmedAddress, validateCompanyProfile, type CompanyProfile } from './compliance/companyProfile'
+import { getDocumentStorage } from './storage'
+import { persistComplianceObject } from './compliance/objectStorage'
 
 export const DEFAULT_ACCOUNTS = [
   [1000, 'Kasse', 'ASSET', 'bs.ass.currAss.cashEquiv.cash'],
@@ -77,6 +83,37 @@ export function selectedChartFromSettingsPayload(payload: string | undefined) {
   if (!payload) return 'SKR03'
   try { const value = JSON.parse(payload) as { activeChart?: unknown; chartOfAccounts?: unknown }; const candidate = value.activeChart ?? value.chartOfAccounts; return typeof candidate === 'string' && (candidate === 'SKR03' || candidate === 'SKR04' || /^CUSTOM:.+/.test(candidate)) ? candidate : 'SKR03' } catch { return 'SKR03' }
 }
+export function authoritativeEBalanceMasterDataFromSettings(payload: string | undefined, supplied: EBalanceMasterData): EBalanceMasterData {
+  if (!payload) return supplied
+  let settings: { companyProfile?: unknown; invoiceIssuer?: { streetAndHouseNumber?: unknown; zipCode?: unknown; city?: unknown } }
+  try { settings = JSON.parse(payload) } catch { throw new AccountingValidationError(['Die maßgeblichen Unternehmenseinstellungen sind ungültig.']) }
+  if (!settings.companyProfile) return supplied
+  const profileIssues = validateCompanyProfile(settings.companyProfile)
+  if (profileIssues.length) throw new AccountingValidationError([`Das maßgebliche Unternehmensprofil ist ungültig: ${profileIssues.join('; ')}`])
+  const profile = settings.companyProfile as CompanyProfile
+  const issuer = settings.invoiceIssuer
+  const street = profile.registeredAddress?.streetAndHouseNumber ?? (typeof issuer?.streetAndHouseNumber === 'string' ? issuer.streetAndHouseNumber : undefined)
+  const postalCode = profile.registeredAddress?.zipCode ?? (typeof issuer?.zipCode === 'string' ? issuer.zipCode : undefined)
+  const city = profile.registeredAddress?.city ?? (typeof issuer?.city === 'string' ? issuer.city : undefined)
+  if (!street?.trim() || !postalCode?.trim() || !city?.trim()) throw new AccountingValidationError(['Das maßgebliche historische Unternehmensprofil enthält keine vollständig versionierte Anschrift.'])
+  const legalForm = profile.legalForm === 'SOLE_TRADER' ? 'EUN' : profile.legalForm === 'PARTNERSHIP' ? 'PG' : profile.legalForm
+  if (!['EUN', 'GMBH', 'UG', 'AG', 'OHG', 'KG', 'GBR', 'PG'].includes(legalForm)) throw new AccountingValidationError(['Die maßgebliche Rechtsform benötigt eine konkrete E-Bilanz-Rechtsformzuordnung.'])
+  return { ...supplied, companyName: profile.companyName, taxNumber: profile.taxNumber, legalForm: legalForm as EBalanceMasterData['legalForm'], street, postalCode, city }
+}
+export function settingsPayloadWithEffectiveProfile(settingsPayload: string | undefined, profilePayload: string | undefined): string | undefined {
+  if (!profilePayload) return settingsPayload
+  const settings = settingsPayload ? JSON.parse(settingsPayload) as Record<string, unknown> : {}
+  // invoiceIssuer is mutable current state, not versioned history. A selected
+  // profile version must contain its own registeredAddress; report generation
+  // fails closed for older versions that predate this field.
+  const { invoiceIssuer: _currentInvoiceIssuer, ...historicalSettings } = settings
+  return JSON.stringify({ ...historicalSettings, companyProfile: JSON.parse(profilePayload) })
+}
+export function reportingSettingsPayload(settingsPayload: string | undefined, effectiveProfilePayload: string | undefined, hasVersionHistory: boolean): string | undefined {
+  if (effectiveProfilePayload) return settingsPayloadWithEffectiveProfile(settingsPayload, effectiveProfilePayload)
+  if (hasVersionHistory) throw new AccountingValidationError(['Für das Ende des Geschäftsjahres existiert kein gültiges historisches Unternehmensprofil.'])
+  return settingsPayload
+}
 export function inferExistingLedgerProfile(accountNumbers: number[]): { chart: 'SKR03' | 'SKR04'; accountLength: 4 | 5 } | undefined {
   const signatures = [
     accountNumbers.includes(8400) && { chart: 'SKR03' as const, accountLength: 4 as const },
@@ -95,6 +132,7 @@ export function selectBootstrapChart(existingProfileChart: string | undefined, a
   return existingProfileChart ?? requireLegacyLedgerProfile(accountNumbers, false)?.chart ?? selectedChartFromSettingsPayload(settingsPayload)
 }
 export function postingOrderPeriodYear(period: { year: number }) { return period.year }
+export const isStandardPostingPeriod = (status: string) => status === 'OPEN'
 export function accountSemanticFingerprint(chart: string, accounts: Array<{ id: string; number: number; name: string; category: string; eBilanzPosition: string | null; active: boolean }>) {
   return JSON.stringify({ chart, accounts: [...accounts].sort((a, b) => a.id.localeCompare(b.id)).map(account => ({ id: account.id, number: account.number, name: account.name, category: account.category, eBilanzPosition: account.eBilanzPosition, active: account.active })) })
 }
@@ -229,8 +267,60 @@ export async function getLedgerWorkspace(ownerId: string, year: number) {
   }
 }
 
-export async function postJournalEntry(ownerId: string, input: unknown, source = 'MANUAL') {
+export interface JournalPostMetadata {
+  entryDate?: string
+  lateReason?: string
+  reversalOfId?: string
+  replacementOfId?: string
+  externalKey?: string
+}
+
+export function correctionPostingFingerprint(input: {
+  fiscalYearId: string; bookingDate: string; documentNumber: string; description: string; source: string; entryDate: string | null; lateReason: string | null;
+  reversalOfId: string | null; replacementOfId: string | null; externalKey: string | null;
+  lines: Array<{ accountId: string; debitCents: number; creditCents: number; taxCode?: string | null }>;
+  documentIds: string[]
+}) {
+  const lines = input.lines.map(line => ({ accountId: line.accountId, debitCents: line.debitCents, creditCents: line.creditCents, taxCode: line.taxCode ?? null })).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+  return JSON.stringify({ ...input, documentNumber: input.documentNumber.trim(), description: input.description.trim(), lateReason: input.lateReason?.trim() || null, lines, documentIds: [...input.documentIds].sort() })
+}
+export function resolveCorrectionEntryDate(requested: unknown, originalEntryDate: Date | null, now = new Date(), persistedCorrectionDate?: string): string {
+  if (persistedCorrectionDate) {
+    if (requested !== undefined && requested !== persistedCorrectionDate) throw new AccountingValidationError(['Das Erfassungsdatum widerspricht der bereits gespeicherten Korrektur.'])
+    return persistedCorrectionDate
+  }
+  const today = now.toISOString().slice(0, 10)
+  if (requested !== undefined && requested !== today) throw new AccountingValidationError(['Das Erfassungsdatum der Korrektur wird serverseitig festgelegt und muss dem heutigen Datum entsprechen.'])
+  if (originalEntryDate && (!Number.isFinite(originalEntryDate.getTime()) || originalEntryDate.toISOString().slice(0, 10) > today)) throw new AccountingValidationError(['Die ursprüngliche Buchung weist ein zukünftiges Erfassungsdatum auf und kann nicht automatisch korrigiert werden.'])
+  return today
+}
+
+export function documentRetentionExtension(existingPeriodEndsAt: Date, existingRetainUntil: Date, authoritativePeriodEndsAt: Date) {
+  const deadline = new Date(`${retentionDeadline('INVOICE', authoritativePeriodEndsAt.toISOString().slice(0, 10)).retainUntil}T23:59:59.999Z`)
+  const periodEndsAt = existingPeriodEndsAt < authoritativePeriodEndsAt ? authoritativePeriodEndsAt : existingPeriodEndsAt
+  const retainUntil = existingRetainUntil < deadline ? deadline : existingRetainUntil
+  return periodEndsAt > existingPeriodEndsAt || retainUntil > existingRetainUntil ? { periodEndsAt, retainUntil } : null
+}
+
+async function extendAttachedDocumentRetention(transaction: Prisma.TransactionClient, ownerId: string, documentIds: string[], authoritativePeriodEndsAt: Date) {
+  if (!documentIds.length) return
+  const artifacts = await transaction.retainedArtifact.findMany({
+    where: { ownerId, objectType: 'Document', objectId: { in: documentIds }, disposedAt: null, storageDeletedAt: null },
+    select: { id: true, periodEndsAt: true, retainUntil: true },
+  })
+  for (const artifact of artifacts) {
+    const extension = documentRetentionExtension(artifact.periodEndsAt, artifact.retainUntil, authoritativePeriodEndsAt)
+    if (extension) await transaction.retainedArtifact.update({ where: { id: artifact.id }, data: extension })
+  }
+}
+
+export async function postJournalEntry(ownerId: string, input: unknown, source = 'MANUAL', metadata: JournalPostMetadata = {}) {
   const validated = validateJournalEntry(input)
+  if (metadata.reversalOfId && metadata.replacementOfId) throw new AccountingValidationError(['Eine Buchung kann nicht zugleich Storno und Ersatzbuchung sein.'])
+  if (metadata.entryDate) {
+    const entryDate = new Date(`${metadata.entryDate}T00:00:00.000Z`)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(metadata.entryDate) || !Number.isFinite(entryDate.getTime()) || entryDate.toISOString().slice(0, 10) !== metadata.entryDate) throw new AccountingValidationError(['Das Erfassungsdatum ist ungültig.'])
+  }
   const documentIds = normalizeDocumentIds(input)
   validateDocumentNamespace(source, validated.documentNumber)
   const year = Number(validated.bookingDate.slice(0, 4))
@@ -239,6 +329,7 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
   const coveringPeriods = await prisma.fiscalYear.findMany({ where: { ownerId, startsAt: { lte: bookingBoundary }, endsAt: { gte: bookingBoundary } } })
   const selectedPeriod = selectPostingPeriod(coveringPeriods, 0)
   const fiscalYear = selectedPeriod ?? await bootstrapLedgerForPosting(ownerId, year, bookingBoundary)
+  if (!isStandardPostingPeriod(fiscalYear.status)) throw new AccountingValidationError(['Wiedereröffnete Geschäftsjahre dürfen nur über den kontrollierten Korrekturworkflow geändert werden.'])
 
   const accountIds = [...new Set(validated.lines.map(line => line.accountId))]
   const accounts = await prisma.ledgerAccount.findMany({ where: { id: { in: accountIds }, ownerId, active: true } })
@@ -268,13 +359,18 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
     const last = await transaction.journalEntry.findFirst({
       where: { fiscalYearId: fiscalYear.id }, orderBy: { sequenceNumber: 'desc' }, select: { sequenceNumber: true },
     })
-    return transaction.journalEntry.create({
+    const entry = await transaction.journalEntry.create({
       data: {
         sequenceNumber: (last?.sequenceNumber ?? 0) + 1,
         bookingDate: bookingInstant,
         documentNumber: validated.documentNumber.trim(),
         description: validated.description.trim(), fiscalYearId: fiscalYear.id,
         source,
+        entryDate: metadata.entryDate ? new Date(`${metadata.entryDate}T12:00:00.000Z`) : undefined,
+        lateReason: metadata.lateReason?.trim() || null,
+        reversalOfId: metadata.reversalOfId ?? null,
+        replacementOfId: metadata.replacementOfId ?? null,
+        externalKey: metadata.externalKey ?? null,
         lines: { create: validated.lines.map(line => ({
           accountId: line.accountId,
           debitCents: line.debitCents,
@@ -285,7 +381,92 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
       },
       include: { lines: true, documents: true },
     })
+    await extendAttachedDocumentRetention(transaction, ownerId, documentIds, fiscalYear.endsAt)
+    return entry
   }) } catch (error) {
+    if ((error as { code?: string }).code === 'P2002') throw new AccountingValidationError(['Belegnummer oder Journalnummer ist in diesem Geschäftsjahr bereits vergeben.'])
+    throw error
+  }
+}
+
+export async function postJournalCorrection(ownerId: string, actorId: string, originalId: string, stornoInput: unknown, replacementInput: unknown, entryDate: string, reason: string) {
+  const prepare = async (input: unknown, source: 'STORNO' | 'CORRECTION', metadata: JournalPostMetadata) => {
+    const validated = validateJournalEntry(input)
+    validateDocumentNamespace(source, validated.documentNumber)
+    const documentIds = normalizeDocumentIds(input)
+    const bookingBoundary = postingDateBoundary(validated.bookingDate)
+    const coveringPeriods = await prisma.fiscalYear.findMany({ where: { ownerId, startsAt: { lte: bookingBoundary }, endsAt: { gte: bookingBoundary } } })
+    const fiscalYear = selectPostingPeriod(coveringPeriods, 0)
+    if (!fiscalYear) throw new AccountingValidationError(['Für die Korrekturbuchung existiert keine eindeutige Buchungsperiode.'])
+    const accountIds = [...new Set(validated.lines.map(line => line.accountId))]
+    const requiresActiveAccounts = source === 'CORRECTION'
+    const accounts = await prisma.ledgerAccount.findMany({ where: { id: { in: accountIds }, ownerId, ...(requiresActiveAccounts ? { active: true } : {}) } })
+    if (accounts.length !== accountIds.length) throw new AccountingValidationError(['Mindestens ein Konto ist ungültig oder gehört zu einem anderen Mandanten.'])
+    if (documentIds.length && await prisma.documentRecord.count({ where: { id: { in: documentIds }, ownerId } }) !== documentIds.length) throw new AccountingValidationError(['Mindestens ein ausgewählter Beleg ist ungültig oder gehört zu einem anderen Mandanten.'])
+    const ledgerProfile = await prisma.ledgerProfile.findUniqueOrThrow({ where: { ownerId } })
+    return { validated, documentIds, fiscalYear, accountIds, accountFingerprint: accountSemanticFingerprint(ledgerProfile.chart, accounts), requiresActiveAccounts, source, metadata }
+  }
+  const entryInstant = new Date(`${entryDate}T00:00:00.000Z`)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate) || !Number.isFinite(entryInstant.getTime()) || entryInstant.toISOString().slice(0, 10) !== entryDate) throw new AccountingValidationError(['Das Erfassungsdatum ist ungültig.'])
+  const reversalKey = `CORRECTION:${originalId}:REVERSAL`
+  const replacementKey = `CORRECTION:${originalId}:REPLACEMENT`
+  const reversalPlan = await prepare(stornoInput, 'STORNO', { entryDate, reversalOfId: originalId, lateReason: reason, externalKey: reversalKey })
+  const replacementPlan = await prepare(replacementInput, 'CORRECTION', { entryDate, replacementOfId: originalId, lateReason: reason, externalKey: replacementKey })
+
+  try {
+    return await prisma.$transaction(async transaction => {
+      const original = await transaction.journalEntry.findFirst({ where: { id: originalId, fiscalYear: { ownerId }, state: 'POSTED' } })
+      if (!original) throw new AccountingValidationError(['Die zu korrigierende Buchung wurde nicht gefunden.'])
+      const [existingReversal, existingReplacement] = await Promise.all([
+        transaction.journalEntry.findUnique({ where: { externalKey: reversalKey }, include: { lines: true, documents: true } }),
+        transaction.journalEntry.findUnique({ where: { externalKey: replacementKey }, include: { lines: true, documents: true } }),
+      ])
+      if (existingReversal || existingReplacement) {
+        const matches = (entry: NonNullable<typeof existingReversal>, plan: typeof reversalPlan) => correctionPostingFingerprint({
+          fiscalYearId: entry.fiscalYearId, bookingDate: entry.bookingDate.toISOString().slice(0, 10), documentNumber: entry.documentNumber, description: entry.description, source: entry.source,
+          entryDate: entry.entryDate?.toISOString().slice(0, 10) ?? null, lateReason: entry.lateReason, reversalOfId: entry.reversalOfId, replacementOfId: entry.replacementOfId, externalKey: entry.externalKey,
+          lines: entry.lines, documentIds: entry.documents.map(document => document.documentId),
+        }) === correctionPostingFingerprint({
+          fiscalYearId: plan.fiscalYear.id, bookingDate: plan.validated.bookingDate, documentNumber: plan.validated.documentNumber, description: plan.validated.description, source: plan.source,
+          entryDate, lateReason: reason, reversalOfId: plan.metadata.reversalOfId ?? null, replacementOfId: plan.metadata.replacementOfId ?? null, externalKey: plan.metadata.externalKey ?? null,
+          lines: plan.validated.lines, documentIds: plan.documentIds,
+        })
+        if (existingReversal && existingReplacement && matches(existingReversal, reversalPlan) && matches(existingReplacement, replacementPlan)) return { originalId, reversal: existingReversal, replacement: existingReplacement }
+        if (existingReversal && existingReplacement) throw new AccountingValidationError(['Die vorhandene Korrektur widerspricht den erneut übermittelten Korrekturdaten.'])
+        throw new AccountingValidationError(['Der frühere Korrekturversuch ist unvollständig und muss administrativ geprüft werden.'])
+      }
+
+      const create = async (plan: typeof reversalPlan) => {
+        const openYear = await transaction.fiscalYear.updateMany({ where: { id: plan.fiscalYear.id, ownerId, status: { in: ['OPEN', 'REOPENED'] } }, data: { updatedAt: new Date() } })
+        if (openYear.count !== 1) throw new AccountingValidationError(['Das Geschäftsjahr ist gesperrt.'])
+        const currentAccounts = await transaction.ledgerAccount.findMany({ where: { id: { in: plan.accountIds }, ownerId, ...(plan.requiresActiveAccounts ? { active: true } : {}) } })
+        const currentProfile = await transaction.ledgerProfile.findUniqueOrThrow({ where: { ownerId } })
+        if (currentAccounts.length !== plan.accountIds.length || accountSemanticFingerprint(currentProfile.chart, currentAccounts) !== plan.accountFingerprint) throw new AccountingValidationError(['Der aktive Kontenrahmen oder seine Kontenzuordnung wurde geändert; laden Sie die Buchung neu und wählen Sie gültige Konten.'])
+        if (plan.documentIds.length && await transaction.documentRecord.count({ where: { id: { in: plan.documentIds }, ownerId } }) !== plan.documentIds.length) throw new AccountingValidationError(['Mindestens ein ausgewählter Beleg ist ungültig oder gehört zu einem anderen Mandanten.'])
+        const periodYear = postingOrderPeriodYear(plan.fiscalYear)
+        const closedSuccessors = await transaction.fiscalYear.findMany({ where: { ownerId, year: { gt: periodYear }, status: 'CLOSED' }, select: { year: true }, orderBy: { year: 'asc' } })
+        validatePostingOrder(periodYear, closedSuccessors.map(item => item.year))
+        if (await transaction.journalEntry.findFirst({ where: { fiscalYearId: plan.fiscalYear.id, documentNumber: plan.validated.documentNumber.trim() } })) throw new AccountingValidationError(['Die Belegnummer ist in diesem Geschäftsjahr bereits vergeben.'])
+        const last = await transaction.journalEntry.findFirst({ where: { fiscalYearId: plan.fiscalYear.id }, orderBy: { sequenceNumber: 'desc' }, select: { sequenceNumber: true } })
+        const entry = await transaction.journalEntry.create({ data: {
+          sequenceNumber: (last?.sequenceNumber ?? 0) + 1,
+          bookingDate: new Date(`${plan.validated.bookingDate}T12:00:00.000Z`),
+          documentNumber: plan.validated.documentNumber.trim(), description: plan.validated.description.trim(), fiscalYearId: plan.fiscalYear.id,
+          source: plan.source, entryDate: new Date(`${entryDate}T12:00:00.000Z`), lateReason: reason,
+          reversalOfId: plan.metadata.reversalOfId ?? null, replacementOfId: plan.metadata.replacementOfId ?? null, externalKey: plan.metadata.externalKey ?? null,
+          lines: { create: plan.validated.lines.map(line => ({ accountId: line.accountId, debitCents: line.debitCents, creditCents: line.creditCents, taxCode: line.taxCode || null })) },
+          documents: { create: plan.documentIds.map(documentId => ({ documentId })) },
+        }, include: { lines: true, documents: true } })
+        await extendAttachedDocumentRetention(transaction, ownerId, plan.documentIds, plan.fiscalYear.endsAt)
+        return entry
+      }
+
+      const reversal = await create(reversalPlan)
+      const replacement = await create(replacementPlan)
+      await appendAuditEvent(transaction, { ownerId, actorId, action: 'JOURNAL_ENTRY_CORRECTED', reason, objectType: 'JournalEntry', objectId: originalId, before: { originalId }, after: { reversalId: reversal.id, replacementId: replacement.id } })
+      return { originalId, reversal, replacement }
+    })
+  } catch (error) {
     if ((error as { code?: string }).code === 'P2002') throw new AccountingValidationError(['Belegnummer oder Journalnummer ist in diesem Geschäftsjahr bereits vergeben.'])
     throw error
   }
@@ -328,11 +509,15 @@ export async function getTrialBalance(ownerId: string, year: number): Promise<Le
 
 export async function closeFiscalYear(ownerId: string, year: number) {
   const fiscalYear = await ensureLedger(ownerId, year)
-  if (fiscalYear.status === 'CLOSED') return JSON.parse(fiscalYear.closingSnapshot!)
+  if (fiscalYear.status === 'CLOSED') {
+    if (fiscalYear.closingSnapshot) return JSON.parse(fiscalYear.closingSnapshot)
+    throw new AccountingValidationError(['Der Abschlusssnapshot wurde nach Ablauf der Aufbewahrungsfrist entsorgt.'])
+  }
   validateClosingDate(fiscalYear.endsAt)
-  return prisma.$transaction(async transaction => {
+  let snapshotStorageKey: string | undefined
+  try { return await prisma.$transaction(async transaction => {
     const claimed = await transaction.fiscalYear.updateMany({
-      where: { id: fiscalYear.id, status: 'OPEN' }, data: { status: 'CLOSING' },
+      where: { id: fiscalYear.id, status: { in: ['OPEN', 'REOPENED'] } }, data: { status: 'CLOSING' },
     })
     if (claimed.count !== 1) {
       const current = await transaction.fiscalYear.findUnique({ where: { id: fiscalYear.id } })
@@ -362,6 +547,8 @@ export async function closeFiscalYear(ownerId: string, year: number) {
     if (entryCount === 0) issues.unshift('Das Geschäftsjahr enthält noch keine festgeschriebenen Buchungen.')
     if (issues.length) throw new AccountingValidationError(issues)
     const snapshot = JSON.stringify({ ...statements, closedAt: new Date().toISOString() })
+    const snapshotId = randomUUID()
+    snapshotStorageKey = await persistComplianceObject({ ownerId, category: 'closing-snapshots', objectId: snapshotId, extension: 'json', content: Buffer.from(snapshot), contentType: 'application/json', fileName: `closing-snapshot-${year}-${snapshotId}.json` })
     const nextYear = year + 1
     const nextStartsAt = nextCalendarDay(fiscalYear.endsAt)
     const nextEndsAt = new Date(nextStartsAt.getTime())
@@ -406,8 +593,18 @@ export async function closeFiscalYear(ownerId: string, year: number) {
     await transaction.fiscalYear.update({
       where: { id: fiscalYear.id }, data: { status: 'CLOSED', lockedAt: new Date(), closingSnapshot: snapshot },
     })
+    const deadline = retentionDeadline('JOURNAL', fiscalYear.endsAt.toISOString().slice(0, 10))
+    const existingSnapshot = await transaction.retainedArtifact.findFirst({ where: { ownerId, objectType: 'ClosingSnapshot', objectId: fiscalYear.id }, orderBy: { version: 'desc' } })
+    await transaction.retainedArtifact.create({ data: { ownerId, objectType: 'ClosingSnapshot', objectId: fiscalYear.id, version: (existingSnapshot?.version ?? 0) + 1, retentionClass: 'JOURNAL', contentHash: sha256(snapshot), provenance: 'fiscal period close', storageKey: snapshotStorageKey, periodEndsAt: fiscalYear.endsAt, retainUntil: new Date(`${deadline.retainUntil}T23:59:59.999Z`) } })
+    await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'FISCAL_PERIOD_CLOSED', reason: 'Authenticated fiscal period close', objectType: 'FiscalYear', objectId: fiscalYear.id, before: { status: fiscalYear.status }, after: { status: 'CLOSED', snapshotHash: sha256(snapshot), successorId: nextFiscalYear.id } })
     return JSON.parse(snapshot)
-  })
+  }) } catch (error) {
+    if (snapshotStorageKey) {
+      try { await getDocumentStorage().delete(snapshotStorageKey) }
+      catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Fiscal close failed and its staged retained snapshot could not be cleaned up') }
+    }
+    throw error
+  }
 }
 
 export function validateDocumentNamespace(source: string, documentNumber: string) {
@@ -418,7 +615,25 @@ export function validateDocumentNamespace(source: string, documentNumber: string
 
 export async function exportEBalance(ownerId: string, year: number, masterData: EBalanceMasterData) {
   const { xml, officialArchive } = await prepareEBalance(ownerId, year, masterData, false)
-  return createEBalancePackage(xml, year, officialArchive)
+  const archive = createEBalancePackage(xml, year, officialArchive)
+  const fiscalYear = await prisma.fiscalYear.findUniqueOrThrow({ where: { ownerId_year: { ownerId, year } } })
+  const exportId = randomUUID()
+  const storage = getDocumentStorage()
+  const storageKey = await persistComplianceObject({ ownerId, category: 'tax-exports', objectId: exportId, extension: 'zip', content: archive, contentType: 'application/zip', fileName: `e-bilanz-${year}-${exportId}.zip` })
+  try {
+    await prisma.$transaction(async transaction => {
+      const deadline = retentionDeadline('TAX_RECORD', fiscalYear.endsAt.toISOString().slice(0, 10))
+      const objectId = `E-BILANZ:${fiscalYear.id}`
+      const latest = await transaction.retainedArtifact.findFirst({ where: { ownerId, objectType: 'TaxExport', objectId }, orderBy: { version: 'desc' } })
+      const artifact = await transaction.retainedArtifact.create({ data: { ownerId, objectType: 'TaxExport', objectId, version: (latest?.version ?? 0) + 1, retentionClass: 'TAX_RECORD', contentHash: sha256(archive), provenance: 'authenticated E-Bilanz export', storageKey, periodEndsAt: fiscalYear.endsAt, retainUntil: new Date(`${deadline.retainUntil}T23:59:59.999Z`) } })
+      await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'E_BILANZ_EXPORTED', reason: 'Authenticated report export', objectType: 'TaxExport', objectId, after: { artifactId: artifact.id, contentHash: artifact.contentHash, storageKey } })
+    })
+  } catch (error) {
+    try { await storage.delete(storageKey) }
+    catch (cleanupError) { throw new AggregateError([error, cleanupError], 'E-Bilanz retention registration failed and its staged archive could not be cleaned up') }
+    throw error
+  }
+  return archive
 }
 
 export async function processEBalanceWithEric(
@@ -535,6 +750,15 @@ export function mergeSubmissionHistory<T extends { id: string; createdAt: Date }
 
 async function prepareEBalance(ownerId: string, year: number, masterData: EBalanceMasterData, remoteSchemaReferences: boolean, generationDate = new Date().toISOString().slice(0, 10)) {
   const workspace = await getLedgerWorkspace(ownerId, year)
+  const reportDate = new Date(`${workspace.fiscalYear.endsAt}T23:59:59.999Z`)
+  const [settings, profileVersion, profileVersionCount] = await Promise.all([
+    prisma.accountRecord.findUnique({ where: { ownerId }, select: { payload: true } }),
+    prisma.companyProfileVersion.findFirst({ where: { ownerId, effectiveFrom: { lte: reportDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: reportDate } }] }, orderBy: { effectiveFrom: 'desc' }, select: { id: true, payload: true } }),
+    prisma.companyProfileVersion.count({ where: { ownerId } }),
+  ])
+  const addressConfirmation = profileVersion ? await prisma.companyProfileAddressConfirmation.findUnique({ where: { profileVersionId: profileVersion.id }, select: { payload: true } }) : null
+  const effectiveProfilePayload = profileVersion ? profilePayloadWithConfirmedAddress(profileVersion.payload, addressConfirmation?.payload) : undefined
+  masterData = authoritativeEBalanceMasterDataFromSettings(reportingSettingsPayload(settings?.payload, effectiveProfilePayload, profileVersionCount > 0), masterData)
   const issues = getEBalanceBlockingIssues(workspace.fiscalYear.status, workspace.closingIssues)
   if (issues.length) throw new AccountingValidationError(issues)
   if (!masterData.companyName.trim() || !masterData.street.trim() || !masterData.postalCode.trim() || !masterData.city.trim() || !masterData.taxNumber.trim()) throw new AccountingValidationError(['Firmenname, Straße, PLZ, Ort und Steuernummer sind für den Export erforderlich.'])

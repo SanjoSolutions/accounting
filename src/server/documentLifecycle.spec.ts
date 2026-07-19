@@ -10,10 +10,17 @@ const mocks = vi.hoisted(() => ({
   read: vi.fn(),
   save: vi.fn(),
   write: vi.fn(),
+  registerRetainedArtifact: vi.fn(),
+  fiscalPeriod: vi.fn(),
+  deleteRecord: vi.fn(),
 }))
 
 vi.mock('server-only', () => ({}))
 vi.mock('./documentThumbnail', () => ({ generateDocumentThumbnail: mocks.generateDocumentThumbnail }))
+vi.mock('./persistence/client', () => ({ prisma: {
+  fiscalYear: { findFirst: mocks.fiscalPeriod },
+  documentRecord: { deleteMany: mocks.deleteRecord },
+} }))
 vi.mock('./persistence/prisma', () => ({
   createPrismaPersistence: () => ({
     accounts: { findOne: vi.fn(), save: vi.fn() },
@@ -33,6 +40,7 @@ vi.mock('./storage', () => ({
     write: mocks.write,
   }),
 }))
+vi.mock('./compliance/runtime', () => ({ registerRetainedArtifact: mocks.registerRetainedArtifact }))
 
 import { createDocument, readDocumentThumbnail } from './index'
 
@@ -43,6 +51,9 @@ describe('document thumbnail lifecycle', () => {
     mocks.generateDocumentThumbnail.mockResolvedValue(Buffer.from('webp'))
     mocks.write.mockResolvedValue(undefined)
     mocks.save.mockResolvedValue(undefined)
+    mocks.registerRetainedArtifact.mockResolvedValue({ id: 'artifact-1' })
+    mocks.fiscalPeriod.mockResolvedValue({ endsAt: new Date('2027-03-31T23:59:59.999Z') })
+    mocks.deleteRecord.mockResolvedValue({ count: 0 })
   })
 
   it('stores one generated thumbnail and returns only its authenticated URL', async () => {
@@ -55,6 +66,8 @@ describe('document thumbnail lifecycle', () => {
       ownerId: 'owner-1',
       thumbnailStorageKey: expect.stringMatching(/\.webp$/),
     }))
+    expect(mocks.registerRetainedArtifact).toHaveBeenCalledWith('owner-1', 'owner-1', expect.objectContaining({ objectType: 'Document', retentionClass: 'INVOICE', content: expect.any(Buffer) }))
+    expect(mocks.registerRetainedArtifact).toHaveBeenCalledWith('owner-1', 'owner-1', expect.objectContaining({ periodEndsAt: '2027-03-31' }))
     expect(document.thumbnailUrl).toMatch(/^\/api\/documents\/.+\/thumbnail$/)
     expect(document.storageKey).toBeUndefined()
     expect(document.thumbnailStorageKey).toBeUndefined()
@@ -69,6 +82,12 @@ describe('document thumbnail lifecycle', () => {
     expect(document.thumbnailUrl).toBeUndefined()
     expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ thumbnailStorageKey: undefined }))
     expect(mocks.delete).toHaveBeenCalledWith(expect.stringMatching(/\.webp$/))
+  })
+
+  it('uses a conservative next-year retention boundary before fiscal-period assignment', async () => {
+    mocks.fiscalPeriod.mockResolvedValueOnce(null)
+    await createDocument(pdfInput(), 'owner-1')
+    expect(mocks.registerRetainedArtifact).toHaveBeenCalledWith('owner-1', 'owner-1', expect.objectContaining({ periodEndsAt: `${new Date().getUTCFullYear() + 1}-12-31` }))
   })
 
   it('reads a stored thumbnail only for its owner', async () => {
@@ -90,6 +109,13 @@ describe('document thumbnail lifecycle', () => {
       contentType: 'image/webp',
     })
     expect(mocks.read).toHaveBeenCalledWith('document.webp')
+  })
+
+  it('preserves document bytes when retention fails and the persisted row cannot be rolled back', async () => {
+    mocks.registerRetainedArtifact.mockRejectedValueOnce(new Error('retention unavailable'))
+    mocks.deleteRecord.mockRejectedValueOnce(new Error('database unavailable'))
+    await expect(createDocument(pdfInput(), 'owner-1')).rejects.toThrow(/storage objects were preserved/)
+    expect(mocks.delete).not.toHaveBeenCalled()
   })
 })
 

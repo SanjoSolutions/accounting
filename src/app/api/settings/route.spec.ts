@@ -88,6 +88,13 @@ describe('settings API authentication', () => {
     expect(mocks.getSettings).toHaveBeenCalledWith('tenant-b')
   })
 
+  it('exposes report applicability derived from the authoritative tenant profile', async () => {
+    process.env.AUTH_MODE = 'none'
+    mocks.getSettings.mockResolvedValueOnce({ id: 'company:local', companyProfile: { companyName: 'Example KG', legalForm: 'KG', taxNumber: '12/345/67890', taxOffice: 'Berlin', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: 'Trade', sizeClass: 'SMALL', chart: 'SKR04', elections: [] } } as never)
+    const response = await GET(new Request('http://localhost/api/settings'))
+    expect((await response.json()).data.reportApplicability).toMatchObject({ VAT_ADVANCE: { applicable: true, overridden: false }, E_BILANZ: { applicable: true } })
+  })
+
   it('rejects an unsupported chart of accounts', async () => {
     process.env.AUTH_MODE = 'none'
 

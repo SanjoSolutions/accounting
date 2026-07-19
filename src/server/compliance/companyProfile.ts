@@ -4,6 +4,7 @@ export type FilingFrequency = 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'
 
 export interface CompanyProfile {
   companyName: string
+  registeredAddress?: { streetAndHouseNumber: string; zipCode: string; city: string; country: string }
   legalForm: LegalForm
   registerCourt?: string
   registerNumber?: string
@@ -26,6 +27,14 @@ const isoDate = /^\d{4}-\d{2}-\d{2}$/
 const isRealIsoDate = (value: string) => { if (!isoDate.test(value)) return false; const date = new Date(`${value}T00:00:00.000Z`); return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value }
 export class CompanyProfileValidationError extends TypeError {}
 export const validateEffectiveDate = (value: unknown) => typeof value === 'string' && isRealIsoDate(value) ? [] : ['Effective date must be a real YYYY-MM-DD date']
+export function allocateProfileEffectiveInstant(effectiveFrom: string, existing: Date[]): Date | null {
+  const start = new Date(`${effectiveFrom}T00:00:00.000Z`)
+  if (!isRealIsoDate(effectiveFrom)) return null
+  const nextDay = new Date(start.getTime() + 86_400_000)
+  const latest = [...existing].sort((left, right) => right.getTime() - left.getTime())[0]
+  const candidate = latest ? new Date(latest.getTime() + 1) : start
+  return candidate < nextDay ? candidate : null
+}
 export function validateChartActivation(profileChart: unknown, activeChart: string, importedCharts: string[] = []): string[] {
   if (typeof profileChart === 'string' && profileChart.startsWith('CUSTOM:') && profileChart !== activeChart && !importedCharts.includes(profileChart)) return ['Custom chart must be imported and atomically activated before it can become authoritative']
   return []
@@ -70,6 +79,9 @@ export function validateSettingsSnapshot(expectedPayload: string, currentPayload
 export function isIdempotentProfileRetry(existing: { payload: string; createdBy: string; reason: string }, candidate: { payload: string; createdBy: string; reason: string }) {
   try { return canonicalJson(JSON.parse(existing.payload)) === canonicalJson(JSON.parse(candidate.payload)) && existing.createdBy === candidate.createdBy && existing.reason === candidate.reason } catch { return false }
 }
+export function isLatestIdempotentProfileRetry(existingNewestFirst: Array<{ payload: string; createdBy: string; reason: string }>, candidate: { payload: string; createdBy: string; reason: string }) {
+  return Boolean(existingNewestFirst[0] && isIdempotentProfileRetry(existingNewestFirst[0], candidate))
+}
 export function validateCompanyProfile(profile: unknown): string[] {
   const issues: string[] = []
   if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return ['company profile must be an object']
@@ -88,10 +100,50 @@ export function validateCompanyProfile(profile: unknown): string[] {
   if (!['STANDARD', 'SMALL_BUSINESS', 'EXEMPT'].includes(value.vatRegime ?? '')) issues.push('vatRegime is invalid')
   if (!['MONTHLY', 'QUARTERLY', 'ANNUAL'].includes(value.vatFilingFrequency ?? '')) issues.push('vatFilingFrequency is invalid')
   if (!['MICRO', 'SMALL', 'MEDIUM', 'LARGE'].includes(value.sizeClass ?? '')) issues.push('sizeClass is invalid')
+  if (value.registeredAddress !== undefined) {
+    if (!value.registeredAddress || typeof value.registeredAddress !== 'object' || Array.isArray(value.registeredAddress)) issues.push('registeredAddress is invalid')
+    else for (const field of ['streetAndHouseNumber', 'zipCode', 'city', 'country'] as const) if (typeof value.registeredAddress[field] !== 'string' || !value.registeredAddress[field].trim()) issues.push(`registeredAddress.${field} is required`)
+  }
   if (typeof value.chart !== 'string' || !['SKR03', 'SKR04'].includes(value.chart) && !/^CUSTOM:.+/.test(value.chart)) issues.push('chart is invalid')
   if (!Array.isArray(value.elections) || value.elections.some(item => typeof item !== 'string')) issues.push('elections must be a string array')
   if (value.applicabilityOverrides !== undefined && (!value.applicabilityOverrides || typeof value.applicabilityOverrides !== 'object' || Array.isArray(value.applicabilityOverrides) || Object.entries(value.applicabilityOverrides).some(([key, item]) => !['VAT_ADVANCE', 'VAT_ANNUAL', 'E_BILANZ', 'HGB_FINANCIAL_STATEMENTS'].includes(key) || typeof item !== 'boolean'))) issues.push('applicabilityOverrides is invalid')
   return issues
+}
+
+export function upgradeProfileRegisteredAddress(profile: unknown, invoiceIssuer: unknown): unknown {
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return profile
+  const upgraded = structuredClone(profile) as Record<string, unknown>
+  if (upgraded.registeredAddress !== undefined || !invoiceIssuer || typeof invoiceIssuer !== 'object' || Array.isArray(invoiceIssuer)) return upgraded
+  const issuer = invoiceIssuer as Record<string, unknown>
+  const fields = ['streetAndHouseNumber', 'zipCode', 'city', 'country'] as const
+  if (fields.every(field => typeof issuer[field] === 'string' && Boolean((issuer[field] as string).trim()))) {
+    upgraded.registeredAddress = Object.fromEntries(fields.map(field => [field, (issuer[field] as string).trim()]))
+  }
+  return upgraded
+}
+
+export function validateVersionedCompanyProfile(profile: unknown): string[] {
+  const issues = validateCompanyProfile(profile)
+  if (profile && typeof profile === 'object' && !Array.isArray(profile) && (profile as Partial<CompanyProfile>).registeredAddress === undefined) issues.push('registeredAddress is required for an authoritative profile version')
+  return issues
+}
+
+export function legacyProfileBaseline(profile: unknown, invoiceIssuer: unknown): { effectiveFrom: string; profile: unknown } | undefined {
+  if (profile === undefined) return undefined
+  // Preserve only address evidence that existed in the legacy record. An
+  // incomplete baseline remains report-blocking until the explicit immutable
+  // historical-address confirmation workflow records supporting evidence.
+  return { effectiveFrom: '1900-01-01', profile: upgradeProfileRegisteredAddress(profile, invoiceIssuer) }
+}
+
+export function profilePayloadWithConfirmedAddress(profilePayload: string, confirmationPayload: string | undefined): string {
+  const profile = JSON.parse(profilePayload) as Record<string, unknown>
+  if (profile.registeredAddress !== undefined || !confirmationPayload) return profilePayload
+  const confirmed = JSON.parse(confirmationPayload) as unknown
+  const upgraded = upgradeProfileRegisteredAddress(profile, confirmed)
+  const issues = validateVersionedCompanyProfile(upgraded)
+  if (issues.length) throw new CompanyProfileValidationError(`Historical profile address confirmation is invalid: ${issues.join('; ')}`)
+  return JSON.stringify(upgraded)
 }
 
 export function validateProfileVersions(versions: ProfileVersion[]): string[] {

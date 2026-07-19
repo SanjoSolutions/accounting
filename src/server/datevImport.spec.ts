@@ -7,7 +7,7 @@ const state = vi.hoisted(() => ({
   entries: [] as Array<{ data: Record<string, any> }>,
   persisted: new Map<string, any>(),
   existingKeys: [] as string[],
-  yearOpen: true,
+  yearStatus: 'OPEN',
   chart: null as string | null,
   consultantNumber: null as string | null,
   clientNumber: null as string | null,
@@ -35,9 +35,10 @@ const transaction = vi.hoisted(() => ({
   },
   fiscalYear: {
     upsert: vi.fn(async ({ create }: any) => ({ id: `year-${create.year}`, ...create })),
+    findMany: vi.fn(async () => []),
     updateMany: vi.fn(async () => ({ count: 1 })),
     findFirst: vi.fn(async () => null),
-    findUniqueOrThrow: vi.fn(async ({ where }: any) => ({ id: where.id ?? `year-${where.ownerId_year.year}`, status: state.yearOpen ? 'OPEN' : 'CLOSED' })),
+    findUniqueOrThrow: vi.fn(async ({ where }: any) => ({ id: where.id ?? `year-${where.ownerId_year.year}`, year: Number(String(where.id ?? where.ownerId_year.year).replace('year-', '')), endsAt: new Date(`${String(where.id ?? where.ownerId_year.year).replace('year-', '')}-12-31T23:59:59.999Z`), status: state.yearStatus })),
   },
   ledgerAccount: {
     upsert: vi.fn(async ({ create, update }: any) => {
@@ -55,16 +56,17 @@ const transaction = vi.hoisted(() => ({
 }))
 vi.mock('server-only', () => ({}))
 vi.mock('./persistence/client', () => ({ prisma: { $transaction: (callback: any) => callback(transaction) } }))
-vi.mock('./ledger', () => ({ DEFAULT_ACCOUNTS: [
+vi.mock('./ledger', () => ({ isStandardPostingPeriod: (status: string) => status === 'OPEN', DEFAULT_ACCOUNTS: [
   [1200, 'Bank', 'ASSET', 'bs.ass.currAss.cashEquiv.bank'],
   [1600, 'Verbindlichkeiten', 'LIABILITY', 'bs.eqLiab.liab.trade'],
   [8400, 'Erlöse', 'REVENUE', 'is.netIncome'],
 ] }))
-import { createDatevLines, importDatev, validateDatevImportSize } from './datevImport'
+vi.mock('./compliance/auditPersistence', () => ({ appendAuditEvent: vi.fn() }))
+import { createDatevLines, importDatev, resolveDatevPeriods, validateDatevImportSize } from './datevImport'
 
 describe('DATEV ledger import', () => {
   beforeEach(() => {
-    vi.clearAllMocks(); state.accounts.clear(); state.accountCategories.clear(); state.accountNames.clear(); state.entries.length = 0; state.persisted.clear(); state.existingKeys = []; state.yearOpen = true
+    vi.clearAllMocks(); state.accounts.clear(); state.accountCategories.clear(); state.accountNames.clear(); state.entries.length = 0; state.persisted.clear(); state.existingKeys = []; state.yearStatus = 'OPEN'
     state.chart = null; state.consultantNumber = null; state.clientNumber = null; state.accountLength = null
   })
 
@@ -82,6 +84,22 @@ describe('DATEV ledger import', () => {
     ])
   })
 
+  it('routes calendar, deviating and short-year DATEV dates by persisted boundaries', () => {
+    const periods = [
+      { id: 'deviating', startsAt: new Date('2025-07-01T00:00:00Z'), endsAt: new Date('2026-06-30T23:59:59.999Z') },
+      { id: 'short', startsAt: new Date('2026-07-01T00:00:00Z'), endsAt: new Date('2026-09-30T23:59:59.999Z') },
+    ]
+    const resolved = resolveDatevPeriods(periods, ['2026-06-30', '2026-07-01'])
+    expect(resolved.get('2026-06-30')?.id).toBe('deviating')
+    expect(resolved.get('2026-07-01')?.id).toBe('short')
+  })
+
+  it('rejects DATEV dates in fiscal gaps or overlaps', () => {
+    const period = { id: 'one', startsAt: new Date('2025-01-01T00:00:00Z'), endsAt: new Date('2025-06-30T23:59:59.999Z') }
+    expect(() => resolveDatevPeriods([period], ['2025-07-01'])).toThrow(/Keine Geschäftsjahresperiode/)
+    expect(() => resolveDatevPeriods([period, { ...period, id: 'two' }], ['2025-06-30'])).toThrow(/überlappende/)
+  })
+
   it('skips an already imported external booking and refuses a locked year', async () => {
     await importDatev('owner-1', [bookingFile('S')])
     state.existingKeys = [state.entries[0].data.externalKey]
@@ -90,8 +108,10 @@ describe('DATEV ledger import', () => {
     expect(state.entries).toHaveLength(0)
     expect(transaction.fiscalYear.updateMany.mock.invocationCallOrder[1]).toBeLessThan(transaction.journalEntry.findMany.mock.invocationCallOrder[1])
 
-    state.existingKeys = []; state.yearOpen = false
+    state.existingKeys = []; state.yearStatus = 'CLOSED'
     await expect(importDatev('owner-1', [bookingFile('S')])).rejects.toThrow(/gesperrt/)
+    state.yearStatus = 'REOPENED'
+    await expect(importDatev('owner-1', [bookingFile('S')])).rejects.toThrow(/Korrekturworkflow/)
   })
 
   it('rejects changed content for a previously imported GUID', async () => {

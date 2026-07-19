@@ -9,9 +9,17 @@
     "Annual close": "Annual close",
     "E-balance": "E-balance",
     "ExportImport": "Export / Import",
+    "Compliance": "Compliance",
     "Create booking record": "Create booking record",
     "Create balance sheet": "Create balance sheet",
     "Settings": "Settings"
+  },
+  "Compliance": {
+    "eyebrow": "Governance and operations", "title": "Compliance control center", "subtitle": "Tenant-scoped master data, fiscal periods, traceable corrections, retention, and disaster recovery.", "refresh": "Refresh", "loadFailed": "Compliance data could not be loaded.", "actionFailed": "The compliance action failed.", "reasonRequired": "A documented reason is required.", "mappingArrayRequired": "Mappings must be a JSON array.", "overrideBooleanRequired": "Applicability overrides must contain only boolean values.", "profileSaved": "The authoritative profile was saved.", "periodCreated": "The fiscal period was created.", "chartActivated": "The custom chart was imported and activated.", "operationCompleted": "The operation completed.",
+    "profile": "Authoritative company and tax profile", "auditVerified": "Audit chain verified", "auditUnverified": "Audit chain not verified", "companyName": "Company name", "street": "Registered street and house number", "postalCode": "Registered postal code", "city": "Registered city", "country": "Registered country", "legalForm": "Legal form", "registerCourt": "Register court", "registerNumber": "Register number", "taxNumber": "Tax number", "vatId": "VAT ID", "taxOffice": "Tax office", "vatRegime": "VAT regime", "filingFrequency": "VAT filing frequency", "activity": "Business activity", "sizeClass": "Size class", "chart": "Authoritative chart", "elections": "Elections (comma-separated)", "applicabilityOverrides": "Documented report applicability overrides (JSON)", "changeReason": "Change reason", "saveProfile": "Save effective profile", "report": "Report", "applicable": "Applicable", "basis": "Basis", "yes": "Yes", "no": "No", "override": "Documented override",
+    "periods": "Fiscal periods", "periodHint": "Calendar, deviating, or short year (maximum twelve months)", "referenceYear": "Reference year", "label": "Label", "startsAt": "Starts", "endsAt": "Ends", "reason": "Reason", "createPeriod": "Create stable period",
+    "chartLifecycle": "Chart and mapping lifecycle", "customChartId": "Custom chart ID", "mappingJson": "Effective account mappings (JSON)", "activateChart": "Import and activate atomically", "mappingHistory": "Effective mapping history",
+    "workflows": "Controlled workflows and operator controls", "workflowHint": "Draft, post, reversal/replacement, reopen, amendment, retention, backup and restore", "operation": "Operation", "operationPayload": "Operation parameters (JSON)", "execute": "Execute controlled operation", "drafts": "Drafts", "reopenRequests": "Reopen requests", "amendments": "Amendments", "profileAddressMigrations": "Historical address confirmations", "retainedArtifacts": "Retained artifacts", "backups": "Backups and restore exercises", "operatorPolicy": "Jurisdiction and recovery policy"
   },
   "CreateBookingRecord": {
     "Create booking record": "Create booking record",

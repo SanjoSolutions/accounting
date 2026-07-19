@@ -7,6 +7,12 @@ export interface OpenDalConfig {
   options: Record<string, string>
 }
 
+export function getAuthoritativeStorageRegion(env: Readonly<Record<string, string | undefined>> = process.env): string {
+  const region = env.DOCUMENT_STORAGE_REGION?.trim()
+  if (!region) throw new Error('DOCUMENT_STORAGE_REGION is required for jurisdiction-bound compliance storage')
+  return region
+}
+
 export function getOpenDalConfig(
   env: Readonly<Record<string, string | undefined>> = process.env,
   cwd: string = process.cwd(),

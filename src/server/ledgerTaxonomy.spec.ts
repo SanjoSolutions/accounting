@@ -4,12 +4,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { createFinancialStatements, type LedgerBalance } from '@/core/doubleEntry'
 import { createEBalanceXbrl, getEBalanceTaxonomy } from '@/core/eBilanz'
 import { validateEBalanceConcepts } from '@/core/eBilanzPackage'
+import { profilePayloadWithConfirmedAddress } from './compliance/companyProfile'
 
 vi.mock('server-only', () => ({}))
 vi.mock('./persistence/client', () => ({ prisma: {} }))
-import { accountSemanticFingerprint, DEFAULT_ACCOUNTS, defaultAccountsForLedger, getEBalanceBlockingIssues, inferExistingLedgerChart, inferExistingLedgerProfile, legacyLedgerClaimApplies, mergeSubmissionHistory, nextCalendarDay, normalizeDocumentIds, postingDateBoundary, postingOrderPeriodYear, requireLegacyLedgerProfile, selectBootstrapChart, selectedChartFromSettingsPayload, selectPostingPeriod, submissionResultStatus, successorOverlapBounds, validateDocumentNamespace, validateLegacyLedgerClaim, validateNumericPeriodBootstrap, validatePostingSuccessorBootstrap, validateSuccessorContiguity, validateSuccessorOverlap } from './ledger'
+import { accountSemanticFingerprint, authoritativeEBalanceMasterDataFromSettings, DEFAULT_ACCOUNTS, defaultAccountsForLedger, getEBalanceBlockingIssues, inferExistingLedgerChart, inferExistingLedgerProfile, isStandardPostingPeriod, legacyLedgerClaimApplies, mergeSubmissionHistory, nextCalendarDay, normalizeDocumentIds, postingDateBoundary, postingOrderPeriodYear, reportingSettingsPayload, requireLegacyLedgerProfile, selectBootstrapChart, selectedChartFromSettingsPayload, selectPostingPeriod, settingsPayloadWithEffectiveProfile, submissionResultStatus, successorOverlapBounds, validateDocumentNamespace, validateLegacyLedgerClaim, validateNumericPeriodBootstrap, validatePostingSuccessorBootstrap, validateSuccessorContiguity, validateSuccessorOverlap } from './ledger'
 
 describe('default ledger taxonomy mappings', () => {
+  it('reserves reopened periods for the controlled correction workflow', () => { expect(isStandardPostingPeriod('OPEN')).toBe(true); expect(isStandardPostingPeriod('REOPENED')).toBe(false) })
   it('scales SKR03 defaults to the persisted DATEV account length', () => {
     const numbers = defaultAccountsForLedger('SKR03', 5).map(([number]) => number)
     expect(numbers).toContain(12000)
@@ -54,6 +56,28 @@ describe('default ledger taxonomy mappings', () => {
     expect(nextCalendarDay(new Date('2025-06-30T23:59:59.999Z'))).toEqual(new Date('2025-07-01T00:00:00.000Z'))
   })
   it('selects the tenant active chart for bootstrap and honors legacy SKR04 payloads', () => { expect(selectedChartFromSettingsPayload('{"activeChart":"CUSTOM:mine"}')).toBe('CUSTOM:mine'); expect(selectedChartFromSettingsPayload('{"chartOfAccounts":"SKR04"}')).toBe('SKR04'); expect(selectedChartFromSettingsPayload('{}')).toBe('SKR03') })
+  it('uses authoritative profile and issuer data for reporting while retaining legacy fallback', () => {
+    const supplied = { companyName: 'Transient', street: 'Old', postalCode: '00000', city: 'Old', taxNumber: 'old', legalForm: 'GMBH' as const }
+    const profile = { companyName: 'Authoritative KG', legalForm: 'KG', taxNumber: '12/345/67890', taxOffice: 'Berlin', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: 'Trade', sizeClass: 'SMALL', chart: 'SKR04', elections: [] }
+    expect(authoritativeEBalanceMasterDataFromSettings(JSON.stringify({ companyProfile: profile, invoiceIssuer: { streetAndHouseNumber: 'Main 1', zipCode: '10115', city: 'Berlin' } }), supplied)).toMatchObject({ companyName: 'Authoritative KG', legalForm: 'KG', taxNumber: '12/345/67890', street: 'Main 1', postalCode: '10115', city: 'Berlin' })
+    const historical = { ...profile, companyName: 'Historic KG', taxNumber: '98/765/43210' }
+    const historicalSettings = settingsPayloadWithEffectiveProfile(JSON.stringify({ companyProfile: profile, invoiceIssuer: { streetAndHouseNumber: 'Current 1', zipCode: '99999', city: 'Current' } }), JSON.stringify(historical))!
+    expect(JSON.parse(historicalSettings).companyProfile).toEqual(historical)
+    expect(JSON.parse(historicalSettings)).not.toHaveProperty('invoiceIssuer')
+    expect(() => authoritativeEBalanceMasterDataFromSettings(historicalSettings, supplied)).toThrow(/vollständig versionierte Anschrift/)
+    const versionedAddress = { ...historical, registeredAddress: { streetAndHouseNumber: 'Historic 1', zipCode: '12345', city: 'Oldtown', country: 'DE' } }
+    expect(authoritativeEBalanceMasterDataFromSettings(settingsPayloadWithEffectiveProfile(undefined, JSON.stringify(versionedAddress)), supplied)).toMatchObject({ companyName: 'Historic KG', street: 'Historic 1', postalCode: '12345', city: 'Oldtown' })
+    expect(() => reportingSettingsPayload(JSON.stringify({ companyProfile: profile }), undefined, true)).toThrow(/historisches Unternehmensprofil/)
+    expect(reportingSettingsPayload(JSON.stringify({ companyProfile: profile }), undefined, false)).toContain('Authoritative KG')
+    expect(authoritativeEBalanceMasterDataFromSettings(undefined, supplied)).toBe(supplied)
+    expect(() => authoritativeEBalanceMasterDataFromSettings(JSON.stringify({ companyProfile: { ...profile, taxNumber: '' } }), supplied)).toThrow(/maßgebliche Unternehmensprofil ist ungültig/)
+  })
+  it('applies only persisted address confirmation to an incomplete historical profile', () => {
+    const historical = { companyName: 'Historic KG', legalForm: 'KG', taxNumber: '98/765/43210', taxOffice: 'Berlin', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: 'Trade', sizeClass: 'SMALL', chart: 'SKR04', elections: [] }
+    const confirmed = profilePayloadWithConfirmedAddress(JSON.stringify(historical), JSON.stringify({ streetAndHouseNumber: 'Old 1', zipCode: '12345', city: 'Oldtown', country: 'DE' }))
+    expect(JSON.parse(confirmed).registeredAddress).toMatchObject({ streetAndHouseNumber: 'Old 1', city: 'Oldtown' })
+    expect(() => profilePayloadWithConfirmedAddress(JSON.stringify(historical), undefined)).not.toThrow()
+  })
   it('does not bootstrap a calendar year over an existing deviating topology', () => { expect(() => validateNumericPeriodBootstrap(false, 1)).toThrow(/Periodentopologie/); expect(() => validateNumericPeriodBootstrap(false, 0)).not.toThrow(); expect(() => validateNumericPeriodBootstrap(true, 2)).not.toThrow() })
   it('bootstraps only a contiguous, non-overlapping posting successor after rollover', () => {
     const proposedStart = new Date('2026-01-01T00:00:00.000Z')

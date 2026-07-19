@@ -3,7 +3,7 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { BookingRecord } from '@/core/BookingRecord'
 import { isChartOfAccountsStandard } from '@/core/ChartOfAccounts'
-import { CompanyProfileValidationError, isIdempotentProfileRetry, mergeInvoiceIssuerFields, profilesSemanticallyEqual, validateAtomicChartTransition, validateChartActivation, validateCompanyProfile, validateEffectiveDate, validateLiveEffectiveDate, validateProfileVersions, validateSettingsSnapshot } from './compliance/companyProfile'
+import { allocateProfileEffectiveInstant, CompanyProfileValidationError, isLatestIdempotentProfileRetry, legacyProfileBaseline, mergeInvoiceIssuerFields, profilesSemanticallyEqual, upgradeProfileRegisteredAddress, validateAtomicChartTransition, validateChartActivation, validateEffectiveDate, validateLiveEffectiveDate, validateProfileVersions, validateSettingsSnapshot, validateVersionedCompanyProfile } from './compliance/companyProfile'
 import { isIdempotentMappingCohort, resolveTargetChart, scaleMappingsForAccountLength, seedChart, shouldGuardActiveRevision, validateActiveChartRevision, validateActiveRevisionEffectiveDate, validateChartSwitch, validateImportedChart, type AccountMapping } from './compliance/chartLifecycle'
 import { prisma } from './persistence/client'
 import { Document } from '@/core/Document'
@@ -16,6 +16,8 @@ import { generateDocumentThumbnail } from './documentThumbnail'
 import { createPrismaPersistence } from './persistence/prisma'
 import { getDocumentStorage } from './storage'
 import { requireLegacyLedgerProfile } from './ledger'
+import { appendAuditEvent } from './compliance/auditPersistence'
+import { registerRetainedArtifact } from './compliance/runtime'
 
 const persistence = createPrismaPersistence()
 const companySettingsId = (ownerId: string) => `company:${ownerId}`
@@ -48,6 +50,8 @@ export async function getSettings(ownerId: string): Promise<Account> {
 export async function updateSettings(data: any, ownerId: string, actorId = ownerId): Promise<void> {
   const account = await getSettings(ownerId)
   const originalPayload = account.persistencePayload ?? JSON.stringify(account)
+  const originalCompanyProfile = account.companyProfile ? structuredClone(account.companyProfile) : undefined
+  const originalInvoiceIssuer = structuredClone(account.invoiceIssuer)
 
   if (data.chartOfAccounts !== undefined && !isChartOfAccountsStandard(data.chartOfAccounts)) {
     throw new TypeError('chartOfAccounts must be SKR03 or SKR04')
@@ -64,26 +68,27 @@ export async function updateSettings(data: any, ownerId: string, actorId = owner
   const profileVersionWrite = profileChanging || profileRetryRequested
   const availableImportedCharts = [...new Set([...account.importedCharts, ...(importedChart ? [importedChart.id] : [])])]
   if (data.invoiceIssuer !== undefined) mergeInvoiceIssuerFields(account.invoiceIssuer, data.invoiceIssuer)
+  const versionedProfile = profileVersionWrite ? upgradeProfileRegisteredAddress(data.companyProfile, account.invoiceIssuer) as typeof data.companyProfile : data.companyProfile
   if (data.chartOfAccounts !== undefined) {
     account.chartOfAccounts = data.chartOfAccounts
     account.activeChart = data.chartOfAccounts
   }
   if (profileChanging) {
-    const issues = [...validateCompanyProfile(data.companyProfile), ...validateChartActivation(data.companyProfile?.chart, account.activeChart, availableImportedCharts)]
+    const issues = [...validateVersionedCompanyProfile(versionedProfile), ...validateChartActivation(versionedProfile?.chart, account.activeChart, availableImportedCharts)]
     if (issues.length) throw new CompanyProfileValidationError(issues.join('; '))
-    account.companyProfile = structuredClone(data.companyProfile)
-    account.activeChart = data.companyProfile.chart
-    if (data.companyProfile.chart === 'SKR03' || data.companyProfile.chart === 'SKR04') account.chartOfAccounts = data.companyProfile.chart
+    account.companyProfile = structuredClone(versionedProfile)
+    account.activeChart = versionedProfile.chart
+    if (versionedProfile.chart === 'SKR03' || versionedProfile.chart === 'SKR04') account.chartOfAccounts = versionedProfile.chart
   }
   const effectiveFrom = data.companyProfileEffectiveFrom
   const reason = data.changeReason
   if (profileVersionWrite) {
-    const profileIssues = validateCompanyProfile(data.companyProfile)
-    const profileDateIssues = validateProfileVersions([{ id: 'candidate', ownerId, effectiveFrom, profile: data.companyProfile, actorId, reason }])
+    const profileIssues = validateVersionedCompanyProfile(versionedProfile)
+    const profileDateIssues = validateProfileVersions([{ id: 'candidate', ownerId, effectiveFrom, profile: versionedProfile, actorId, reason }])
     const liveDateIssues = validateLiveEffectiveDate(effectiveFrom)
     if (profileIssues.length || profileDateIssues.length || liveDateIssues.length || typeof reason !== 'string' || !reason.trim()) throw new CompanyProfileValidationError([...profileIssues, ...profileDateIssues, ...liveDateIssues, ...((typeof reason !== 'string' || !reason.trim()) ? ['Company profile change reason is required'] : [])].join('; '))
   }
-  const activatedChart = data.companyProfile?.chart ?? data.chartOfAccounts ?? account.activeChart
+  const activatedChart = versionedProfile?.chart ?? data.chartOfAccounts ?? account.activeChart
   const today = new Date().toISOString().slice(0, 10)
   const chartEffectiveFrom = effectiveFrom ?? data.chartEffectiveFrom ?? today
   if (data.chartOfAccounts !== undefined) {
@@ -93,6 +98,7 @@ export async function updateSettings(data: any, ownerId: string, actorId = owner
   const activationDateValue = profileChanging ? effectiveFrom : data.chartOfAccounts !== undefined ? chartEffectiveFrom : mappingEffectiveFrom ?? today
   const activationDate = new Date(`${activationDateValue}T00:00:00.000Z`)
   await prisma.$transaction(async transaction => {
+    let profileHistoryChanged = false
     await transaction.$executeRaw`UPDATE AccountRecord SET id = id WHERE id = ${account.id}`
     const currentSettings = await transaction.accountRecord.findUniqueOrThrow({ where: { id: account.id }, select: { payload: true } })
     validateSettingsSnapshot(originalPayload, currentSettings.payload)
@@ -154,16 +160,33 @@ export async function updateSettings(data: any, ownerId: string, actorId = owner
       if (targetChart === 'SKR03' || targetChart === 'SKR04') account.chartOfAccounts = targetChart
     }
     if (profileVersionWrite) {
-      const versionKey = { ownerId_effectiveFrom: { ownerId, effectiveFrom: new Date(`${effectiveFrom}T00:00:00.000Z`) } }
-      const candidate = { payload: JSON.stringify(data.companyProfile), createdBy: actorId, reason: reason.trim() }
-      const existing = await transaction.companyProfileVersion.findUnique({ where: versionKey })
-      if (existing && !isIdempotentProfileRetry(existing, candidate)) throw new CompanyProfileValidationError('A different company profile version already exists for this effective date')
-      if (!existing) await transaction.companyProfileVersion.create({ data: { ownerId, effectiveFrom: versionKey.ownerId_effectiveFrom.effectiveFrom, ...candidate } })
+      const existingVersion = await transaction.companyProfileVersion.findFirst({ where: { ownerId }, select: { id: true } })
+      if (!existingVersion && originalCompanyProfile) {
+        const baseline = legacyProfileBaseline(originalCompanyProfile, originalInvoiceIssuer)!
+        await transaction.companyProfileVersion.create({ data: { ownerId, effectiveFrom: new Date(`${baseline.effectiveFrom}T00:00:00.000Z`), payload: JSON.stringify(baseline.profile), createdBy: actorId, reason: 'Automatic legacy profile baseline migration' } })
+        profileHistoryChanged = true
+      }
+      const candidate = { payload: JSON.stringify(versionedProfile), createdBy: actorId, reason: reason.trim() }
+      const effectiveDay = new Date(`${effectiveFrom}T00:00:00.000Z`)
+      const nextDay = new Date(effectiveDay.getTime() + 86_400_000)
+      const sameDay = await transaction.companyProfileVersion.findMany({ where: { ownerId, effectiveFrom: { gte: effectiveDay, lt: nextDay } }, orderBy: { effectiveFrom: 'desc' } })
+      if (!isLatestIdempotentProfileRetry(sameDay, candidate)) {
+        const effectiveInstant = allocateProfileEffectiveInstant(effectiveFrom, sameDay.map(item => item.effectiveFrom))
+        if (!effectiveInstant) throw new CompanyProfileValidationError('No additional profile revision can be stored on the requested effective date')
+        await transaction.companyProfileVersion.create({ data: { ownerId, effectiveFrom: effectiveInstant, ...candidate } })
+        profileHistoryChanged = true
+      }
     }
     const canonicalImportedCharts = await transaction.accountMappingVersion.findMany({ where: { ownerId, chartId: { startsWith: 'CUSTOM:' } }, select: { chartId: true }, distinct: ['chartId'] })
     account.importedCharts = [...new Set([...account.importedCharts, ...canonicalImportedCharts.map(item => item.chartId)])]
     const payload = JSON.stringify(account)
     await transaction.accountRecord.upsert({ where: { id: account.id }, create: { id: account.id, ownerId, payload }, update: { ownerId, payload } })
+    if (payload !== originalPayload || profileHistoryChanged) await appendAuditEvent(transaction, {
+      ownerId, actorId, action: profileVersionWrite ? 'COMPANY_PROFILE_CHANGED' : 'SETTINGS_CHANGED',
+      reason: typeof reason === 'string' && reason.trim() ? reason : 'User settings update',
+      objectType: profileVersionWrite ? 'CompanyProfile' : 'AccountRecord', objectId: account.id,
+      before: JSON.parse(originalPayload), after: JSON.parse(payload),
+    })
   })
 }
 
@@ -175,6 +198,7 @@ export async function createDocument(input: DocumentFileInput, ownerId: string):
   const fileName = sanitizeFileName(input.fileName)
   const contentType = 'application/pdf'
   const storage = getDocumentStorage()
+  let documentSaved = false
 
   await storage.write(storageKey, input.content, { contentType, fileName })
   const candidateThumbnailStorageKey = `documents/${ encodeURIComponent(ownerId) }/${ id }.webp`
@@ -205,10 +229,32 @@ export async function createDocument(input: DocumentFileInput, ownerId: string):
       thumbnailStorageKey ? `/api/documents/${ id }/thumbnail` : undefined,
     )
     await persistence.documents.save(document)
+    documentSaved = true
+    const uploadedOn = new Date()
+    const coveringPeriod = await prisma.fiscalYear.findFirst({
+      where: { ownerId, startsAt: { lte: uploadedOn }, endsAt: { gte: uploadedOn } },
+      orderBy: { endsAt: 'desc' },
+      select: { endsAt: true },
+    })
+    const periodEndsAt = coveringPeriod?.endsAt.toISOString().slice(0, 10) ?? `${uploadedOn.getUTCFullYear() + 1}-12-31`
+    await registerRetainedArtifact(ownerId, ownerId, {
+      objectType: 'Document', objectId: id, retentionClass: 'INVOICE',
+      periodEndsAt, provenance: coveringPeriod ? 'authenticated document upload in configured fiscal period' : 'authenticated document upload before fiscal-period assignment',
+      storageKey, content: input.content, reason: 'Original document received',
+    })
     return toPublicDocument(document)
   } catch (error) {
-    await storage.delete(storageKey).catch(() => undefined)
-    if (thumbnailStorageKey) await storage.delete(thumbnailStorageKey).catch(() => undefined)
+    if (documentSaved) {
+      try {
+        const deleted = await prisma.documentRecord.deleteMany({ where: { id, ownerId } })
+        if (deleted.count !== 1) throw new Error('Persisted document row was not removed')
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], 'Document creation failed and database cleanup failed; storage objects were preserved')
+      }
+    }
+    const cleanup = await Promise.allSettled([storage.delete(storageKey), ...(thumbnailStorageKey ? [storage.delete(thumbnailStorageKey)] : [])])
+    const failures = cleanup.filter(result => result.status === 'rejected')
+    if (failures.length) throw new AggregateError([error, ...failures.map(result => (result as PromiseRejectedResult).reason)], 'Document creation failed and staged storage cleanup was incomplete')
     throw error
   }
 }
@@ -274,13 +320,18 @@ export async function requestDocumentParsing(
   if (!document?.storageKey || document.ownerId !== ownerId) return null
 
   const invoice = document as Invoice
+  const before = JSON.parse(JSON.stringify(document))
   invoice.netAmount = getMoneyValue(fixture, 'net_amount')!
   invoice.tax = new TaxAmount(
     getTaxAmount(fixture)!,
     new Tax('19% VAT', 0.19),
   )
   invoice.total = getMoneyValue(fixture, 'total_amount')!
-  await persistence.documents.save(invoice)
+  await prisma.$transaction(async transaction => {
+    const updated = await transaction.documentRecord.updateMany({ where: { id: documentId, ownerId }, data: { payload: JSON.stringify(invoice) } })
+    if (updated.count !== 1) throw new Error('Document ownership changed during parsing')
+    await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'DOCUMENT_PARSED', reason: 'Authenticated document parsing request', objectType: 'Document', objectId: documentId, before, after: invoice })
+  })
   return invoice
 }
 
