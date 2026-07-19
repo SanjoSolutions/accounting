@@ -68,9 +68,7 @@ export function BookingDocuments({
     try {
       for (const file of files) {
         const response = await api.postFile('/api/documents', file)
-        const body = await getJSON(response)
-        if (!response.ok) throw new Error(body.error || t('documentUploadFailed'))
-        const uploadedDocument = body.data as BookingDocument
+        const uploadedDocument = await readDocumentUploadResponse(response, t('documentUploadFailed'))
         setDocuments(current => mergeUploadedDocument(current, uploadedDocument))
         const nextSelection = mergeDocumentSelection(selectedDocumentIdsRef.current, uploadedDocument.id)
         selectedDocumentIdsRef.current = nextSelection
@@ -345,4 +343,11 @@ export function parseSavedDocumentColumnPercent(value: string | null): number | 
   if (value === null || value.trim() === '') return null
   const percent = Number(value)
   return Number.isFinite(percent) ? clampDocumentColumnPercent(percent) : null
+}
+
+export async function readDocumentUploadResponse(response: Response, fallbackMessage: string): Promise<BookingDocument> {
+  const body = await getJSON(response).catch(() => null)
+  const serverMessage = typeof body?.error === 'string' && body.error.trim() ? body.error : fallbackMessage
+  if (!response.ok || !body?.data || typeof body.data !== 'object') throw new Error(serverMessage)
+  return body.data as BookingDocument
 }

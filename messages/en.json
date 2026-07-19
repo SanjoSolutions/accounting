@@ -8,6 +8,7 @@
     "Bookings": "Bookings",
     "Annual close": "Annual close",
     "E-balance": "E-balance",
+    "ExportImport": "Export / Import",
     "Create booking record": "Create booking record",
     "Create balance sheet": "Create balance sheet",
     "Settings": "Settings"
@@ -59,7 +60,8 @@
     "Country": "Country",
     "Accounting": "Accounting",
     "Chart of accounts": "Chart of accounts",
-    "Save": "Save"
+    "Save": "Save",
+    "Load failed": "Settings could not be loaded."
   },
   "Workspaces": {
     "generalLedger": "Journal & general ledger", "bookings": "Bookings", "bookingsSubtitle": "Accurate to the cent, balanced, and immutable after posting.", "fiscalYear": "Fiscal year", "fiscalYearNavigation": "Select fiscal year", "previousFiscalYear": "Previous fiscal year {year}", "nextFiscalYear": "Next fiscal year {year}", "openFiscalYear": "Open",

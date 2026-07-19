@@ -55,5 +55,12 @@ export class Requester {
 export const api = new Requester('')
 
 export async function getJSON(response: Response): Promise<any> {
-  return JSON.parse(await response.text())
+  const text = await response.text()
+  if (!text.trim()) return null
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new Error('The server returned an invalid JSON response.')
+  }
 }
