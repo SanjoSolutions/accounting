@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import de from '../messages/de.json'
 import en from '../messages/en.json'
-import { acceptedPdfFiles, clampDocumentColumnPercent, DocumentCard, documentDisplayName, LongTouchSelectionGesture, longTouchSelectionDelayMs, mergeDocumentLists, mergeDocumentSelection, mergeUploadedDocument, parseSavedDocumentColumnPercent, selectDocument, selectionExtendsForActivation } from './BookingDocuments'
+import { readFileSync } from 'node:fs'
+import { acceptedPdfFiles, clampDocumentColumnPercent, DocumentCard, documentDisplayName, LongTouchSelectionGesture, longTouchSelectionDelayMs, mergeDocumentLists, mergeDocumentSelection, mergeUploadedDocument, parseSavedDocumentColumnPercent, readDocumentUploadResponse, selectDocument, selectionExtendsForActivation } from './BookingDocuments'
 
 afterEach(() => vi.useRealTimers())
 
@@ -128,5 +129,14 @@ describe('booking document selection', () => {
     expect(parseSavedDocumentColumnPercent('62')).toBe(62)
     expect(parseSavedDocumentColumnPercent('100')).toBe(75)
     expect(parseSavedDocumentColumnPercent('not-a-number')).toBeNull()
+  })
+
+  it('uses the localized upload fallback when an error response has no JSON body', async () => {
+    await expect(readDocumentUploadResponse(new Response('', { status: 500 }), 'Upload failed')).rejects.toThrow('Upload failed')
+  })
+
+  it('keeps spacing below a document loading error', () => {
+    const css = readFileSync(new URL('./index.css', import.meta.url), 'utf8')
+    expect(css).toMatch(/\.document-picker-panel \.error-summary\s*\{[^}]*margin-bottom:\s*14px/)
   })
 })

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useInputStateHandler } from './useInputStateHandler'
-import { api } from './Requester'
+import { api, getJSON } from './Requester'
 import {
   chartOfAccountsStandards,
   chartOfAccountsStandardLabel,
@@ -15,6 +15,7 @@ export function Settings(): any {
 
   const [isLoading, setIsLoading] = useState(true)
   const [isFirstRender, setIsFirstRender] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [name, setName, onNameChange] = useInputStateHandler('')
   const [streetAndHouseNumber, setStreetAndHouseNumber, onStreetAndHouseNumberChange] = useInputStateHandler('')
   const [zipCode, setZipCode, onZipCodeChange] = useInputStateHandler('')
@@ -26,17 +27,20 @@ export function Settings(): any {
 
   useEffect(() => {
     async function loadData() {
-      const response = await api.get('/api/settings')
-      const { data } = JSON.parse(await response.text())
-      const { invoiceIssuer } = data
-      const { name, streetAndHouseNumber, zipCode, city, country } = invoiceIssuer
-      setName(name)
-      setStreetAndHouseNumber(streetAndHouseNumber)
-      setZipCode(zipCode)
-      setCity(city)
-      setCountry(country)
-      setChartOfAccounts(data.chartOfAccounts ?? 'SKR03')
-      setIsLoading(false)
+      try {
+        const data = await readSettingsResponse(await api.get('/api/settings'))
+        const { name, streetAndHouseNumber, zipCode, city, country } = data.invoiceIssuer
+        setName(name)
+        setStreetAndHouseNumber(streetAndHouseNumber)
+        setZipCode(zipCode)
+        setCity(city)
+        setCountry(country)
+        setChartOfAccounts(data.chartOfAccounts ?? 'SKR03')
+      } catch {
+        setLoadError(t('Load failed'))
+      } finally {
+        setIsLoading(false)
+      }
     }
 
     if (isFirstRender) {
@@ -79,6 +83,7 @@ export function Settings(): any {
           <div>
             Loading...
           </div> :
+          loadError ? <div className="error-summary" role="alert">{loadError}</div> :
           <form onSubmit={ onSubmit }>
             <fieldset>
               <legend>{ t('Invoice issuer') }</legend>
@@ -159,4 +164,15 @@ export function Settings(): any {
       }
     </div>
   )
+}
+
+export async function readSettingsResponse(response: Response): Promise<{
+  invoiceIssuer: { name: string; streetAndHouseNumber: string; zipCode: string; city: string; country: string }
+  chartOfAccounts?: ChartOfAccountsStandard
+}> {
+  const body = await getJSON(response)
+  if (!response.ok || !body?.data || typeof body.data !== 'object' || !body.data.invoiceIssuer) {
+    throw new Error('Settings could not be loaded.')
+  }
+  return body.data
 }

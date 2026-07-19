@@ -8,6 +8,7 @@
     "Bookings": "Buchungen",
     "Annual close": "Jahresabschluss",
     "E-balance": "E-Bilanz",
+    "ExportImport": "Export / Import",
     "Create booking record": "Buchungssatz erstellen",
     "Create balance sheet": "Bilanz erstellen",
     "Settings": "Einstellungen"
@@ -59,7 +60,8 @@
     "Country": "Land",
     "Accounting": "Buchhaltung",
     "Chart of accounts": "Kontenrahmen",
-    "Save": "Speichern"
+    "Save": "Speichern",
+    "Load failed": "Die Einstellungen konnten nicht geladen werden."
   },
   "Workspaces": {
     "generalLedger": "Grundbuch & Hauptbuch", "bookings": "Buchungen", "bookingsSubtitle": "Centgenau, ausgeglichen und nach Festschreibung unveränderbar.", "fiscalYear": "Geschäftsjahr", "fiscalYearNavigation": "Geschäftsjahr auswählen", "previousFiscalYear": "Vorheriges Geschäftsjahr {year}", "nextFiscalYear": "Nächstes Geschäftsjahr {year}", "openFiscalYear": "Öffnen",
