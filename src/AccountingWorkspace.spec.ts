@@ -4,6 +4,8 @@ import {
   bookingWorkspaceStorageKey,
   clearBookingWorkspaceState,
   consumeBookingWorkspaceSaveSuppression,
+  defaultContinueWithSameDocuments,
+  documentStateAfterPosting,
   getBrowserBookingWorkspaceStorage,
   isBookingFormDisabled,
   loadBookingWorkspaceState,
@@ -28,6 +30,21 @@ describe('accounting workspace request ordering', () => {
     expect(isBookingFormDisabled(false)).toBe(false)
     expect(isBookingFormDisabled(false, true)).toBe(true)
     expect(isBookingFormDisabled(false, false, true)).toBe(true)
+  })
+
+  it('does not continue with the same documents by default', () => {
+    expect(defaultContinueWithSameDocuments).toBe(false)
+  })
+
+  it('removes posted documents from the inbox unless continuing with them', () => {
+    expect(documentStateAfterPosting(['document-1', 'document-2'], false)).toEqual({
+      selectedDocumentIds: [],
+      unavailableDocumentIds: ['document-1', 'document-2'],
+    })
+    expect(documentStateAfterPosting(['document-1', 'document-2'], true)).toEqual({
+      selectedDocumentIds: ['document-1', 'document-2'],
+      unavailableDocumentIds: [],
+    })
   })
 
   it('places posting text in its own full-width row', () => {

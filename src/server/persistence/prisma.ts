@@ -84,7 +84,7 @@ class PrismaDocumentRepository implements DocumentRepository {
   }
 
   async findAllByOwner(ownerId: string): Promise<Document[]> {
-    const records = await this.prisma.documentRecord.findMany({ where: { ownerId }, orderBy: { id: 'desc' } })
+    const records = await this.prisma.documentRecord.findMany({ where: { ownerId, availableForBooking: true }, orderBy: { id: 'desc' } })
     return records
       .map(record => {
         const data = JSON.parse(record.payload) as Document
