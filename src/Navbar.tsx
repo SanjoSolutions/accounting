@@ -10,6 +10,12 @@ import { defaultFiscalYear } from './FiscalYearNavigation'
 
 export const exportImportHref = '/export-import'
 export const complianceHref = '/compliance'
+export const bookingHref = '/bookings'
+export const journalHref = '/journal'
+export const accountingNavigation = [
+  { href: bookingHref, label: 'Bookings' },
+  { href: journalHref, label: 'Journal' },
+] as const
 
 export function Navbar({
   authMode,
@@ -49,9 +55,9 @@ export function Navbar({
         </button>
         <div className="collapse navbar-collapse" id="navbarSupportedContent">
           {user && <ul className="navbar-nav me-auto mb-2 mb-lg-0">
-            <li className="nav-item">
-              <Link href="/bookings" className={navClassName('/bookings')}>{ t('Bookings') }</Link>
-            </li>
+            {accountingNavigation.map(item => <li className="nav-item" key={item.href}>
+              <Link href={item.href} className={navClassName(item.href)}>{t(item.label)}</Link>
+            </li>)}
             <li className="nav-item">
               <Link
                 href={`/annual-close/${annualCloseYear}`}

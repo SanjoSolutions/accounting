@@ -122,7 +122,7 @@ export function TaxWorkspace({ year }: { year: number }) {
   function datasetChanged(update: () => void) { update(); requestKeyRef.current = null; preparedDatasetRef.current = null; setPreparedDataset(null); setConfirmed(false) }
   function selectKind(nextKind: string) { datasetChanged(() => { setKind(nextKind); setPeriod(nextKind === 'USTVA' ? `${year}-01` : String(year)); setFields(nextKind === 'USTVA' ? '{"KZ81":0,"ZAHLLAST":0}' : '[]') }) }
 
-  return <div className="workspace py-4">
+  return <div className="workspace pb-4">
     <FiscalYearNavigation area="tax" year={year} />
     <header className="page-heading"><div><span className="eyebrow">{t('eyebrow')}</span><h1>{t('title', { year })}</h1><p>{t('subtitle')}</p></div></header>
     {message && <p className="alert alert-danger" role="status">{message}</p>}

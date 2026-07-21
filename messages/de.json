@@ -5,7 +5,8 @@
   },
   "Navbar": {
     "Accounting": "Buchführung",
-    "Bookings": "Buchungen",
+    "Bookings": "Buchen",
+    "Journal": "Journal",
     "Annual close": "Jahresabschluss",
     "E-balance": "E-Bilanz",
     "Tax filings": "Steuermeldungen",
@@ -76,7 +77,7 @@
     "eyebrow": "Steuerdeklaration", "title": "Steuermeldungen {year}", "subtitle": "Umsatzsteuer- und Jahressteuererklärungen vorbereiten, prüfen, freigeben und mit unveränderlicher Historie übermitteln.", "loadFailed": "Die Steuermeldungen konnten nicht geladen werden.", "annualProfileRequired": "Konfigurieren Sie das verbindliche Jahressteuerprofil, um Pflichten und Fristen zu ermitteln. Die Umsatzsteuerhistorie bleibt verfügbar.", "actionFailed": "Die amtliche Steueraktion ist fehlgeschlagen.", "validated": "Das amtliche Gateway hat den Datensatz geprüft.", "submitted": "Die Erklärung wurde übermittelt und archiviert.", "recovered": "Das amtliche Übermittlungsergebnis wurde wiederhergestellt und archiviert.", "submissionPending": "Das Übermittlungsergebnis ist noch unbekannt. Stellen Sie das amtliche Ergebnis über die unveränderliche Historie wieder her.", "submissionRejected": "Das amtliche Gateway hat die Erklärung abgelehnt.", "applicability": "Anwendbare Jahreserklärungen", "deadline": "Aktuelle Frist: {date}", "professionalReview": "Vor dem Produktiveinsatz ist die Prüfung durch eine deutsche Steuerfachkraft erforderlich.", "loading": "Wird geladen …", "prepare": "Erklärung vorbereiten", "kind": "Formular", "period": "Zeitraum", "fields": "Amtliche Felder (Cent als Ganzzahl)", "confirm": "Ich gebe diese verbindliche Übermittlung ausdrücklich frei.", "validate": "Amtlich prüfen", "submit": "Verbindlich senden", "history": "Unveränderliche Übermittlungshistorie", "state": "Status", "receipt": "Protokoll", "action": "Aktion", "recover": "Ergebnis wiederherstellen", "empty": "Es wurden noch keine Steuererklärungen übermittelt."
   },
   "Workspaces": {
-    "generalLedger": "Grundbuch & Hauptbuch", "bookings": "Buchungen", "bookingsSubtitle": "Centgenau, ausgeglichen und nach Festschreibung unveränderbar.", "fiscalYear": "Geschäftsjahr", "fiscalYearNavigation": "Geschäftsjahr auswählen", "previousFiscalYear": "Vorheriges Geschäftsjahr {year}", "nextFiscalYear": "Nächstes Geschäftsjahr {year}", "openFiscalYear": "Öffnen",
+    "generalLedger": "Grundbuch & Hauptbuch", "bookings": "Buchungen", "bookingsSubtitle": "Centgenau, ausgeglichen und nach Festschreibung unveränderbar.", "fiscalYear": "Geschäftsjahr", "metrics": "Kennzahlen", "fiscalYearNavigation": "Geschäftsjahr auswählen", "previousFiscalYear": "Vorheriges Geschäftsjahr {year}", "nextFiscalYear": "Nächstes Geschäftsjahr {year}", "openFiscalYear": "Öffnen",
     "assets": "Aktiva", "liabilitiesEquity": "Passiva & Eigenkapital", "provisionalResult": "Vorläufiges Ergebnis", "status": "Status", "open": "Offen", "locked": "Festgeschrieben",
     "newPosting": "Neue Buchung", "recordTransaction": "Geschäftsvorfall erfassen", "debitEqualsCredit": "Soll = Haben", "postingDate": "Buchungsdatum", "documentNumber": "Belegnummer", "documentPlaceholder": "z. B. ER-2026-0042", "postingText": "Buchungstext", "postingPlaceholder": "Was wurde gebucht?",
     "account": "Konto", "debit": "Soll", "credit": "Haben", "accountLine": "Konto Zeile {line}", "debitLine": "Soll Zeile {line}", "creditLine": "Haben Zeile {line}", "removeLine": "Zeile {line} entfernen", "chooseAccount": "Konto wählen …", "searchAccounts": "Kontenbezeichnung", "noMatchingAccounts": "Keine passenden Konten", "balanceSheetAccounts": "Aktiv- und Passivkonten", "profitAndLossAccounts": "GuV-Konten", "addSplitLine": "Split-Zeile hinzufügen",
