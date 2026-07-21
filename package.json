@@ -12,7 +12,9 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "eric:build": "dotnet publish tools/eric-bridge/EricBridge.csproj -c Release -o .eric/bridge",
-    "test": "vitest run"
+    "test": "vitest run",
+    "coverage": "vitest run --coverage --reporter html",
+    "coverage:agent": "vitest run --coverage --reporter=minimal"
   },
   "dependencies": {
     "@better-auth/prisma-adapter": "^1.6.23",
