@@ -22,6 +22,35 @@ describe('Bootstrap theme integration', () => {
     expect(layout).not.toContain('bootstrap/dist/css/bootstrap.css')
   })
 
+  it('keeps the header-to-content spacing at one rem on every page', () => {
+    const styles = source('src/index.css')
+    const workspaces = [
+      'src/AccountingWorkspace.tsx',
+      'src/AnnualCloseWorkspace.tsx',
+      'src/ComplianceWorkspace.tsx',
+      'src/EBalanceWorkspace.tsx',
+      'src/ExportImportWorkspace.tsx',
+      'src/TaxWorkspace.tsx',
+    ].map(source).join('\n')
+
+    expect(styles).toContain('.app-shell { max-width: 1540px; padding: 1rem clamp(16px, 3vw, 48px) 0;')
+    expect(styles).toContain('.workspace-toolbar { display: flex; justify-content: flex-end; }')
+    expect(styles).toContain('padding: 0 0 4px;')
+    expect(workspaces).not.toContain('workspace py-4')
+    expect(workspaces).not.toContain('} py-4`')
+  })
+
+  it('keeps the shared footer at the viewport bottom when page content is short', () => {
+    const layout = source('src/app/layout.tsx')
+    const styles = source('src/index.css')
+
+    expect(layout).toContain('<div className="page-content">{children}</div>')
+    expect(layout).toContain('<footer className="app-footer mt-5 border-top pt-2 text-end">')
+    expect(styles).toContain('body { min-height: 100vh; display: flex; flex-direction: column; }')
+    expect(styles).toContain('.app-shell>.row>.col { display: flex; flex-direction: column; }')
+    expect(styles).toContain('.page-content { flex: 1; }')
+  })
+
   it('uses Bootstrap components for shared UI primitives', () => {
     const workspace = source('src/AccountingWorkspace.tsx')
 

@@ -5,7 +5,8 @@
   },
   "Navbar": {
     "Accounting": "Accounting",
-    "Bookings": "Bookings",
+    "Bookings": "Book",
+    "Journal": "Journal",
     "Annual close": "Annual close",
     "E-balance": "E-balance",
     "Tax filings": "Tax filings",
@@ -76,7 +77,7 @@
     "eyebrow": "Tax reporting", "title": "Tax filings {year}", "subtitle": "Prepare, validate, approve and transmit VAT and annual tax declarations with immutable history.", "loadFailed": "Tax filing data could not be loaded.", "annualProfileRequired": "Configure the canonical annual tax profile to calculate obligations and deadlines. VAT filing history remains available.", "actionFailed": "The official tax action failed.", "validated": "The official gateway validated the dataset.", "submitted": "The declaration was transmitted and archived.", "recovered": "The official filing outcome was recovered and archived.", "submissionPending": "The filing outcome is not yet known. Use the immutable history to recover the official outcome.", "submissionRejected": "The official gateway rejected the declaration.", "applicability": "Annual return applicability", "deadline": "Current deadline: {date}", "professionalReview": "German tax-professional validation is required before production use.", "loading": "Loading …", "prepare": "Prepare declaration", "kind": "Form", "period": "Period", "fields": "Official fields (integer cents)", "confirm": "I explicitly approve this binding transmission.", "validate": "Validate officially", "submit": "Submit binding", "history": "Immutable filing history", "state": "State", "receipt": "Receipt", "action": "Action", "recover": "Recover outcome", "empty": "No tax declarations have been transmitted."
   },
   "Workspaces": {
-    "generalLedger": "Journal & general ledger", "bookings": "Bookings", "bookingsSubtitle": "Accurate to the cent, balanced, and immutable after posting.", "fiscalYear": "Fiscal year", "fiscalYearNavigation": "Select fiscal year", "previousFiscalYear": "Previous fiscal year {year}", "nextFiscalYear": "Next fiscal year {year}", "openFiscalYear": "Open",
+    "generalLedger": "Journal & general ledger", "bookings": "Bookings", "bookingsSubtitle": "Accurate to the cent, balanced, and immutable after posting.", "fiscalYear": "Fiscal year", "metrics": "Metrics", "fiscalYearNavigation": "Select fiscal year", "previousFiscalYear": "Previous fiscal year {year}", "nextFiscalYear": "Next fiscal year {year}", "openFiscalYear": "Open",
     "assets": "Assets", "liabilitiesEquity": "Liabilities & equity", "provisionalResult": "Provisional result", "status": "Status", "open": "Open", "locked": "Locked",
     "newPosting": "New posting", "recordTransaction": "Record transaction", "debitEqualsCredit": "Debit = Credit", "postingDate": "Posting date", "documentNumber": "Document number", "documentPlaceholder": "e.g. PI-2026-0042", "postingText": "Posting text", "postingPlaceholder": "What was posted?",
     "account": "Account", "debit": "Debit", "credit": "Credit", "accountLine": "Account row {line}", "debitLine": "Debit row {line}", "creditLine": "Credit row {line}", "removeLine": "Remove row {line}", "chooseAccount": "Choose account …", "balanceSheetAccounts": "Balance-sheet accounts", "profitAndLossAccounts": "Profit-and-loss accounts", "addSplitLine": "Add split row",
