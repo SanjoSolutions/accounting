@@ -76,7 +76,7 @@ export function AnnualCloseWorkspace({ year }: { year: number }) {
   const transitioning = unavailable && (loading || data !== null)
   const displayIssues = currentData && !currentData.entries?.length ? [...new Set([...issues, t('journalEmpty')])] : issues
   const steps = getCloseSteps(currentData ? { ...currentData, closingIssues: displayIssues } : null, key => t(key))
-  return <div className="workspace py-4">
+  return <div className="workspace pb-4">
     <FiscalYearNavigation area="annual-close" year={year} />
     <header className="page-heading"><div><span className="eyebrow">{t('guidedClose')}</span><h1>{t('annualClose', { year })}</h1><p>{t('annualCloseSubtitle')}</p></div><span className={`status ${currentData?.fiscalYear.status.toLowerCase() ?? 'loading'}`}>{currentData?.fiscalYear.status === 'CLOSED' ? t('locked') : currentData ? t('inProgress') : transitioning ? t('closingBusy') : t('closeFailed')}</span></header>
     <div className="close-grid">
