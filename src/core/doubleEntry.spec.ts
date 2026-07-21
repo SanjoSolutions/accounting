@@ -8,10 +8,28 @@ import {
   validateClosingDate,
   validateClosingOrder,
   validatePostingOrder,
+  validateManualAccountCombination,
   type LedgerBalance,
 } from './doubleEntry'
 
 describe('double-entry journal', () => {
+  const postingAccounts = [
+    { id: 'bank', category: 'ASSET' },
+    { id: 'payable', category: 'LIABILITY' },
+    { id: 'revenue', category: 'REVENUE' },
+    { id: 'expense', category: 'EXPENSE' },
+  ]
+
+  it('allows manual balance-sheet transfers and balance-sheet-to-P&L postings', () => {
+    expect(() => validateManualAccountCombination(postingAccounts, [{ accountId: 'bank' }, { accountId: 'payable' }])).not.toThrow()
+    expect(() => validateManualAccountCombination(postingAccounts, [{ accountId: 'expense' }, { accountId: 'payable' }])).not.toThrow()
+    expect(() => validateManualAccountCombination(postingAccounts, [{ accountId: 'bank' }, { accountId: 'revenue' }])).not.toThrow()
+  })
+
+  it('rejects a manual posting made only from P&L accounts', () => {
+    expect(() => validateManualAccountCombination(postingAccounts, [{ accountId: 'expense' }, { accountId: 'revenue' }])).toThrow(/reine GuV-Umbuchungen/)
+  })
+
   it('accepts a balanced compound posting in integer cents', () => {
     expect(validateJournalEntry({
       bookingDate: '2026-03-12',
