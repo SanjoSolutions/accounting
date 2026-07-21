@@ -15,6 +15,15 @@ import {
   shouldApplyWorkspace,
   type BookingWorkspaceState,
 } from './AccountingWorkspace'
+import { availableBookingAccounts, sanitizeBookingAccountSelections } from './core/doubleEntry'
+
+const accounts = [
+  { id: 'bank', category: 'ASSET' },
+  { id: 'payable', category: 'LIABILITY' },
+  { id: 'capital', category: 'EQUITY' },
+  { id: 'revenue', category: 'REVENUE' },
+  { id: 'expense', category: 'EXPENSE' },
+]
 
 describe('accounting workspace request ordering', () => {
   it('applies only a non-aborted response for the currently selected year', () => {
@@ -49,6 +58,26 @@ describe('accounting workspace request ordering', () => {
 
   it('places posting text in its own full-width row', () => {
     expect(bookingFormRows()).toEqual([['bookingDate', 'documentNumber'], ['description']])
+  })
+
+  it('offers only unused balance-sheet accounts after a P&L account is selected first', () => {
+    const lines = [{ accountId: 'expense' }, { accountId: '' }]
+    expect(availableBookingAccounts(accounts, lines, 1).map(account => account.id)).toEqual(['bank', 'payable', 'capital'])
+  })
+
+  it('offers every unused account after a balance-sheet account makes the combination valid', () => {
+    const lines = [{ accountId: 'expense' }, { accountId: 'bank' }, { accountId: '' }]
+    expect(availableBookingAccounts(accounts, lines, 2).map(account => account.id)).toEqual(['payable', 'capital', 'revenue'])
+  })
+
+  it('clears dependent account choices that become invalid after an earlier selection changes', () => {
+    expect(sanitizeBookingAccountSelections(accounts, [
+      { accountId: 'expense', debit: '10', credit: '' },
+      { accountId: 'revenue', debit: '', credit: '10' },
+    ])).toEqual([
+      { accountId: 'expense', debit: '10', credit: '' },
+      { accountId: '', debit: '', credit: '10' },
+    ])
   })
 
   it('persists and restores the complete in-progress booking state', () => {

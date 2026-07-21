@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { BookingDocuments, type BookingDocument } from './BookingDocuments'
+import { availableBookingAccounts, isBalanceSheetAccountCategory, sanitizeBookingAccountSelections, type AccountCategory } from './core/doubleEntry'
 
-type Account = { id: string; number: number; name: string; category: string }
+type Account = { id: string; number: number; name: string; category: AccountCategory }
 type Line = { accountId: string; debit: string; credit: string }
 export type BookingWorkspaceState = {
   year: number
@@ -106,9 +107,14 @@ export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
   const currentWorkspace = workspace?.fiscalYear.year === year ? workspace : null
 
   function updateLine(index: number, field: keyof Line, value: string) {
-    setLines(current => current.map((line, lineIndex) => lineIndex === index
+    setLines(current => {
+      const updated = current.map((line, lineIndex) => lineIndex === index
       ? { ...line, [field]: value, ...(field === 'debit' && value ? { credit: '' } : {}), ...(field === 'credit' && value ? { debit: '' } : {}) }
-      : line))
+      : line)
+      return field === 'accountId' && currentWorkspace
+        ? sanitizeBookingAccountSelections(currentWorkspace.accounts, updated)
+        : updated
+    })
   }
 
   function updateDescription(value: string) {
@@ -177,15 +183,24 @@ export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
             <label>{t('postingText')}<input className="form-control" required value={description} onChange={event => updateDescription(event.target.value)} placeholder={t('postingPlaceholder')} /></label>
           </div>
           <div className="posting-head"><span>{t('account')}</span><span>{t('debit')}</span><span>{t('credit')}</span><span /></div>
-          {lines.map((line, index) => <div className="posting-line" key={index}>
+          {lines.map((line, index) => {
+            const availableAccounts = availableBookingAccounts(currentWorkspace?.accounts ?? [], lines, index)
+            const balanceSheetAccounts = availableAccounts.filter(account => isBalanceSheetAccountCategory(account.category))
+            const profitAndLossAccounts = availableAccounts.filter(account => !isBalanceSheetAccountCategory(account.category))
+            return <div className="posting-line" key={index}>
             <select className="form-select" required aria-label={t('accountLine', { line: index + 1 })} value={line.accountId} onChange={event => updateLine(index, 'accountId', event.target.value)}>
               <option value="">{t('chooseAccount')}</option>
-              {currentWorkspace?.accounts.map(account => <option key={account.id} value={account.id}>{account.number} · {account.name}</option>)}
+              {balanceSheetAccounts.length > 0 && <optgroup label={t('balanceSheetAccounts')}>
+                {balanceSheetAccounts.map(account => <option key={account.id} value={account.id}>{account.number} · {account.name}</option>)}
+              </optgroup>}
+              {profitAndLossAccounts.length > 0 && <optgroup label={t('profitAndLossAccounts')}>
+                {profitAndLossAccounts.map(account => <option key={account.id} value={account.id}>{account.number} · {account.name}</option>)}
+              </optgroup>}
             </select>
             <MoneyInput label={t('debitLine', { line: index + 1 })} value={line.debit} onChange={value => updateLine(index, 'debit', value)} />
             <MoneyInput label={t('creditLine', { line: index + 1 })} value={line.credit} onChange={value => updateLine(index, 'credit', value)} />
             <button type="button" className="btn btn-light icon-button" aria-label={t('removeLine', { line: index + 1 })} disabled={lines.length <= 2} onClick={() => setLines(current => current.filter((_, i) => i !== index))}>×</button>
-          </div>)}
+          </div>})}
           <button className="btn btn-link add-line" type="button" onClick={() => setLines(current => [...current, emptyLine()])}>+ {t('addSplitLine')}</button>
           {issues.length > 0 && <div className="alert alert-danger" role="alert"><strong>{t('pleaseReview')}</strong><ul>{issues.map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
           {success && <p className="alert alert-success" role="status">{success}</p>}

@@ -13,6 +13,7 @@ import {
   validateClosingOrder,
   validatePostingOrder,
   validateJournalEntry,
+  validateManualAccountCombination,
   type AccountCategory,
   type LedgerBalance,
 } from '@/core/doubleEntry'
@@ -336,6 +337,7 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
   const accountIds = [...new Set(validated.lines.map(line => line.accountId))]
   const accounts = await prisma.ledgerAccount.findMany({ where: { id: { in: accountIds }, ownerId, active: true } })
   if (accounts.length !== accountIds.length) throw new AccountingValidationError(['Mindestens ein Konto ist ungültig oder gehört zu einem anderen Mandanten.'])
+  if (source === 'MANUAL') validateManualAccountCombination(accounts, validated.lines)
   const postingLedgerProfile = await prisma.ledgerProfile.findUniqueOrThrow({ where: { ownerId } })
   const postingAccountFingerprint = accountSemanticFingerprint(postingLedgerProfile.chart, accounts)
   if (documentIds.length) {

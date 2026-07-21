@@ -16,6 +16,15 @@ export interface PostingLineInput {
   taxCode?: string
 }
 
+export interface BookingAccountChoice {
+  id: string
+  category: string
+}
+
+export interface BookingAccountSelection {
+  accountId: string
+}
+
 export interface JournalEntryInput {
   fiscalYear?: number
   bookingDate: string
@@ -54,6 +63,51 @@ export class AccountingValidationError extends Error {
   constructor(public readonly issues: string[]) {
     super(issues.join(' '))
     this.name = 'AccountingValidationError'
+  }
+}
+
+export function isBalanceSheetAccountCategory(category: string): category is Extract<AccountCategory, 'ASSET' | 'LIABILITY' | 'EQUITY'> {
+  return category === 'ASSET' || category === 'LIABILITY' || category === 'EQUITY'
+}
+
+export function availableBookingAccounts<T extends BookingAccountChoice>(
+  accounts: readonly T[],
+  lines: readonly BookingAccountSelection[],
+  lineIndex: number,
+): T[] {
+  const accountsById = new Map(accounts.map(account => [account.id, account]))
+  const priorIds = lines.slice(0, lineIndex).map(line => line.accountId).filter(Boolean)
+  const priorAccounts = priorIds.map(id => accountsById.get(id))
+  if (priorAccounts.some(account => !account)) return []
+  const needsBalanceSheetAccount = priorAccounts.length > 0
+    && priorAccounts.every(account => account && !isBalanceSheetAccountCategory(account.category))
+  const alreadySelected = new Set(priorIds)
+  return accounts.filter(account => !alreadySelected.has(account.id)
+    && (!needsBalanceSheetAccount || isBalanceSheetAccountCategory(account.category)))
+}
+
+export function sanitizeBookingAccountSelections<T extends BookingAccountSelection>(
+  accounts: readonly BookingAccountChoice[],
+  lines: readonly T[],
+): T[] {
+  const sanitized = lines.map(line => ({ ...line }))
+  for (const [index, line] of sanitized.entries()) {
+    if (line.accountId && !availableBookingAccounts(accounts, sanitized, index).some(account => account.id === line.accountId)) {
+      line.accountId = ''
+    }
+  }
+  return sanitized
+}
+
+export function validateManualAccountCombination(
+  accounts: readonly BookingAccountChoice[],
+  lines: readonly BookingAccountSelection[],
+): void {
+  const accountsById = new Map(accounts.map(account => [account.id, account]))
+  const selectedAccounts = lines.map(line => accountsById.get(line.accountId))
+  if (selectedAccounts.some(account => !account)) return
+  if (!selectedAccounts.some(account => account && isBalanceSheetAccountCategory(account.category))) {
+    throw new AccountingValidationError(['Manuelle Buchungen müssen mindestens ein Aktiv-, Passiv- oder Eigenkapitalkonto enthalten; reine GuV-Umbuchungen sind nicht zulässig.'])
   }
 }
 
