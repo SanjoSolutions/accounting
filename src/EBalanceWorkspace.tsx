@@ -207,7 +207,7 @@ export function EBalanceWorkspace({ year }: { year: number }) {
     } finally { if (isCurrentEBalanceYear(requestedYear, yearRef.current)) setEricBusy(false) }
   }
   const percent = coverage.total ? Math.round(coverage.mapped / coverage.total * 100) : 100
-  return <div className="workspace py-4">
+  return <div className="workspace pb-4">
     <FiscalYearNavigation area="e-bilanz" year={year} />
     <header className="page-heading"><div><span className="eyebrow">{t('taxSubmission')}</span><h1>{t('eBalanceYear', { year })}</h1><p>{t('eBalanceSubtitle')}</p></div><span className="taxonomy">{t('taxonomy')} <strong>{lifecycle.taxonomies.find(item => item.validForFiscalPeriodsStartingFrom <= `${year}-12-31` && `${year}-01-01` <= item.validForFiscalPeriodsStartingThrough)?.version ?? '—'}</strong></span></header>
     <div className="ebalance-grid">

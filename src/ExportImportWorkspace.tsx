@@ -30,7 +30,7 @@ export function ExportImportWorkspace() {
     finally { setBusy(false) }
   }
 
-  return <div className="workspace py-4">
+  return <div className="workspace pb-4">
     <header className="page-heading">
       <div><span className="eyebrow">{t('dataExchange')}</span><h1>{t('exportImport')}</h1><p>{t('exportImportSubtitle')}</p></div>
     </header>

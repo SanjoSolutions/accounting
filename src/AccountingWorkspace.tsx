@@ -29,7 +29,9 @@ type Workspace = {
 const emptyLine = (): Line => ({ accountId: '', debit: '', credit: '' })
 const money = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' })
 
-export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
+export type AccountingWorkspaceView = 'booking' | 'journal' | 'dashboard'
+
+export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: string; view?: AccountingWorkspaceView }) {
   const t = useTranslations('Workspaces')
   const [year, setYear] = useState(new Date().getFullYear())
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
@@ -56,6 +58,10 @@ export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
   }
 
   useEffect(() => {
+    if (view !== 'booking') {
+      setStorageRestored(true)
+      return
+    }
     const storage = getBrowserBookingWorkspaceStorage()
     const saved = storage ? loadBookingWorkspaceState(storage, ownerId) : null
     if (saved) {
@@ -68,17 +74,17 @@ export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
       setSelectedDocumentIds(saved.selectedDocumentIds)
     }
     setStorageRestored(true)
-  }, [ownerId])
+  }, [ownerId, view])
 
   useEffect(() => {
-    if (!storageRestored) return
+    if (!storageRestored || view !== 'booking') return
     if (consumeBookingWorkspaceSaveSuppression(suppressNextDraftSaveRef)) return
     const storage = getBrowserBookingWorkspaceStorage()
     if (!storage) return
     saveBookingWorkspaceState(storage, ownerId, {
       year, bookingDate, documentNumber, description, lines, selectedDocumentIds,
     })
-  }, [storageRestored, ownerId, year, bookingDate, documentNumber, description, lines, selectedDocumentIds])
+  }, [storageRestored, ownerId, year, bookingDate, documentNumber, description, lines, selectedDocumentIds, view])
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const requestedYear = year
@@ -157,20 +163,21 @@ export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
     finally { if (yearRef.current === submittedYear) setBusy(false) }
   }
 
-  return <div className="workspace bookings-workspace py-4">
-    <header className="page-heading">
-      <div><span className="eyebrow">{t('generalLedger')}</span><h1>{t('bookings')}</h1><p>{t('bookingsSubtitle')}</p></div>
-      <label className="year-picker">{t('fiscalYear')}<input className="form-control" disabled={busy} type="number" value={year} onChange={event => { const nextYear = Number(event.target.value); setWorkspace(null); setIssues([]); setSuccess(''); setYear(nextYear); if (Number(bookingDate.slice(0, 4)) !== nextYear) setBookingDate(`${nextYear}-01-01`) }} /></label>
-    </header>
+  const sections = workspaceSections(view)
 
-    {currentWorkspace && <section className="metric-grid" aria-label="Kennzahlen">
+  return <div className={`workspace ${view === 'booking' ? 'bookings-workspace' : `${view}-workspace`} pb-4`}>
+    <div className="workspace-toolbar">
+      <label className="year-picker">{t('fiscalYear')}<input className="form-control" disabled={busy} type="number" value={year} onChange={event => { const nextYear = Number(event.target.value); setWorkspace(null); setIssues([]); setSuccess(''); setYear(nextYear); if (Number(bookingDate.slice(0, 4)) !== nextYear) setBookingDate(`${nextYear}-01-01`) }} /></label>
+    </div>
+
+    {sections.metrics && currentWorkspace && <section className="metric-grid" aria-label={t('metrics')}>
       <Metric label={t('assets')} value={currentWorkspace.statements.assetsCents} />
       <Metric label={t('liabilitiesEquity')} value={currentWorkspace.statements.liabilitiesCents + currentWorkspace.statements.equityCents} />
       <Metric label={t('provisionalResult')} value={currentWorkspace.statements.netIncomeCents} />
       <div className="card metric"><span>{t('status')}</span><strong className={`badge status ${currentWorkspace.fiscalYear.status.toLowerCase()}`}>{currentWorkspace.fiscalYear.status === 'OPEN' ? t('open') : t('locked')}</strong></div>
     </section>}
 
-    <BookingDocuments selectedDocumentIds={selectedDocumentIds} unavailableDocumentIds={unavailableDocumentIds} onSelectionChange={setSelectedDocumentIds} onUploadingChange={setDocumentsUploading}>
+    {sections.booking && <BookingDocuments selectedDocumentIds={selectedDocumentIds} unavailableDocumentIds={unavailableDocumentIds} onSelectionChange={setSelectedDocumentIds} onUploadingChange={setDocumentsUploading}>
       <section className="card panel booking-panel">
         <div className="panel-title"><div><span className="step">2 · {t('newPosting')}</span><h2>{t('recordTransaction')}</h2></div><span className="badge text-bg-light hint">{t('debitEqualsCredit')}</span></div>
         <form onSubmit={post}>
@@ -217,9 +224,9 @@ export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
           </fieldset>
         </form>
       </section>
-    </BookingDocuments>
+    </BookingDocuments>}
 
-      <section className="card panel journal-panel">
+      {sections.journal && <section className="card panel journal-panel">
         <div className="panel-title"><div><span className="step">{t('journal')}</span><h2>{t('postedEntries')}</h2></div><span className="badge text-bg-light hint">{t('entryCount', { count: currentWorkspace?.entries.length ?? 0 })}</span></div>
         {currentWorkspace && currentWorkspace.entries.length === 0 && <div className="empty"><strong>{t('noBookings')}</strong><p>{t('noBookingsHelp')}</p></div>}
         <div className="journal-list">{currentWorkspace?.entries.map(entry => <article className="journal-entry" key={entry.id}>
@@ -228,7 +235,7 @@ export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
           {entry.documents?.length > 0 && <div className="journal-documents">{entry.documents.map(document => <a key={document.id} href={document.url} target="_blank" rel="noreferrer"><i className="bi bi-paperclip" />{document.fileName || t('unnamedDocument')}</a>)}</div>}
           <div className="journal-lines">{entry.lines.map(line => <div key={line.id}><span>{line.account.number} · {line.account.name}</span><span>{line.debitCents ? `Soll ${money.format(line.debitCents / 100)}` : `Haben ${money.format(line.creditCents / 100)}`}</span></div>)}</div>
         </article>)}</div>
-      </section>
+      </section>}
   </div>
 }
 
@@ -254,6 +261,14 @@ export function documentStateAfterPosting(selectedDocumentIds: string[], continu
     : { selectedDocumentIds: [] as string[], unavailableDocumentIds: [...selectedDocumentIds] }
 }
 export function bookingFormRows() { return [['bookingDate', 'documentNumber'], ['description']] as const }
+
+export function workspaceSections(view: AccountingWorkspaceView) {
+  return {
+    booking: view === 'booking',
+    journal: view === 'journal',
+    metrics: view === 'dashboard',
+  }
+}
 
 type BookingWorkspaceStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 

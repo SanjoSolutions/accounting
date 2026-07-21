@@ -36,10 +36,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <main className="container-fluid app-shell">
               <div className="row mb-2">
                 <div className="col">
-                  {children}
-                  <div className="mt-5 border-top pt-2 text-end">
+                  <div className="page-content">{children}</div>
+                  <footer className="app-footer mt-5 border-top pt-2 text-end">
                     <LanguageSelect />
-                  </div>
+                  </footer>
                 </div>
               </div>
             </main>

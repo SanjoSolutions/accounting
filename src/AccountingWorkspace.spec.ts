@@ -13,6 +13,7 @@ import {
   persistBookingWorkspaceStateChange,
   saveBookingWorkspaceState,
   shouldApplyWorkspace,
+  workspaceSections,
   type BookingWorkspaceState,
 } from './AccountingWorkspace'
 import { availableBookingAccounts, sanitizeBookingAccountSelections } from './core/doubleEntry'
@@ -26,6 +27,12 @@ const accounts = [
 ]
 
 describe('accounting workspace request ordering', () => {
+  it('separates booking, journal, and dashboard content between their pages', () => {
+    expect(workspaceSections('booking')).toEqual({ booking: true, journal: false, metrics: false })
+    expect(workspaceSections('journal')).toEqual({ booking: false, journal: true, metrics: false })
+    expect(workspaceSections('dashboard')).toEqual({ booking: false, journal: false, metrics: true })
+  })
+
   it('applies only a non-aborted response for the currently selected year', () => {
     expect(shouldApplyWorkspace(2026, 2026, false)).toBe(true)
     expect(shouldApplyWorkspace(2025, 2026, false)).toBe(false)

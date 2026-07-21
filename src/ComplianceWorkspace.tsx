@@ -109,7 +109,7 @@ export function ComplianceWorkspace() {
   }
 
   const applicability = overview?.profile?.applicability ?? {}
-  return <div className="workspace py-4 compliance-workspace">
+  return <div className="workspace pb-4 compliance-workspace">
     <header className="page-heading"><div><span className="eyebrow">{t('eyebrow')}</span><h1>{t('title')}</h1><p>{t('subtitle')}</p></div><button type="button" className="btn btn-outline-secondary" disabled={busy} onClick={() => void refresh()}>{t('refresh')}</button></header>
     {error && <div className="alert alert-danger" role="alert">{error}</div>}
     {success && <p className="alert alert-success" role="status">{success}</p>}
