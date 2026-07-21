@@ -24,11 +24,13 @@ describe('Bootstrap theme integration', () => {
 
   it('uses Bootstrap components for shared UI primitives', () => {
     const workspace = source('src/AccountingWorkspace.tsx')
+    const accountSelector = source('src/AccountSelector.tsx')
 
     expect(workspace).toContain('className="btn btn-primary"')
     expect(workspace).toContain('className="alert alert-danger"')
     expect(workspace).toContain('className="card panel booking-panel"')
     expect(workspace).toContain('className="form-control"')
-    expect(workspace).toContain('className="form-select"')
+    expect(workspace).toContain('<AccountSelector')
+    expect(accountSelector).toContain('className="form-select account-selector-trigger"')
   })
 })

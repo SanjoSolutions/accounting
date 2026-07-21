@@ -41,5 +41,7 @@ describe('translation messages', () => {
     expect(en.Navbar.ExportImport).toBe('Export / Import')
     expect(de.LanguageSelect.label).toBe('Sprache auswählen')
     expect(en.LanguageSelect.label).toBe('Select language')
+    expect(de.Workspaces.searchAccounts).toBe('Kontenbezeichnung')
+    expect(en.Workspaces.searchAccounts).toBe('Account name')
   })
 })
