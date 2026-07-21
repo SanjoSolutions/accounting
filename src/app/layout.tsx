@@ -1,5 +1,5 @@
 import 'bootstrap-icons/font/bootstrap-icons.css'
-import 'bootstrap/dist/css/bootstrap.css'
+import '../theme.scss'
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
 import { NextIntlClientProvider } from 'next-intl'

@@ -83,7 +83,7 @@ export function Settings(): any {
           <div>
             Loading...
           </div> :
-          loadError ? <div className="error-summary" role="alert">{loadError}</div> :
+          loadError ? <div className="alert alert-danger" role="alert">{loadError}</div> :
           <form onSubmit={ onSubmit }>
             <fieldset>
               <legend>{ t('Invoice issuer') }</legend>

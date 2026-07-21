@@ -34,18 +34,18 @@ export function ExportImportWorkspace() {
     <header className="page-heading">
       <div><span className="eyebrow">{t('dataExchange')}</span><h1>{t('exportImport')}</h1><p>{t('exportImportSubtitle')}</p></div>
     </header>
-    <section className="panel datev-panel">
-      <div className="panel-title"><div><span className="step">{t('dataImport')}</span><h2>{t('accountingImport')}</h2></div><span className="hint">{formatLabel(format)}</span></div>
+    <section className="card panel datev-panel">
+      <div className="panel-title"><div><span className="step">{t('dataImport')}</span><h2>{t('accountingImport')}</h2></div><span className="badge text-bg-light hint">{formatLabel(format)}</span></div>
       <form ref={formRef} onSubmit={importAccountingData}>
         <p>{t('accountingImportHelp')}</p>
         <div className="datev-controls">
-          <label>{t('accountingChooseFolder')}<input disabled={busy} type="file" multiple {...{ webkitdirectory: '' }} onChange={event => setFiles(selectAccountingFiles(event.target.files))} /></label>
-          <label>{t('datevChooseFiles')}<input disabled={busy} type="file" accept=".csv,text/csv" multiple onChange={event => setFiles(selectDatevFiles(event.target.files))} /></label>
-          <button className="primary-action" disabled={busy || files.length === 0 || format === 'UNKNOWN'}>{busy ? t('accountingImportBusy') : t('accountingImportAction')}</button>
+          <label>{t('accountingChooseFolder')}<input className="form-control" disabled={busy} type="file" multiple {...{ webkitdirectory: '' }} onChange={event => setFiles(selectAccountingFiles(event.target.files))} /></label>
+          <label>{t('datevChooseFiles')}<input className="form-control" disabled={busy} type="file" accept=".csv,text/csv" multiple onChange={event => setFiles(selectDatevFiles(event.target.files))} /></label>
+          <button className="btn btn-primary" disabled={busy || files.length === 0 || format === 'UNKNOWN'}>{busy ? t('accountingImportBusy') : t('accountingImportAction')}</button>
         </div>
-        {files.length > 0 && <p className="hint">{t('accountingFilesSelected', { count: files.length, format: formatLabel(format) })}</p>}
-        {issues.length > 0 && <div className="error-summary" role="alert"><strong>{t('pleaseReview')}</strong><ul>{issues.map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
-        {success && <p className="success" role="status">{success}</p>}
+        {files.length > 0 && <p className="badge text-bg-light hint">{t('accountingFilesSelected', { count: files.length, format: formatLabel(format) })}</p>}
+        {issues.length > 0 && <div className="alert alert-danger" role="alert"><strong>{t('pleaseReview')}</strong><ul>{issues.map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
+        {success && <p className="alert alert-success" role="status">{success}</p>}
       </form>
     </section>
   </div>

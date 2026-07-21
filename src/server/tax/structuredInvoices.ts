@@ -15,6 +15,7 @@ import {
 } from '@/core/eInvoice'
 import { prisma } from '@/server/persistence/client'
 import { getDocumentStorage } from '@/server/storage'
+import { importedInvoiceNumbersHash } from './operations'
 
 const MAX_STRUCTURED_UPLOAD = 20 * 1024 * 1024
 export class StructuredInvoiceConflictError extends Error {}
@@ -154,6 +155,40 @@ export async function configureInvoiceNumberSequence(ownerId: string, year: numb
     ])
     if (reservations || issued) throw new EInvoiceValidationError(['The invoice numbering series cannot be initialized after outgoing invoice activity exists for the year.'])
     return transaction.invoiceNumberSequence.create({ data: { ownerId, year, nextValue: firstUnusedNumber } })
+  })
+}
+export function parseImportedInvoiceSequence(year: number, importedInvoiceNumbers: readonly string[], firstUnusedNumber: number) {
+  if (!Number.isInteger(year) || year < 2000 || year > 9999 || !Array.isArray(importedInvoiceNumbers) || importedInvoiceNumbers.some(value => typeof value !== 'string')) throw new EInvoiceValidationError(['Imported invoice-number reconciliation requires a valid year and string invoice numbers.'])
+  if (new Set(importedInvoiceNumbers).size !== importedInvoiceNumbers.length) throw new EInvoiceValidationError(['Imported invoice numbers must be unique.'])
+  const pattern = new RegExp(`^${year}-(\\d{6})$`)
+  const values = importedInvoiceNumbers.map(number => {
+    const match = pattern.exec(number)
+    if (!match) throw new EInvoiceValidationError([`Imported invoice number ${number} does not match the canonical ${year}-NNNNNN series.`])
+    const value = Number(match[1])
+    if (value < 1 || value > 999_999) throw new EInvoiceValidationError([`Imported invoice number ${number} must remain within the canonical 1-999999 range.`])
+    return value
+  })
+  const highest = values.length ? Math.max(...values) : undefined
+  if (!Number.isInteger(firstUnusedNumber) || firstUnusedNumber < 1 || firstUnusedNumber > 999_999 || highest !== undefined && firstUnusedNumber !== highest + 1) throw new EInvoiceValidationError(['The confirmed first unused number must immediately follow the highest imported invoice number and remain within 1-999999.'])
+  return { highest, hash: importedInvoiceNumbersHash(importedInvoiceNumbers) }
+}
+
+export async function reconcileInvoiceNumberSequence(ownerId: string, actorId: string, year: number, firstUnusedNumber: number, importedInvoiceNumbers: readonly string[], confirmedExistingSeries: boolean) {
+  if (confirmedExistingSeries !== true || !actorId.trim()) throw new EInvoiceValidationError(['An authenticated administrator must explicitly confirm the reconciled first unused invoice number.'])
+  const imported = parseImportedInvoiceSequence(year, importedInvoiceNumbers, firstUnusedNumber)
+  return prisma.$transaction(async transaction => {
+    const localNumbers = await transaction.structuredInvoice.findMany({ where: { ownerId, direction: 'OUTGOING', issueDate: { gte: new Date(`${year}-01-01T00:00:00.000Z`), lte: new Date(`${year}-12-31T23:59:59.999Z`) } }, select: { invoiceNumber: true } })
+    const localReservations = await transaction.invoiceNumberReservation.findMany({ where: { ownerId, year }, select: { sequenceValue: true } })
+    const localValues = [...localNumbers.map(({ invoiceNumber }) => new RegExp(`^${year}-(\\d{6})$`).exec(invoiceNumber)).filter((match): match is RegExpExecArray => Boolean(match)).map(match => Number(match[1])), ...localReservations.map(({ sequenceValue }) => sequenceValue)]
+    const localHighest = localValues.length ? Math.max(...localValues) : undefined
+    if (localHighest !== undefined && firstUnusedNumber <= localHighest) throw new EInvoiceValidationError(['The confirmed first unused number conflicts with an issued, reserved or voided local invoice number.'])
+    const onboarding = await transaction.invoiceNumberSequenceOnboarding.findUnique({ where: { ownerId_year: { ownerId, year } } })
+    if (onboarding) throw new EInvoiceValidationError(['The invoice-number onboarding reconciliation evidence is immutable after setup.'])
+    const existing = await transaction.invoiceNumberSequence.findUnique({ where: { ownerId_year: { ownerId, year } } })
+    if (existing && firstUnusedNumber < existing.nextValue) throw new EInvoiceValidationError(['Invoice sequence reconciliation cannot move the next number backwards.'])
+    const sequence = existing ? await transaction.invoiceNumberSequence.update({ where: { ownerId_year: { ownerId, year } }, data: { nextValue: firstUnusedNumber } }) : await transaction.invoiceNumberSequence.create({ data: { ownerId, year, nextValue: firstUnusedNumber } })
+    await transaction.invoiceNumberSequenceOnboarding.create({ data: { ownerId, year, firstUnusedNumber, importedHighestNumber: imported.highest, importedCount: importedInvoiceNumbers.length, importedNumbersHash: imported.hash, confirmedBy: actorId } })
+    return { ownerId, year, nextValue: sequence.nextValue, importedHighestNumber: imported.highest ?? null, importedCount: importedInvoiceNumbers.length, importedNumbersHash: imported.hash }
   })
 }
 export function requireAllocatableInvoiceSequence(nextValue: number) { if (!Number.isInteger(nextValue) || nextValue < 1 || nextValue > 999_999) throw new EInvoiceValidationError(['The configured six-digit invoice numbering series is exhausted for this year.']); return nextValue }

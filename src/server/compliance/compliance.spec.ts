@@ -25,6 +25,10 @@ describe('authoritative company profile', () => {
     expect(validateCompanyProfile({ ...profile, annualTaxProfile: { tradeBusiness: true } })).toContain('annualTaxProfile requires canonical trade, establishment and adviser facts')
     expect(validateCompanyProfile({ ...profile, annualTaxProfile: { tradeBusiness: true, establishments: 2, adviserExtension: true } })).toEqual([])
   })
+  it('requires complete canonical E-Bilanz reporting facts when configured', () => {
+    expect(validateCompanyProfile({ ...profile, eBilanz: { accountingStandard: 'HGB' } })).toContain('eBilanz requires canonical reporting profile facts')
+    expect(validateCompanyProfile({ ...profile, eBilanz: { accountingStandard: 'HGB', incomeStatementMethod: 'GKV', statementType: 'E', reportStatus: 'E', consolidationRange: 'EA', incomeClassification: 'trade' } })).toEqual([])
+  })
   it('runtime-validates register identity as paired nonempty strings', () => { expect(validateCompanyProfile({ ...profile, registerCourt: [], registerNumber: 123 })).toEqual(expect.arrayContaining(['registerCourt must be a nonempty string', 'registerNumber must be a nonempty string'])) })
   it('rejects present falsy non-string VAT ids and array overrides', () => { expect(validateCompanyProfile({ ...profile, vatId: 0, applicabilityOverrides: [] })).toEqual(expect.arrayContaining(['vatId must be a German VAT ID', 'applicabilityOverrides is invalid'])) })
   it('isolates effective versions by tenant and date', () => { const versions = [{ id: '1', ownerId: 'a', effectiveFrom: '2025-01-01', effectiveTo: '2025-12-31', profile, actorId: 'x', reason: 'start' }, { id: '2', ownerId: 'b', effectiveFrom: '2025-01-01', profile: { ...profile, companyName: 'B' }, actorId: 'y', reason: 'start' }]; expect(validateProfileVersions(versions)).toEqual([]); expect(profileAt(versions, 'a', '2025-05-01')?.profile.companyName).toBe('Beispiel KG'); expect(profileAt(versions, 'b', '2025-05-01')?.profile.companyName).toBe('B') })

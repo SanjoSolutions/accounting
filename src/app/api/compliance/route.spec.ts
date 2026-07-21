@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(), authorize: vi.fn(), overview: vi.fn(), mappings: vi.fn(), mappingAudit: vi.fn(), period: vi.fn(), draft: vi.fn(), revise: vi.fn(), post: vi.fn(), correct: vi.fn(), reopen: vi.fn(), decide: vi.fn(), amend: vi.fn(), confirmAddress: vi.fn(), policy: vi.fn(), hold: vi.fn(), reconcile: vi.fn(), fixity: vi.fn(), fixityScan: vi.fn(), dispose: vi.fn(), backup: vi.fn(), restore: vi.fn(), error: vi.fn((error: unknown) => { throw error }),
+  reportingOverview: vi.fn(), createDomainPackage: vi.fn(), approvePackage: vi.fn(), saveProcedure: vi.fn(),
 }))
 vi.mock('server-only', () => ({}))
 vi.mock('@/server/authentication', () => ({ getCurrentUser: mocks.getCurrentUser }))
@@ -11,6 +12,7 @@ vi.mock('@/server/compliance/runtime', () => ({
   requestPeriodReopen: mocks.reopen, decidePeriodReopen: mocks.decide, createFilingAmendment: mocks.amend, confirmHistoricalProfileAddress: mocks.confirmAddress, configureCompliancePolicy: mocks.policy,
   placeLegalHold: mocks.hold, reconcileDocumentArtifacts: mocks.reconcile, runFixityCheck: mocks.fixity, runDueFixityChecks: mocks.fixityScan, disposeArtifact: mocks.dispose, createTenantBackup: mocks.backup, verifyTenantRestore: mocks.restore,
 }))
+vi.mock('@/server/compliance/reportingRepository', () => ({ getReportingOverview: mocks.reportingOverview, createDomainReportingPackage: mocks.createDomainPackage, approveReportingPackage: mocks.approvePackage, saveProcedureDocument: mocks.saveProcedure }))
 import { GET, POST } from './route'
 
 describe('compliance production API', () => {
@@ -25,6 +27,29 @@ describe('compliance production API', () => {
     await GET(new Request('http://localhost/api/compliance?view=mapping-audit'))
     expect(mocks.overview).toHaveBeenCalledWith('tenant-a', expect.any(Date))
     expect(mocks.mappingAudit).toHaveBeenCalledWith('tenant-a')
+  })
+  it('tenant-scopes reporting reads and package, approval, and procedure writes', async () => {
+    mocks.reportingOverview.mockResolvedValue({ packages: [] })
+    await GET(new Request('http://localhost/api/compliance?view=reporting&tenantId=tenant-b'))
+    expect((await POST(json({ action: 'reporting.package.create', tenantId: 'tenant-b', kind: 'ANNUAL_ACCOUNTS', payload: {}, reason: 'prepared' }))).status).toBe(400)
+    await POST(json({ action: 'reporting.package.approve', tenantId: 'tenant-b', packageId: 'package-1', reason: 'established' }))
+    await POST(json({ action: 'reporting.procedure.save', tenantId: 'tenant-b', document: {}, reason: 'versioned' }))
+    expect(mocks.reportingOverview).toHaveBeenCalledWith('tenant-b')
+    expect(mocks.approvePackage).toHaveBeenCalledWith('tenant-b', 'tenant-a', 'package-1', 'established')
+    expect(mocks.saveProcedure).toHaveBeenCalledWith('tenant-b', 'tenant-a', expect.anything())
+  })
+  it('routes every reporting workflow with a server-selected package kind', async () => {
+    const actions = {
+      'reporting.audit-export.create': 'AUDIT_EXPORT', 'reporting.migration-export.create': 'MIGRATION_EXPORT',
+      'reporting.annual.create': 'ANNUAL_ACCOUNTS',
+      'reporting.assets.create': 'ASSET_SCHEDULE', 'reporting.inventory.close': 'INVENTORY_CLOSE', 'reporting.cash-audit.create': 'CASH_AUDIT',
+    }
+    for (const [action, kind] of Object.entries(actions)) {
+      await POST(json({ action, kind: 'caller-cannot-override', payload: {}, reason: 'controlled workflow' }))
+      expect(mocks.createDomainPackage).toHaveBeenLastCalledWith('tenant-a', 'tenant-a', kind, expect.objectContaining({ action }))
+    }
+    await POST(json({ action: 'reporting.disclosure.create', kind: 'caller-cannot-override', fiscalPeriodId: 'fy', deadline: '2027-12-31', reason: 'controlled workflow' }))
+    expect(mocks.createDomainPackage).toHaveBeenLastCalledWith('tenant-a', 'tenant-a', 'DISCLOSURE_PACKAGE', expect.objectContaining({ action: 'reporting.disclosure.create' }))
   })
   it('routes stable-period and draft workflows with the authenticated actor', async () => {
     mocks.period.mockResolvedValue({ id: 'period' }); mocks.draft.mockResolvedValue({ id: 'draft' }); mocks.post.mockResolvedValue({ id: 'entry' })

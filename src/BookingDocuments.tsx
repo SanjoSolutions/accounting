@@ -155,17 +155,17 @@ export function BookingDocuments({
 
   return <>
     {dragging && <div className="viewport-drop-target" role="status"><div><i className="bi bi-cloud-arrow-up" /><strong>{t('dropDocuments')}</strong><span>{t('dropDocumentsHelp')}</span></div></div>}
-    <section className="panel document-picker-panel">
+    <section className="card panel document-picker-panel">
       <div className="panel-title">
         <h2>{t('documents')}</h2>
         <div className="document-actions">
-          <button className="secondary-action" type="button" disabled={uploading} onClick={() => inputRef.current?.click()}>
+          <button className="btn btn-outline-secondary" type="button" disabled={uploading} onClick={() => inputRef.current?.click()}>
             <i className="bi bi-plus-lg" /> {uploading ? t('uploadingDocuments') : t('chooseDocuments')}
           </button>
           <input ref={inputRef} className="visually-hidden" type="file" accept="application/pdf,.pdf" multiple onChange={event => event.target.files && void upload(event.target.files)} />
         </div>
       </div>
-      {error && <div className="error-summary" role="alert">{error}</div>}
+      {error && <div className="alert alert-danger" role="alert">{error}</div>}
       {documents.length === 0 && !uploading
         ? <div className="document-empty" onClick={() => inputRef.current?.click()}><i className="bi bi-file-earmark-arrow-up" /><strong>{t('noDocuments')}</strong><span>{t('noDocumentsHelp')}</span></div>
         : <div className="document-strip" aria-label={t('availableDocuments')}>{documents.map(document => {
@@ -181,8 +181,8 @@ export function BookingDocuments({
     </section>
 
     <div className="booking-workflow-columns" style={{ '--document-column': `${documentColumnPercent}%` } as React.CSSProperties}>
-    <section className="panel document-preview-panel">
-      <div className="panel-title"><div><span className="step">{t('selectedDocuments')}</span><h2>{t('documentPreview')}</h2></div><span className="hint">{selectedDocuments.length}</span></div>
+    <section className="card panel document-preview-panel">
+      <div className="panel-title"><div><span className="step">{t('selectedDocuments')}</span><h2>{t('documentPreview')}</h2></div><span className="badge text-bg-light hint">{selectedDocuments.length}</span></div>
       {selectedDocuments.length === 0
         ? <div className="preview-empty"><i className="bi bi-files" /><strong>{t('noSelectedDocuments')}</strong><p>{t('noSelectedDocumentsHelp')}</p></div>
         : <>

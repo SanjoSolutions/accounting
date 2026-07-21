@@ -18,6 +18,7 @@ describe('tenant compliance workspace', () => {
       operations: { policy: null, artifacts: [{ id: 'artifact-tenant-a', objectType: 'Document', objectId: 'd', retainUntil: '2034-12-31' }], drafts: [{ id: 'draft-tenant-a', status: 'DRAFT', version: 1 }], reopenRequests: [{ id: 'request-tenant-a', status: 'PENDING', fiscalYearId: 'period-tenant-a' }], amendments: [], backups: [{ id: 'backup-tenant-a', status: 'CREATED', storageRegion: 'DE', recoveryPointAt: '2026-01-01' }] },
     })
     expect(Object.keys(examples)).toEqual(expect.arrayContaining(['draft.create', 'draft.revise', 'draft.post', 'entry.correct', 'period.reopen.request', 'period.reopen.decide', 'filing.amend', 'policy.configure', 'retention.hold', 'retention.reconcile', 'retention.fixity', 'retention.fixity-scan', 'retention.dispose', 'backup.create', 'backup.verify-restore']))
+    expect(Object.keys(examples)).toEqual(expect.arrayContaining(['reporting.audit-export.create', 'reporting.migration-export.create', 'reporting.procedure.save', 'reporting.annual.create', 'reporting.disclosure.create', 'reporting.assets.create', 'reporting.inventory.close', 'reporting.cash-audit.create', 'reporting.package.approve']))
     expect(examples['draft.create']).toMatchObject({ fiscalPeriodId: 'period-tenant-a' })
     expect(examples['retention.hold']).toMatchObject({ artifactId: 'artifact-tenant-a' })
     expect(examples['backup.verify-restore']).toMatchObject({ backupId: 'backup-tenant-a' })

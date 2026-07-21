@@ -1,0 +1,12 @@
+// Accounting theme: configure Bootstrap before its Sass modules are compiled.
+$primary: #185f44;
+$secondary: #68736d;
+$danger: #a43b31;
+$body-color: #17231d;
+$body-bg: #f5f7f4;
+$border-color: #dce3df;
+$border-radius: .5rem;
+$border-radius-lg: .75rem;
+$focus-ring-color: rgba($primary, .25);
+
+@import "../node_modules/bootstrap/scss/bootstrap";
