@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { BookingDocuments, type BookingDocument } from './BookingDocuments'
-import { availableBookingAccounts, isBalanceSheetAccountCategory, sanitizeBookingAccountSelections, type AccountCategory } from './core/doubleEntry'
+import { AccountSelector } from './AccountSelector'
+import { availableBookingAccounts, sanitizeBookingAccountSelections, type AccountCategory } from './core/doubleEntry'
 
 type Account = { id: string; number: number; name: string; category: AccountCategory }
 type Line = { accountId: string; debit: string; credit: string }
@@ -185,18 +186,18 @@ export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
           <div className="posting-head"><span>{t('account')}</span><span>{t('debit')}</span><span>{t('credit')}</span><span /></div>
           {lines.map((line, index) => {
             const availableAccounts = availableBookingAccounts(currentWorkspace?.accounts ?? [], lines, index)
-            const balanceSheetAccounts = availableAccounts.filter(account => isBalanceSheetAccountCategory(account.category))
-            const profitAndLossAccounts = availableAccounts.filter(account => !isBalanceSheetAccountCategory(account.category))
             return <div className="posting-line" key={index}>
-            <select className="form-select" required aria-label={t('accountLine', { line: index + 1 })} value={line.accountId} onChange={event => updateLine(index, 'accountId', event.target.value)}>
-              <option value="">{t('chooseAccount')}</option>
-              {balanceSheetAccounts.length > 0 && <optgroup label={t('balanceSheetAccounts')}>
-                {balanceSheetAccounts.map(account => <option key={account.id} value={account.id}>{account.number} · {account.name}</option>)}
-              </optgroup>}
-              {profitAndLossAccounts.length > 0 && <optgroup label={t('profitAndLossAccounts')}>
-                {profitAndLossAccounts.map(account => <option key={account.id} value={account.id}>{account.number} · {account.name}</option>)}
-              </optgroup>}
-            </select>
+            <AccountSelector
+              accounts={availableAccounts}
+              value={line.accountId}
+              label={t('accountLine', { line: index + 1 })}
+              chooseLabel={t('chooseAccount')}
+              searchLabel={t('searchAccounts')}
+              noResultsLabel={t('noMatchingAccounts')}
+              balanceSheetLabel={t('balanceSheetAccounts')}
+              profitAndLossLabel={t('profitAndLossAccounts')}
+              onChange={value => updateLine(index, 'accountId', value)}
+            />
             <MoneyInput label={t('debitLine', { line: index + 1 })} value={line.debit} onChange={value => updateLine(index, 'debit', value)} />
             <MoneyInput label={t('creditLine', { line: index + 1 })} value={line.credit} onChange={value => updateLine(index, 'credit', value)} />
             <button type="button" className="btn btn-light icon-button" aria-label={t('removeLine', { line: index + 1 })} disabled={lines.length <= 2} onClick={() => setLines(current => current.filter((_, i) => i !== index))}>×</button>
