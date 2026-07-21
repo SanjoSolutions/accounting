@@ -137,6 +137,6 @@ describe('booking document selection', () => {
 
   it('keeps spacing below a document loading error', () => {
     const css = readFileSync(new URL('./index.css', import.meta.url), 'utf8')
-    expect(css).toMatch(/\.document-picker-panel \.error-summary\s*\{[^}]*margin-bottom:\s*14px/)
+    expect(css).toMatch(/\.document-picker-panel \.alert\s*\{[^}]*margin-bottom:\s*14px/)
   })
 })

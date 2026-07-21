@@ -8,7 +8,7 @@ vi.mock('server-only', () => ({}))
 vi.mock('@/server/storage', () => ({ getDocumentStorage: () => ({ write: mocks.write, delete: mocks.delete }) }))
 vi.mock('@/server/persistence/client', () => ({ prisma: { $transaction: mocks.transaction, structuredInvoice: { findFirst: mocks.rendering, findMany: mocks.list }, invoiceNumberReservation: { updateMany: mocks.void }, invoiceIssuanceRequest: { findUnique: mocks.issuanceFind, create: mocks.issuanceCreate, updateMany: mocks.issuanceUpdate }, accountRecord: { findFirst: mocks.account } } }))
 
-import { configureInvoiceNumberSequence, correctStructuredInvoice, getStructuredInvoiceRendering, invoiceIssuerKey, issueStructuredInvoice, listStructuredInvoices, looksLikeHybridInvoice, parseStructuredUpload, requireAllocatableInvoiceSequence, requireInvoiceIssuanceBody, storeStructuredInvoice, StructuredInvoiceConflictError } from './structuredInvoices'
+import { configureInvoiceNumberSequence, correctStructuredInvoice, getStructuredInvoiceRendering, invoiceIssuerKey, issueStructuredInvoice, listStructuredInvoices, looksLikeHybridInvoice, parseImportedInvoiceSequence, parseStructuredUpload, reconcileInvoiceNumberSequence, requireAllocatableInvoiceSequence, requireInvoiceIssuanceBody, storeStructuredInvoice, StructuredInvoiceConflictError } from './structuredInvoices'
 
 describe('structured invoice persistence boundary', () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.delete.mockResolvedValue(undefined); mocks.void.mockResolvedValue({ count: 1 }); mocks.issuanceFind.mockResolvedValue(null); mocks.issuanceCreate.mockResolvedValue({ id: 'issuance-request-1' }); mocks.issuanceUpdate.mockResolvedValue({ count: 1 }); mocks.account.mockResolvedValue({ payload: JSON.stringify({ invoiceIssuer: { name: 'Seller GmbH', streetAndHouseNumber: 'Main 1', zipCode: '10115', city: 'Berlin', country: 'DE' }, companyProfile: { companyName: 'Seller GmbH', taxNumber: '12/345/67890', vatId: 'DE123456789' } }) }) })
@@ -76,6 +76,37 @@ describe('structured invoice persistence boundary', () => {
     await expect(configureInvoiceNumberSequence('tenant-a', 2026, 1, false)).rejects.toThrow(/Explicitly confirm/)
     expect(requireAllocatableInvoiceSequence(999_999)).toBe(999_999)
     expect(() => requireAllocatableInvoiceSequence(1_000_000)).toThrow(/exhausted/)
+  })
+  it('reconciles imported numbers without reusing imported, reserved, or voided values', async () => {
+    expect(parseImportedInvoiceSequence(2026, ['2026-000040', '2026-000041'], 42)).toMatchObject({ highest: 41 })
+    expect(() => parseImportedInvoiceSequence(2026, ['2026-000000'], 1)).toThrow(/1-999999/)
+    expect(() => parseImportedInvoiceSequence(2026, ['2026-000040'], 40)).toThrow(/immediately follow/)
+    expect(() => parseImportedInvoiceSequence(2026, ['2026-000040'], 42)).toThrow(/immediately follow/)
+    expect(() => parseImportedInvoiceSequence(2026, ['INV-40'], 41)).toThrow(/canonical/)
+    const update = vi.fn().mockResolvedValue({ ownerId: 'tenant-a', year: 2026, nextValue: 45 })
+    const createOnboarding = vi.fn().mockResolvedValue({})
+    mocks.transaction.mockImplementationOnce(async callback => callback({
+      structuredInvoice: { findMany: vi.fn().mockResolvedValue([{ invoiceNumber: '2026-000042' }]) },
+      invoiceNumberReservation: { findMany: vi.fn().mockResolvedValue([{ sequenceValue: 43 }]) },
+      invoiceNumberSequence: { findUnique: vi.fn().mockResolvedValue({ nextValue: 44 }), update, create: vi.fn() },
+      invoiceNumberSequenceOnboarding: { findUnique: vi.fn().mockResolvedValue(null), create: createOnboarding },
+    }))
+    await expect(reconcileInvoiceNumberSequence('tenant-a', 'admin-a', 2026, 45, ['2026-000044'], true)).resolves.toMatchObject({ nextValue: 45, importedHighestNumber: 44 })
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: { nextValue: 45 } }))
+    expect(createOnboarding).toHaveBeenCalledWith({ data: expect.objectContaining({ confirmedBy: 'admin-a', importedCount: 1 }) })
+  })
+  it('never overwrites existing invoice-number onboarding evidence', async () => {
+    const update = vi.fn()
+    const createOnboarding = vi.fn()
+    mocks.transaction.mockImplementationOnce(async callback => callback({
+      structuredInvoice: { findMany: vi.fn().mockResolvedValue([]) },
+      invoiceNumberReservation: { findMany: vi.fn().mockResolvedValue([]) },
+      invoiceNumberSequence: { findUnique: vi.fn(), update, create: vi.fn() },
+      invoiceNumberSequenceOnboarding: { findUnique: vi.fn().mockResolvedValue({ firstUnusedNumber: 10 }), create: createOnboarding },
+    }))
+    await expect(reconcileInvoiceNumberSequence('tenant-a', 'admin-b', 2026, 12, ['2026-000011'], true)).rejects.toThrow(/immutable/)
+    expect(update).not.toHaveBeenCalled()
+    expect(createOnboarding).not.toHaveBeenCalled()
   })
   it('recovers a stale processing request by deleting orphaned storage and voiding its reservation', async () => {
     const input = { kind: 'invoice', issueDate: 'invalid' } as never

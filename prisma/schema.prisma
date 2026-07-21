@@ -94,6 +94,140 @@ model CompliancePolicy {
   updatedAt DateTime @updatedAt
 }
 
+model CompliancePackage {
+  id             String   @id
+  ownerId        String
+  kind           String
+  fiscalPeriodId String?
+  version        Int
+  status         String
+  payload        String
+  checksum       String
+  storageKey     String?
+  supersedesId   String?
+  authorityRef   String?
+  createdBy      String
+  createdAt      DateTime @default(now())
+  approvedBy     String?
+  approvedAt     DateTime?
+
+  @@unique([ownerId, kind, fiscalPeriodId, version])
+  @@unique([ownerId, checksum])
+  @@index([ownerId, kind, createdAt])
+}
+
+model ProcedureDocumentRecord {
+  id            String   @id
+  ownerId       String
+  documentId    String
+  version       String
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  payload       String
+  checksum      String
+  approvedBy    String
+  approvedAt    DateTime
+  createdAt     DateTime @default(now())
+
+  @@unique([ownerId, documentId, version])
+  @@index([ownerId, effectiveFrom, effectiveTo])
+}
+
+model FixedAssetRecord {
+  id             String   @id
+  ownerId        String
+  payload        String
+  createdBy      String
+  createdAt      DateTime @default(now())
+
+  @@index([ownerId, createdAt])
+}
+
+model AssetEventRecord {
+  id         String   @id
+  ownerId    String
+  assetId    String
+  sequence   Int
+  payload    String
+  postingId  String
+  approvedBy String
+  approvedAt DateTime
+  createdAt  DateTime @default(now())
+
+  @@unique([ownerId, assetId, sequence])
+  @@index([ownerId, assetId, createdAt])
+}
+
+model InventoryItemRecord {
+  id        String   @id
+  ownerId   String
+  payload   String
+  createdAt DateTime @default(now())
+
+  @@index([ownerId, createdAt])
+}
+
+model InventoryCountSnapshot {
+  id             String   @id
+  ownerId        String
+  fiscalPeriodId String
+  payload        String
+  checksum       String
+  closedBy       String
+  closedAt       DateTime
+  createdAt      DateTime @default(now())
+
+  @@unique([ownerId, fiscalPeriodId])
+  @@index([ownerId, closedAt])
+}
+
+model CashBookRecord {
+  id              String   @id
+  ownerId         String
+  location        String
+  register        String
+  timeZone        String
+  currency        String
+  glAccountId     String
+  retainedThrough DateTime
+  createdAt       DateTime @default(now())
+
+  @@unique([ownerId, location, register])
+  @@index([ownerId, createdAt])
+}
+
+model CashEntryRecord {
+  id             String   @id
+  ownerId        String
+  cashBookId     String
+  sequence       Int
+  businessDate   DateTime
+  journalEntryId String
+  payload        String
+  correctsEntryId String?
+  replacementEntryId String?
+  createdAt      DateTime @default(now())
+
+  @@unique([ownerId, cashBookId, sequence])
+  @@unique([ownerId, cashBookId, journalEntryId])
+  @@index([ownerId, cashBookId, businessDate])
+}
+
+model CashCloseRecord {
+  id           String   @id
+  ownerId      String
+  cashBookId   String
+  businessDate DateTime
+  payload      String
+  checksum     String
+  signedBy     String
+  approvedBy   String
+  closedAt     DateTime
+
+  @@unique([ownerId, cashBookId, businessDate])
+  @@index([ownerId, closedAt])
+}
+
 model DocumentRecord {
   id                String                      @id
   payload           String
@@ -244,6 +378,66 @@ model EBalanceSubmission {
   @@index([ownerId, year, createdAt])
 }
 
+model EBalanceTaxonomyRelease {
+  version          String   @id
+  validFrom        DateTime
+  validThrough     DateTime
+  gaapNamespace    String
+  gcdNamespace     String
+  entryPoint       String
+  archiveSha256    String   @unique
+  archiveStorageKey String
+  successorVersion String?
+  compatibility    String
+  registeredBy     String
+  registeredAt     DateTime @default(now())
+
+  @@index([validFrom, validThrough])
+}
+
+model EBalanceLifecycleReport {
+  id                    String   @id
+  ownerId               String
+  fiscalYearId          String
+  version               Int
+  status                String
+  taxonomyVersion       String
+  profileSnapshot       String
+  reportPayload         String
+  reportXml             String
+  reportChecksum        String
+  validationDiagnostics String?
+  validationEngine      String?
+  validatedAt           DateTime?
+  storageKey            String
+  supersedesId          String?
+  approvedBy            String?
+  approvedAt            DateTime?
+  createdBy             String
+  createdAt             DateTime @default(now())
+
+  @@unique([ownerId, fiscalYearId, version])
+  @@unique([ownerId, reportChecksum])
+  @@index([ownerId, fiscalYearId, createdAt])
+}
+
+model EBalanceReconciliationRecord {
+  id             String   @id
+  ownerId        String
+  fiscalYearId   String
+  kind           String
+  payload        String
+  checksum       String
+  evidenceIds    String
+  approvedBy     String
+  approvedAt     DateTime
+  createdAt      DateTime @default(now())
+
+  @@unique([ownerId, fiscalYearId, kind, id])
+  @@unique([ownerId, fiscalYearId, kind, checksum])
+  @@index([ownerId, fiscalYearId, kind])
+}
+
 model JournalEntry {
   id              String                      @id @default(cuid())
   sequenceNumber  Int
@@ -377,6 +571,19 @@ model InvoiceNumberSequence {
   ownerId   String
   year      Int
   nextValue Int    @default(1)
+
+  @@id([ownerId, year])
+}
+
+model InvoiceNumberSequenceOnboarding {
+  ownerId               String
+  year                  Int
+  firstUnusedNumber     Int
+  importedHighestNumber Int?
+  importedCount         Int
+  importedNumbersHash   String
+  confirmedBy           String
+  reconciledAt          DateTime @default(now())
 
   @@id([ownerId, year])
 }

@@ -80,16 +80,16 @@ export function AnnualCloseWorkspace({ year }: { year: number }) {
     <FiscalYearNavigation area="annual-close" year={year} />
     <header className="page-heading"><div><span className="eyebrow">{t('guidedClose')}</span><h1>{t('annualClose', { year })}</h1><p>{t('annualCloseSubtitle')}</p></div><span className={`status ${currentData?.fiscalYear.status.toLowerCase() ?? 'loading'}`}>{currentData?.fiscalYear.status === 'CLOSED' ? t('locked') : currentData ? t('inProgress') : transitioning ? t('closingBusy') : t('closeFailed')}</span></header>
     <div className="close-grid">
-      <section className="panel close-steps"><h2>{t('closeProgress')}</h2>{steps.map((step, index) => <div className="close-step" key={step.title}><span className={step.done ? 'done' : ''}>{step.done ? '✓' : index + 1}</span><div><strong>{step.title}</strong><p>{step.detail}</p></div></div>)}</section>
-      <section className="panel statement-preview"><div className="panel-title"><div><span className="step">{t('automaticallyCalculated')}</span><h2>{t('statements')}</h2></div></div>
+      <section className="card panel close-steps"><h2>{t('closeProgress')}</h2>{steps.map((step, index) => <div className="close-step" key={step.title}><span className={step.done ? 'done' : ''}>{step.done ? '✓' : index + 1}</span><div><strong>{step.title}</strong><p>{step.detail}</p></div></div>)}</section>
+      <section className="card panel statement-preview"><div className="panel-title"><div><span className="step">{t('automaticallyCalculated')}</span><h2>{t('statements')}</h2></div></div>
         {currentData && <dl><Statement label={t('assets')} value={currentData.statements.assetsCents} /><Statement label={t('liabilities')} value={currentData.statements.liabilitiesCents} /><Statement label={t('equityIncludingResult')} value={currentData.statements.equityCents} /><Statement label={t('revenue')} value={currentData.statements.revenueCents} /><Statement label={t('expenses')} value={currentData.statements.expenseCents} /><Statement label={t('annualResult')} value={currentData.statements.netIncomeCents} important /></dl>}
       </section>
     </div>
-    <section className={`panel readiness ${unavailable || displayIssues.length ? 'blocked' : 'ready'}`}>
+    <section className={`card panel readiness ${unavailable || displayIssues.length ? 'blocked' : 'ready'}`}>
       <div><span className="eyebrow">{t('closeReview')}</span><h2>{transitioning ? t('closingBusy') : unavailable ? t('closeFailed') : displayIssues.length ? t('closeBlockers', { count: displayIssues.length }) : t('readyForApproval')}</h2>
       {!unavailable && (displayIssues.length ? <ul>{displayIssues.map(issue => <li key={issue}>{issue}</li>)}</ul> : <p>{t('professionalReviewNote')}</p>)}</div>
-      {closeError && <p className="error-summary" role="alert">{closeError}</p>}
-      <div className="action-stack"><Link className="secondary-action" href={`/e-bilanz/${year}`}>{t('reviewEBalance')}</Link><button className="primary-action" disabled={!canCloseYear(data, displayIssues, loading, busy, year)} onClick={close}>{data?.fiscalYear.status === 'CLOSED' ? t('yearLocked') : busy ? t('closingBusy') : t('reviewAndLock')}</button></div>
+      {closeError && <p className="alert alert-danger" role="alert">{closeError}</p>}
+      <div className="action-stack"><Link className="btn btn-outline-secondary" href={`/e-bilanz/${year}`}>{t('reviewEBalance')}</Link><button className="btn btn-primary" disabled={!canCloseYear(data, displayIssues, loading, busy, year)} onClick={close}>{data?.fiscalYear.status === 'CLOSED' ? t('yearLocked') : busy ? t('closingBusy') : t('reviewAndLock')}</button></div>
     </section>
   </div>
 }

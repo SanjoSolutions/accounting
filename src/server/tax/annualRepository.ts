@@ -72,7 +72,7 @@ export async function saveTaxAdjustment(ownerId: string, year: number, value: un
 
 function annualCalculator() {
   const configuredEndpoint = process.env.ANNUAL_TAX_CALCULATOR_URL
-  const credential = process.env.ANNUAL_TAX_CALCULATOR_CREDENTIAL
+  const credential = process.env.ANNUAL_TAX_CALCULATOR_CREDENTIAL?.trim()
   if (!configuredEndpoint || !credential) throw new TaxDeclarationError(['Configure the annual tax calculation authority before preparing liability fields.'])
   let endpoint: string
   try { endpoint = secureServiceEndpoint(configuredEndpoint, 'ANNUAL_TAX_CALCULATOR_URL') } catch (error) { throw new TaxDeclarationError([error instanceof Error ? error.message : 'The annual tax calculation authority URL is invalid.']) }

@@ -7,6 +7,7 @@ import {
   mappingAuditExport, placeLegalHold, postDraft, reconcileDocumentArtifacts, requestPeriodReopen, resolveMappings, reviseDraft,
   runDueFixityChecks, runFixityCheck, verifyTenantRestore,
 } from '@/server/compliance/runtime'
+import { approveReportingPackage, createDomainReportingPackage, getReportingOverview, saveProcedureDocument } from '@/server/compliance/reportingRepository'
 
 export const runtime = 'nodejs'
 
@@ -21,6 +22,7 @@ export async function GET(request: Request) {
       return Response.json({ success: true, data: await resolveMappings(ownerId, date) })
     }
     if (url.searchParams.get('view') === 'mapping-audit') return Response.json({ success: true, data: await mappingAuditExport(ownerId) })
+    if (url.searchParams.get('view') === 'reporting') return Response.json({ success: true, data: await getReportingOverview(ownerId) })
     const at = url.searchParams.get('at')
     return Response.json({ success: true, data: await getComplianceOverview(ownerId, at ? new Date(at) : new Date()) })
   } catch (error) { return complianceError(error) }
@@ -61,6 +63,15 @@ export async function POST(request: Request) {
         data = await verifyTenantRestore(ownerId, user.id, String(body.backupId ?? ''), body.measuredRestoreMinutes, body.reason)
         break
       }
+      case 'reporting.audit-export.create': data = await createDomainReportingPackage(ownerId, user.id, 'AUDIT_EXPORT', body); break
+      case 'reporting.migration-export.create': data = await createDomainReportingPackage(ownerId, user.id, 'MIGRATION_EXPORT', body); break
+      case 'reporting.annual.create': data = await createDomainReportingPackage(ownerId, user.id, 'ANNUAL_ACCOUNTS', body); break
+      case 'reporting.disclosure.create': data = await createDomainReportingPackage(ownerId, user.id, 'DISCLOSURE_PACKAGE', body); break
+      case 'reporting.assets.create': data = await createDomainReportingPackage(ownerId, user.id, 'ASSET_SCHEDULE', body); break
+      case 'reporting.inventory.close': data = await createDomainReportingPackage(ownerId, user.id, 'INVENTORY_CLOSE', body); break
+      case 'reporting.cash-audit.create': data = await createDomainReportingPackage(ownerId, user.id, 'CASH_AUDIT', body); break
+      case 'reporting.package.approve': data = await approveReportingPackage(ownerId, user.id, String(body.packageId ?? ''), body.reason); break
+      case 'reporting.procedure.save': data = await saveProcedureDocument(ownerId, user.id, body); break
       default: return Response.json({ success: false, error: 'Unsupported compliance action' }, { status: 400 })
     }
     return Response.json({ success: true, data }, { status: 201 })

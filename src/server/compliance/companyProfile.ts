@@ -25,6 +25,16 @@ export interface CompanyProfile {
     tradeTaxMultiplierBasisPoints?: number
     establishmentAllocations?: Record<string, number>
   }
+  eBilanz?: {
+    accountingStandard: 'HGB' | 'OTHER'
+    incomeStatementMethod: 'GKV' | 'UKV'
+    statementType: 'E' | 'K' | 'PB'
+    reportStatus: 'E' | 'F'
+    consolidationRange: 'EA' | 'KA'
+    incomeClassification: string
+    specialBalanceRequired?: boolean
+    supplementaryBalanceRequired?: boolean
+  }
   applicabilityOverrides?: Partial<Record<ReportKind, boolean>>
 }
 
@@ -122,6 +132,18 @@ export function validateCompanyProfile(profile: unknown): string[] {
       if (facts.tradeTaxMultiplierBasisPoints !== undefined && (!Number.isSafeInteger(facts.tradeTaxMultiplierBasisPoints) || facts.tradeTaxMultiplierBasisPoints <= 0)) issues.push('annualTaxProfile tradeTaxMultiplierBasisPoints is invalid')
       if (facts.establishmentAllocations !== undefined && (!facts.establishmentAllocations || typeof facts.establishmentAllocations !== 'object' || Array.isArray(facts.establishmentAllocations) || Object.entries(facts.establishmentAllocations).some(([id, share]) => !id.trim() || !Number.isSafeInteger(share) || share < 0))) issues.push('annualTaxProfile establishmentAllocations is invalid')
     }
+  }
+  if (value.eBilanz !== undefined) {
+    const facts = value.eBilanz
+    if (!facts || typeof facts !== 'object' || Array.isArray(facts)
+      || !['HGB', 'OTHER'].includes(facts.accountingStandard)
+      || !['GKV', 'UKV'].includes(facts.incomeStatementMethod)
+      || !['E', 'K', 'PB'].includes(facts.statementType)
+      || !['E', 'F'].includes(facts.reportStatus)
+      || !['EA', 'KA'].includes(facts.consolidationRange)
+      || typeof facts.incomeClassification !== 'string' || !facts.incomeClassification.trim()
+      || facts.specialBalanceRequired !== undefined && typeof facts.specialBalanceRequired !== 'boolean'
+      || facts.supplementaryBalanceRequired !== undefined && typeof facts.supplementaryBalanceRequired !== 'boolean') issues.push('eBilanz requires canonical reporting profile facts')
   }
   if (value.applicabilityOverrides !== undefined && (!value.applicabilityOverrides || typeof value.applicabilityOverrides !== 'object' || Array.isArray(value.applicabilityOverrides) || Object.entries(value.applicabilityOverrides).some(([key, item]) => !['VAT_ADVANCE', 'VAT_ANNUAL', 'E_BILANZ', 'HGB_FINANCIAL_STATEMENTS'].includes(key) || typeof item !== 'boolean'))) issues.push('applicabilityOverrides is invalid')
   return issues

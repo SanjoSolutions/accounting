@@ -28,6 +28,7 @@ import { annualTaxApplicability, revalidatePreparedAnnualDataset } from './annua
 import { currentReconciledVatDataset } from './vatRepository'
 import { secureServiceEndpoint } from './transport'
 import { isPrismaInt } from './persistenceLimits'
+import { assertProductionGatewayReady, assertTenantTaxReadiness, gatewayOperationalEvent } from './operations'
 
 export class TaxGatewayConfigurationError extends Error {}
 
@@ -139,7 +140,14 @@ function workflowStore() {
 class HttpOfficialTaxAdapter implements TestOfficialTaxGatewayAdapter {
   constructor(private readonly endpoint: string, private readonly credential: string) {}
   private async call(action: string, body: Record<string, unknown>) {
-    const response = await fetch(`${this.endpoint}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${this.credential}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(60_000) })
+    const startedAt = Date.now()
+    let response: Response
+    try { response = await fetch(`${this.endpoint}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${this.credential}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(60_000) }) }
+    catch (error) {
+      if (process.env.NODE_ENV === 'production') console.warn(JSON.stringify(gatewayOperationalEvent(action, error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'network-error', Date.now() - startedAt)))
+      throw error
+    }
+    if (process.env.NODE_ENV === 'production') console.info(JSON.stringify(gatewayOperationalEvent(action, response.ok ? 'success' : 'http-error', Date.now() - startedAt, response.status)))
     const candidate: unknown = await response.json().catch(() => null)
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) throw new TaxDeclarationError(['The configured official gateway returned an invalid response.'])
     const value = candidate as Record<string, unknown>
@@ -159,27 +167,31 @@ class HttpOfficialTaxAdapter implements TestOfficialTaxGatewayAdapter {
 
 let gatewayOverride: TestOfficialTaxGatewayAdapter | undefined
 let gateway: OfficialTaxGateway | undefined
+let gatewayConfigurationId: string | undefined
 export function setOfficialTaxGatewayForTests(adapter?: TestOfficialTaxGatewayAdapter) {
   if (process.env.NODE_ENV !== 'test') throw new TaxGatewayConfigurationError('The official tax gateway can only be replaced in tests.')
-  gatewayOverride = adapter; gateway = undefined
+  gatewayOverride = adapter; gateway = undefined; gatewayConfigurationId = undefined
 }
 function officialGateway() {
-  if (gateway) return gateway
   const configuredEndpoint = process.env.TAX_GATEWAY_URL
   let endpoint: string | undefined
   try { endpoint = configuredEndpoint ? secureServiceEndpoint(configuredEndpoint, 'TAX_GATEWAY_URL') : undefined }
   catch (error) { throw new TaxGatewayConfigurationError(error instanceof Error ? error.message : 'TAX_GATEWAY_URL is invalid.') }
-  const credential = process.env.TAX_GATEWAY_CREDENTIAL
+  const credential = process.env.TAX_GATEWAY_CREDENTIAL?.trim()
   const adapter = gatewayOverride ?? (endpoint && credential ? new HttpOfficialTaxAdapter(endpoint, credential) : undefined)
   if (!adapter) throw new TaxGatewayConfigurationError('Configure TAX_GATEWAY_URL and TAX_GATEWAY_CREDENTIAL before official validation or transmission.')
-  gateway = createConfiguredOfficialTaxGateway(adapter, officialGatewayConfigurationId(endpoint, Boolean(gatewayOverride)), workflowStore())
+  const configurationId = officialGatewayConfigurationId(endpoint, Boolean(gatewayOverride), credential)
+  if (gateway && gatewayConfigurationId === configurationId) return gateway
+  gateway = createConfiguredOfficialTaxGateway(adapter, configurationId, workflowStore())
+  gatewayConfigurationId = configurationId
   return gateway
 }
 
-export function officialGatewayConfigurationId(endpoint: string | undefined, usesTestOverride: boolean) {
+export function officialGatewayConfigurationId(endpoint: string | undefined, usesTestOverride: boolean, credential?: string) {
   const authority = usesTestOverride ? 'test-override' : endpoint
   if (!authority?.trim()) throw new TaxGatewayConfigurationError('A stable official tax gateway authority is required.')
-  return `official-tax:${createHash('sha256').update(authority).digest('hex').slice(0, 24)}`
+  const rotationIdentity = credential ? `:${createHash('sha256').update(credential).digest('hex').slice(0, 12)}` : ''
+  return `official-tax:${createHash('sha256').update(authority).digest('hex').slice(0, 24)}${rotationIdentity}`
 }
 
 export interface DatasetInput { kind: DeclarationKind; period: string; fields: Record<string, number | string | boolean>; drilldown?: Record<string, readonly string[]> }
@@ -262,6 +274,8 @@ export async function submitTaxDataset(ownerId: string, actorId: string, request
   const replay = await replaySubmission(ownerId, requestKey, dataset, 'submit')
   if (replay) return replay
   await requireCurrentPreparedDataset(ownerId, dataset)
+  assertProductionGatewayReady(dataset.formVersion)
+  await assertTenantTaxReadiness(ownerId, dataset.kind, dataset.period)
   const taxGateway = officialGateway()
   const claim = await claimSubmission(ownerId, requestKey, dataset, 'submit')
   if (!claim.claimed) {
@@ -292,6 +306,8 @@ export async function correctTaxWorkflow(ownerId: string, actorId: string, targe
   const target = await ownedWorkflow(ownerId, targetId)
   const original = await restoreDeclarationWorkflow(target.submissionId, workflowStore())
   await requireCurrentPreparedDataset(ownerId, dataset)
+  assertProductionGatewayReady(dataset.formVersion)
+  await assertTenantTaxReadiness(ownerId, dataset.kind, dataset.period)
   const taxGateway = officialGateway()
   const claim = await claimSubmission(ownerId, requestKey, dataset, `correct:${targetId}`)
   if (!claim.claimed) {
@@ -316,6 +332,7 @@ export async function correctTaxWorkflow(ownerId: string, actorId: string, targe
 export async function cancelTaxWorkflow(ownerId: string, actorId: string, submissionId: string) {
   const row = await ownedWorkflow(ownerId, submissionId)
   if (row.state === 'cancelled') { await releaseCancelledFilingReservation(ownerId, submissionId); return await publicWorkflow(row) }
+  assertProductionGatewayReady(taxFormRegistry.resolve(row.kind as DeclarationKind, row.period).version)
   const result = await cancelWithGateway(await restoreDeclarationWorkflow(submissionId, workflowStore()), actorId, officialGateway())
   if (result.state === 'cancelled') await releaseCancelledFilingReservation(ownerId, result.submissionId)
   return await publicWorkflow(await ownedWorkflow(ownerId, result.submissionId))

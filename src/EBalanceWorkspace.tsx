@@ -7,6 +7,7 @@ import { FiscalYearNavigation } from './FiscalYearNavigation'
 type LoadState = 'loading' | 'ready' | 'failed'
 type EricReadiness = { validationReady: boolean; submissionReady: boolean; testMode: boolean; issues: string[] }
 type EricHistoryItem = { id: string; kind: string; status: string; idempotencyKey: string; ericMessage: string | null; createdAt: string }
+type LifecycleOverview = { taxonomies: Array<{ version: string; validForFiscalPeriodsStartingFrom: string; validForFiscalPeriodsStartingThrough: string }>; reports: Array<{ id: string; fiscalYearId: string; version: number; status: string; taxonomyVersion: string; reportChecksum: string; createdAt: string }>; reconciliations: Array<{ id: string; fiscalYearId: string; kind: string }> }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -36,6 +37,24 @@ export function parseEricStatus(data: Record<string, unknown> | null): { readine
   if (!history.every(item => isRecord(item) && typeof item.id === 'string' && typeof item.kind === 'string' && typeof item.status === 'string'
     && typeof item.idempotencyKey === 'string' && (typeof item.ericMessage === 'string' || item.ericMessage === null) && typeof item.createdAt === 'string')) return null
   return { readiness: readiness as EricReadiness, fiscalYearStatus: data.fiscalYearStatus, history: history as EricHistoryItem[] }
+}
+
+export function parseLifecycleOverview(data: Record<string, unknown> | null): LifecycleOverview | null {
+  const value = isRecord(data?.data) ? data.data : data
+  if (!value || !Array.isArray(value.taxonomies) || !Array.isArray(value.reports) || !Array.isArray(value.reconciliations)) return null
+  if (!value.taxonomies.every(item => isRecord(item) && typeof item.version === 'string' && typeof item.validForFiscalPeriodsStartingFrom === 'string' && typeof item.validForFiscalPeriodsStartingThrough === 'string')) return null
+  if (!value.reports.every(item => isRecord(item) && typeof item.id === 'string' && typeof item.fiscalYearId === 'string' && typeof item.version === 'number' && typeof item.status === 'string' && typeof item.taxonomyVersion === 'string' && typeof item.reportChecksum === 'string' && typeof item.createdAt === 'string')) return null
+  if (!value.reconciliations.every(item => isRecord(item) && typeof item.id === 'string' && typeof item.fiscalYearId === 'string' && typeof item.kind === 'string')) return null
+  return value as LifecycleOverview
+}
+
+export function lifecycleOverviewPath(fiscalYearId: string) {
+  if (!fiscalYearId.trim()) throw new Error('Fiscal year ID is required')
+  return `/api/compliance/e-bilanz?fiscalYearId=${encodeURIComponent(fiscalYearId)}`
+}
+
+export function scopeLifecycleOverview(overview: LifecycleOverview, fiscalYearId: string): LifecycleOverview {
+  return { ...overview, reports: overview.reports.filter(report => report.fiscalYearId === fiscalYearId), reconciliations: overview.reconciliations.filter(record => record.fiscalYearId === fiscalYearId) }
 }
 
 export async function resolveJsonRequest(request: () => Promise<Response>, fallback: string) {
@@ -70,13 +89,26 @@ export function EBalanceWorkspace({ year }: { year: number }) {
   const [exportBusy, setExportBusy] = useState(false)
   const [ericMessage, setEricMessage] = useState('')
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID())
+  const [lifecycle, setLifecycle] = useState<LifecycleOverview>({ taxonomies: [], reports: [], reconciliations: [] })
+  const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string | null>(null)
   const yearRef = useRef(year)
   useEffect(() => {
     yearRef.current = year
     const submissionContext = resetSubmissionForYear()
     setIdempotencyKey(submissionContext.idempotencyKey); setSubmissionUncertain(submissionContext.uncertain); setConfirmed(submissionContext.confirmed)
     setEricMessage(''); setRequestIssues([]); setPin(''); setEricBusy(false); setExportBusy(false)
+    setSelectedFiscalYearId(null); setLifecycle({ taxonomies: [], reports: [], reconciliations: [] })
   }, [year])
+  useEffect(() => {
+    if (!selectedFiscalYearId) return
+    const controller = new AbortController()
+    const requestedYear = year
+    void resolveJsonRequest(() => fetch(lifecycleOverviewPath(selectedFiscalYearId), { signal: controller.signal }), t('eBalanceLoadFailed')).then(result => {
+      if (controller.signal.aborted || !isCurrentEBalanceYear(requestedYear, yearRef.current) || !result.response?.ok) return
+      const parsed = parseLifecycleOverview(result.data); if (parsed) setLifecycle(scopeLifecycleOverview(parsed, selectedFiscalYearId))
+    })
+    return () => controller.abort()
+  }, [selectedFiscalYearId, year, t])
   useEffect(() => {
     const controller = new AbortController()
     setLedgerLoadState('loading'); setLedgerIssues([]); setRequestIssues([]); setCoverage({ mapped: 0, total: 0 })
@@ -91,7 +123,9 @@ export function EBalanceWorkspace({ year }: { year: number }) {
         }
         const valued = statements.balances.filter((item): item is Record<string, unknown> => isRecord(item) && typeof item.balanceCents === 'number' && item.balanceCents !== 0)
         setCoverage({ mapped: valued.filter(item => typeof item.eBilanzPosition === 'string' && item.eBilanzPosition.length > 0).length, total: valued.length })
-        const status = isRecord(data?.fiscalYear) && typeof data.fiscalYear.status === 'string' ? data.fiscalYear.status : 'OPEN'
+        const fiscalYear = isRecord(data?.fiscalYear) ? data.fiscalYear : null
+        const status = fiscalYear && typeof fiscalYear.status === 'string' ? fiscalYear.status : 'OPEN'
+        if (typeof fiscalYear?.id === 'string' && fiscalYear.id.length > 0) setSelectedFiscalYearId(fiscalYear.id)
         const issues = data && Array.isArray(data.closingIssues) ? data.closingIssues.filter((issue): issue is string => typeof issue === 'string') : []
         setLedgerIssues(filterEBalanceLedgerIssues(status, issues))
         setLedgerLoadState('ready')
@@ -175,34 +209,38 @@ export function EBalanceWorkspace({ year }: { year: number }) {
   const percent = coverage.total ? Math.round(coverage.mapped / coverage.total * 100) : 100
   return <div className="workspace py-4">
     <FiscalYearNavigation area="e-bilanz" year={year} />
-    <header className="page-heading"><div><span className="eyebrow">{t('taxSubmission')}</span><h1>{t('eBalanceYear', { year })}</h1><p>{t('eBalanceSubtitle')}</p></div><span className="taxonomy">{t('taxonomy')} <strong>6.9</strong></span></header>
+    <header className="page-heading"><div><span className="eyebrow">{t('taxSubmission')}</span><h1>{t('eBalanceYear', { year })}</h1><p>{t('eBalanceSubtitle')}</p></div><span className="taxonomy">{t('taxonomy')} <strong>{lifecycle.taxonomies.find(item => item.validForFiscalPeriodsStartingFrom <= `${year}-12-31` && `${year}-01-01` <= item.validForFiscalPeriodsStartingThrough)?.version ?? '—'}</strong></span></header>
     <div className="ebalance-grid">
-      <form className="panel" onSubmit={download}><div className="panel-title"><div><span className="step">{t('gcdMasterData')}</span><h2>{t('prepareReport')}</h2></div></div>
+      <form className="card panel" onSubmit={download}><div className="panel-title"><div><span className="step">{t('gcdMasterData')}</span><h2>{t('prepareReport')}</h2></div></div>
         <fieldset className="ebalance-master-data" disabled={isEBalanceMasterDataLocked(ericBusy, exportBusy)}>
-        <label>{t('companyName')}<input required value={companyName} onChange={event => { setCompanyName(event.target.value); prepareCorrectedAttempt() }} /></label>
-        <label>{t('companyStreet')}<input required autoComplete="street-address" value={street} onChange={event => { setStreet(event.target.value); prepareCorrectedAttempt() }} /></label>
-        <label>{t('companyPostalCode')}<input required autoComplete="postal-code" value={postalCode} onChange={event => { setPostalCode(event.target.value); prepareCorrectedAttempt() }} /></label>
-        <label>{t('companyCity')}<input required autoComplete="address-level2" value={city} onChange={event => { setCity(event.target.value); prepareCorrectedAttempt() }} /></label>
-        <label>{t('taxNumber')}<input required inputMode="numeric" value={taxNumber} onChange={event => { setTaxNumber(event.target.value); prepareCorrectedAttempt() }} placeholder="1234567890123" /></label>
-        <label>{t('legalForm')}<select required value={legalForm} onChange={event => { setLegalForm(event.target.value); prepareCorrectedAttempt() }}>
+        <label>{t('companyName')}<input className="form-control" required value={companyName} onChange={event => { setCompanyName(event.target.value); prepareCorrectedAttempt() }} /></label>
+        <label>{t('companyStreet')}<input className="form-control" required autoComplete="street-address" value={street} onChange={event => { setStreet(event.target.value); prepareCorrectedAttempt() }} /></label>
+        <label>{t('companyPostalCode')}<input className="form-control" required autoComplete="postal-code" value={postalCode} onChange={event => { setPostalCode(event.target.value); prepareCorrectedAttempt() }} /></label>
+        <label>{t('companyCity')}<input className="form-control" required autoComplete="address-level2" value={city} onChange={event => { setCity(event.target.value); prepareCorrectedAttempt() }} /></label>
+        <label>{t('taxNumber')}<input className="form-control" required inputMode="numeric" value={taxNumber} onChange={event => { setTaxNumber(event.target.value); prepareCorrectedAttempt() }} placeholder="1234567890123" /></label>
+        <label>{t('legalForm')}<select className="form-select" required value={legalForm} onChange={event => { setLegalForm(event.target.value); prepareCorrectedAttempt() }}>
           <option value="EUN">{t('legalFormEU')}</option><option value="GMBH">GmbH</option><option value="UG">UG (haftungsbeschränkt)</option><option value="AG">AG</option>
         </select></label>
         {ledgerLoadState === 'loading' && <p role="status">{t('eBalanceLoading')}</p>}
-        {[...ledgerIssues, ...requestIssues].length > 0 && <div className="error-summary" role="alert"><strong>{t('exportBlocked')}</strong><ul>{[...new Set([...ledgerIssues, ...requestIssues])].map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
-        <button className="primary-action full" disabled={!canRunEBalanceAction(ledgerLoadState, ledgerIssues, exportBusy)}>{exportBusy ? t('eBalanceExporting') : t('createXbrlPackage')}</button>
+        {[...ledgerIssues, ...requestIssues].length > 0 && <div className="alert alert-danger" role="alert"><strong>{t('exportBlocked')}</strong><ul>{[...new Set([...ledgerIssues, ...requestIssues])].map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
+        <button className="btn btn-primary w-100 mt-3" disabled={!canRunEBalanceAction(ledgerLoadState, ledgerIssues, exportBusy)}>{exportBusy ? t('eBalanceExporting') : t('createXbrlPackage')}</button>
         </fieldset>
       </form>
-      <section className="panel"><div className="panel-title"><div><span className="step">{t('accountDetails')}</span><h2>{t('mappingCoverage')}</h2></div><strong className="coverage-number">{percent} %</strong></div>
+      <section className="card panel"><div className="panel-title"><div><span className="step">{t('accountDetails')}</span><h2>{t('mappingCoverage')}</h2></div><strong className="coverage-number">{percent} %</strong></div>
         <div className="progress-track"><span style={{ width: `${percent}%` }} /></div><p>{t('mappingCount', { mapped: coverage.mapped, total: coverage.total })}</p>
         <hr /><div className="panel-title"><div><span className="step">ERiC 44 · Bilanz 6.9</span><h2>{t('officialValidation')}</h2></div><span className="taxonomy">{eric.testMode ? t('testMode') : t('productionMode')}</span></div>
         {eric.issues.length > 0 && <div className="legal-note"><strong>{t('ericSetupRequired')}</strong><ul>{eric.issues.map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
-        {ericMessage && <p className="success" role="status">{ericMessage}</p>}
-        <button type="button" className="secondary-action full" disabled={!eric.validationReady || !canRunEBalanceAction(ledgerLoadState, ledgerIssues, ericBusy)} onClick={() => void processWithEric(false)}>{ericBusy ? t('ericBusy') : t('validateWithEric')}</button>
-        <label>{t('certificatePin')}<input type="password" autoComplete="off" value={pin} onChange={event => { setPin(event.target.value); prepareCorrectedAttempt() }} /></label>
-        <label><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> {t('submissionConfirmation')}</label>
-        <button type="button" className="primary-action full" disabled={!canSubmitEBalance(eric.submissionReady, fiscalYearStatus, confirmed, pin, history.some(item => item.kind === 'SUBMISSION' && isActiveSubmissionStatus(item.status)), submissionUncertain) || !canRunEBalanceAction(ledgerLoadState, ledgerIssues, ericBusy)} onClick={() => void processWithEric(true)}>{t('submitBinding')}</button>
+        {ericMessage && <p className="alert alert-success" role="status">{ericMessage}</p>}
+        <button type="button" className="btn btn-outline-secondary w-100 mt-3" disabled={!eric.validationReady || !canRunEBalanceAction(ledgerLoadState, ledgerIssues, ericBusy)} onClick={() => void processWithEric(false)}>{ericBusy ? t('ericBusy') : t('validateWithEric')}</button>
+        <label>{t('certificatePin')}<input className="form-control" type="password" autoComplete="off" value={pin} onChange={event => { setPin(event.target.value); prepareCorrectedAttempt() }} /></label>
+        <label className="form-check"><input className="form-check-input" type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> {t('submissionConfirmation')}</label>
+        <button type="button" className="btn btn-primary w-100 mt-3" disabled={!canSubmitEBalance(eric.submissionReady, fiscalYearStatus, confirmed, pin, history.some(item => item.kind === 'SUBMISSION' && isActiveSubmissionStatus(item.status)), submissionUncertain) || !canRunEBalanceAction(ledgerLoadState, ledgerIssues, ericBusy)} onClick={() => void processWithEric(true)}>{t('submitBinding')}</button>
         {history.length > 0 && <div><h3>{t('submissionHistory')}</h3><ul>{history.map(item => <li key={item.id}><strong>{item.kind === 'SUBMISSION' ? t('submission') : t('validation')}</strong> · {item.status} · {new Date(item.createdAt).toLocaleString()} {item.ericMessage ? `— ${item.ericMessage}` : ''}</li>)}</ul></div>}
         <div className="legal-note"><strong>{t('productBoundary')}</strong><p>{t('ericBoundary')}</p></div>
+      </section>
+      <section className="card panel"><div className="panel-title"><div><span className="step">{t('lifecycleEvidence')}</span><h2>{t('immutableReportVersions')}</h2></div><span className="badge text-bg-secondary">{lifecycle.reports.length}</span></div>
+        {lifecycle.reports.length ? <ul className="list-group list-group-flush">{lifecycle.reports.map(report => <li className="list-group-item" key={report.id}><strong>v{report.version} · {report.status}</strong><br/>{t('taxonomy')} {report.taxonomyVersion}<br/><code>{report.reportChecksum}</code></li>)}</ul> : <p>{t('noLifecycleReports')}</p>}
+        <p className="small text-body-secondary">{t('reconciliationEvidenceCount', { count: lifecycle.reconciliations.length })}</p>
       </section>
     </div>
   </div>

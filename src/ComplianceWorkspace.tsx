@@ -7,6 +7,7 @@ type Profile = {
   companyName: string; legalForm: string; registerCourt?: string; registerNumber?: string; taxNumber: string; vatId?: string; taxOffice: string
   registeredAddress?: { streetAndHouseNumber: string; zipCode: string; city: string; country: string }
   vatRegime: string; vatFilingFrequency: string; activity: string; sizeClass: string; chart: string; elections: string[]; applicabilityOverrides?: Record<string, boolean>
+  eBilanz?: { accountingStandard: 'HGB' | 'OTHER'; incomeStatementMethod: 'GKV' | 'UKV'; statementType: 'E' | 'K' | 'PB'; reportStatus: 'E' | 'F'; consolidationRange: 'EA' | 'KA'; incomeClassification: string; specialBalanceRequired?: boolean; supplementaryBalanceRequired?: boolean }
 }
 type Overview = {
   tenantId: string
@@ -18,7 +19,7 @@ type Overview = {
 }
 
 export const complianceHref = '/compliance'
-export const EMPTY_PROFILE: Profile = { companyName: '', legalForm: 'SOLE_TRADER', taxNumber: '', taxOffice: '', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: '', sizeClass: 'MICRO', chart: 'SKR03', elections: [] }
+export const EMPTY_PROFILE: Profile = { companyName: '', legalForm: 'SOLE_TRADER', taxNumber: '', taxOffice: '', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: '', sizeClass: 'MICRO', chart: 'SKR03', elections: [], eBilanz: { accountingStandard: 'HGB', incomeStatementMethod: 'GKV', statementType: 'E', reportStatus: 'E', consolidationRange: 'EA', incomeClassification: 'trade' } }
 
 export function parseJsonObject(value: string): Record<string, unknown> {
   const parsed = JSON.parse(value) as unknown
@@ -110,10 +111,10 @@ export function ComplianceWorkspace() {
   const applicability = overview?.profile?.applicability ?? {}
   return <div className="workspace py-4 compliance-workspace">
     <header className="page-heading"><div><span className="eyebrow">{t('eyebrow')}</span><h1>{t('title')}</h1><p>{t('subtitle')}</p></div><button type="button" className="btn btn-outline-secondary" disabled={busy} onClick={() => void refresh()}>{t('refresh')}</button></header>
-    {error && <div className="error-summary" role="alert">{error}</div>}
-    {success && <p className="success" role="status">{success}</p>}
+    {error && <div className="alert alert-danger" role="alert">{error}</div>}
+    {success && <p className="alert alert-success" role="status">{success}</p>}
 
-    <section className="panel"><div className="panel-title"><div><span className="step">1</span><h2>{t('profile')}</h2></div><span className={`status ${overview?.audit.verified ? 'closed' : 'open'}`}>{overview?.audit.verified ? t('auditVerified') : t('auditUnverified')}</span></div>
+    <section className="card panel"><div className="panel-title"><div><span className="step">1</span><h2>{t('profile')}</h2></div><span className={`badge status ${overview?.audit.verified ? 'closed' : 'open'}`}>{overview?.audit.verified ? t('auditVerified') : t('auditUnverified')}</span></div>
       <form onSubmit={saveProfile}>
         <div className="form-grid">
           <Text label={t('companyName')} value={profile.companyName} onChange={companyName => setProfile({ ...profile, companyName })} />
@@ -133,33 +134,39 @@ export function ComplianceWorkspace() {
           <Select label={t('sizeClass')} value={profile.sizeClass} values={['MICRO', 'SMALL', 'MEDIUM', 'LARGE']} onChange={sizeClass => setProfile({ ...profile, sizeClass })} />
           <Text label={t('chart')} value={profile.chart} onChange={chart => setProfile({ ...profile, chart })} />
           <Text label={t('elections')} value={profile.elections.join(', ')} onChange={value => setProfile({ ...profile, elections: value.split(',').map(item => item.trim()).filter(Boolean) })} />
+          <Select label={t('eBilanzAccountingStandard')} value={profile.eBilanz?.accountingStandard ?? 'HGB'} values={['HGB', 'OTHER']} onChange={accountingStandard => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), accountingStandard: accountingStandard as 'HGB' | 'OTHER' } })} />
+          <Select label={t('eBilanzIncomeStatement')} value={profile.eBilanz?.incomeStatementMethod ?? 'GKV'} values={['GKV', 'UKV']} onChange={incomeStatementMethod => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), incomeStatementMethod: incomeStatementMethod as 'GKV' | 'UKV' } })} />
+          <Select label={t('eBilanzStatementType')} value={profile.eBilanz?.statementType ?? 'E'} values={['E', 'K', 'PB']} onChange={statementType => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), statementType: statementType as 'E' | 'K' | 'PB' } })} />
+          <Select label={t('eBilanzReportStatus')} value={profile.eBilanz?.reportStatus ?? 'E'} values={['E', 'F']} onChange={reportStatus => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), reportStatus: reportStatus as 'E' | 'F' } })} />
+          <Select label={t('eBilanzConsolidation')} value={profile.eBilanz?.consolidationRange ?? 'EA'} values={['EA', 'KA']} onChange={consolidationRange => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), consolidationRange: consolidationRange as 'EA' | 'KA' } })} />
+          <Text label={t('eBilanzIncomeClassification')} value={profile.eBilanz?.incomeClassification ?? ''} onChange={incomeClassification => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), incomeClassification } })} required />
           <label className="full-width">{t('applicabilityOverrides')}<textarea rows={4} value={overridesText} onChange={event => setOverridesText(event.target.value)} /></label>
           <Text label={t('changeReason')} value={reason} onChange={setReason} required />
-        </div><button className="primary-action" disabled={busy}>{t('saveProfile')}</button>
+        </div><button className="btn btn-primary" disabled={busy}>{t('saveProfile')}</button>
       </form>
       <div className="table-responsive"><table className="table"><thead><tr><th>{t('report')}</th><th>{t('applicable')}</th><th>{t('basis')}</th></tr></thead><tbody>{Object.entries(applicability).map(([kind, item]) => <tr key={kind}><td>{kind}</td><td>{item.applicable ? t('yes') : t('no')}</td><td>{item.overridden ? t('override') : item.basis}</td></tr>)}</tbody></table></div>
     </section>
 
-    <section className="panel"><div className="panel-title"><div><span className="step">2</span><h2>{t('periods')}</h2></div><span className="hint">{t('periodHint')}</span></div>
-      <form onSubmit={createPeriod}><div className="form-grid"><Text label={t('referenceYear')} type="number" value={String(period.referenceYear)} onChange={referenceYear => setPeriod({ ...period, referenceYear: Number(referenceYear) })} /><Text label={t('label')} value={period.label} onChange={label => setPeriod({ ...period, label })} /><Text label={t('startsAt')} type="date" value={period.startsAt} onChange={startsAt => setPeriod({ ...period, startsAt })} /><Text label={t('endsAt')} type="date" value={period.endsAt} onChange={endsAt => setPeriod({ ...period, endsAt })} /><Text label={t('reason')} value={period.reason} onChange={reason => setPeriod({ ...period, reason })} required /></div><button className="primary-action" disabled={busy}>{t('createPeriod')}</button></form>
+    <section className="card panel"><div className="panel-title"><div><span className="step">2</span><h2>{t('periods')}</h2></div><span className="badge text-bg-light hint">{t('periodHint')}</span></div>
+      <form onSubmit={createPeriod}><div className="form-grid"><Text label={t('referenceYear')} type="number" value={String(period.referenceYear)} onChange={referenceYear => setPeriod({ ...period, referenceYear: Number(referenceYear) })} /><Text label={t('label')} value={period.label} onChange={label => setPeriod({ ...period, label })} /><Text label={t('startsAt')} type="date" value={period.startsAt} onChange={startsAt => setPeriod({ ...period, startsAt })} /><Text label={t('endsAt')} type="date" value={period.endsAt} onChange={endsAt => setPeriod({ ...period, endsAt })} /><Text label={t('reason')} value={period.reason} onChange={reason => setPeriod({ ...period, reason })} required /></div><button className="btn btn-primary" disabled={busy}>{t('createPeriod')}</button></form>
       <ul className="history-list">{overview?.periods.map(item => <li key={item.id}><strong>{item.label}</strong> · {item.startsAt}–{item.endsAt} · {item.status}<br/><code>{item.id}</code></li>)}</ul>
     </section>
 
-    <section className="panel"><div className="panel-title"><div><span className="step">3</span><h2>{t('chartLifecycle')}</h2></div><span className="hint">{overview?.chart?.chart ?? '—'}</span></div>
-      <form onSubmit={activateCustomChart}><div className="form-grid"><Text label={t('customChartId')} value={customChartId} onChange={setCustomChartId} required /><label className="full-width">{t('mappingJson')}<textarea rows={8} value={customMappings} onChange={event => setCustomMappings(event.target.value)} /></label><Text label={t('changeReason')} value={reason} onChange={setReason} required /></div><button className="primary-action" disabled={busy}>{t('activateChart')}</button></form>
+    <section className="card panel"><div className="panel-title"><div><span className="step">3</span><h2>{t('chartLifecycle')}</h2></div><span className="badge text-bg-light hint">{overview?.chart?.chart ?? '—'}</span></div>
+      <form onSubmit={activateCustomChart}><div className="form-grid"><Text label={t('customChartId')} value={customChartId} onChange={setCustomChartId} required /><label className="full-width">{t('mappingJson')}<textarea className="form-control" rows={8} value={customMappings} onChange={event => setCustomMappings(event.target.value)} /></label><Text label={t('changeReason')} value={reason} onChange={setReason} required /></div><button className="btn btn-primary" disabled={busy}>{t('activateChart')}</button></form>
       <details><summary>{t('mappingHistory')} ({overview?.chart?.mappings.length ?? 0})</summary><pre>{JSON.stringify(overview?.chart?.mappings ?? [], null, 2)}</pre></details>
     </section>
 
-    <section className="panel"><div className="panel-title"><div><span className="step">4</span><h2>{t('workflows')}</h2></div><span className="hint">{t('workflowHint')}</span></div>
-      <form onSubmit={runOperation}><div className="form-grid"><label>{t('operation')}<select value={operation} onChange={event => setOperation(event.target.value)}>{Object.keys(operationExamples).map(name => <option key={name}>{name}</option>)}</select></label><label className="full-width">{t('operationPayload')}<textarea rows={12} value={operationPayload} onChange={event => setOperationPayload(event.target.value)} /></label></div><button className="primary-action" disabled={busy}>{t('execute')}</button></form>
+    <section className="card panel"><div className="panel-title"><div><span className="step">4</span><h2>{t('workflows')}</h2></div><span className="badge text-bg-light hint">{t('workflowHint')}</span></div>
+      <form onSubmit={runOperation}><div className="form-grid"><label>{t('operation')}<select className="form-select" value={operation} onChange={event => setOperation(event.target.value)}>{Object.keys(operationExamples).map(name => <option key={name}>{name}</option>)}</select></label><label className="full-width">{t('operationPayload')}<textarea className="form-control" rows={12} value={operationPayload} onChange={event => setOperationPayload(event.target.value)} /></label></div><button className="btn btn-primary" disabled={busy}>{t('execute')}</button></form>
       <div className="compliance-status-grid"><StatusList title={t('drafts')} items={overview?.operations.drafts ?? []} /><StatusList title={t('reopenRequests')} items={overview?.operations.reopenRequests ?? []} /><StatusList title={t('amendments')} items={overview?.operations.amendments ?? []} /><StatusList title={t('profileAddressMigrations')} items={overview?.operations.profileAddressMigrations ?? []} /><StatusList title={t('retainedArtifacts')} items={overview?.operations.artifacts ?? []} /><StatusList title={t('backups')} items={overview?.operations.backups ?? []} /></div>
       <details><summary>{t('operatorPolicy')}</summary><pre>{JSON.stringify(overview?.operations.policy ?? null, null, 2)}</pre></details>
     </section>
   </div>
 }
 
-function Text({ label, value, onChange, required = false, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; type?: string }) { return <label>{label}<input type={type} required={required} value={value} onChange={event => onChange(event.target.value)} /></label> }
-function Select({ label, value, values, onChange }: { label: string; value: string; values: string[]; onChange: (value: string) => void }) { return <label>{label}<select value={value} onChange={event => onChange(event.target.value)}>{values.map(item => <option key={item}>{item}</option>)}</select></label> }
+function Text({ label, value, onChange, required = false, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; type?: string }) { return <label>{label}<input className="form-control" type={type} required={required} value={value} onChange={event => onChange(event.target.value)} /></label> }
+function Select({ label, value, values, onChange }: { label: string; value: string; values: string[]; onChange: (value: string) => void }) { return <label>{label}<select className="form-select" value={value} onChange={event => onChange(event.target.value)}>{values.map(item => <option key={item}>{item}</option>)}</select></label> }
 function StatusList({ title, items }: { title: string; items: unknown[] }) { return <div><h3>{title}</h3>{items.length ? <pre>{JSON.stringify(items, null, 2)}</pre> : <p>—</p>}</div> }
 
 export function complianceOperationExamples(overview: Overview | null): Record<string, Record<string, unknown>> {
@@ -187,5 +194,14 @@ export function complianceOperationExamples(overview: Overview | null): Record<s
     'retention.dispose': { artifactId, onDate: '2041-01-01', reason: 'Retention and holds expired' },
     'backup.create': { region: 'local', reason: 'Scheduled encrypted backup' },
     'backup.verify-restore': { backupId, measuredRestoreMinutes: 15, reason: 'Disaster recovery exercise' },
+    'reporting.audit-export.create': { fiscalPeriodId: periodId, authorityReference: 'AO-147-6', reason: 'Authority-directed audit export' },
+    'reporting.migration-export.create': { fiscalPeriodId: periodId, authorityReference: 'Tenant migration', reason: 'Deterministic migration export (requires configured signing key)' },
+    'reporting.procedure.save': { document: { id: 'main-procedure', version: '1.0.0', effectiveFrom: new Date().toISOString().slice(0, 10), appVersion: '0.1.0', configurationVersion: '1', schemaVersion: '20260721200000', taxonomyVersions: ['6.9'], sections: {}, controls: {}, changeLog: [{ changedAt: new Date().toISOString(), changedBy: 'responsible-operator', summary: 'Initial version' }] }, confirmApproval: false, reason: 'Approved procedure documentation version' },
+    'reporting.annual.create': { fiscalPeriodId: periodId, presentation: { method: 'GKV', policies: [], notes: [], checks: { nonOffsetting: false, accrual: false, provisions: false, valuation: false, continuity: false } }, reason: 'Prepared annual accounts' },
+    'reporting.disclosure.create': { fiscalPeriodId: periodId, deadline: `${new Date().getFullYear() + 1}-12-31`, reliefs: [], reason: 'Prepared disclosure package' },
+    'reporting.assets.create': { fiscalPeriodId: periodId, reason: 'Generated fixed-asset schedule from the retained subledger' },
+    'reporting.inventory.close': { fiscalPeriodId: periodId, counts: [], timeZone: 'Europe/Berlin', reason: 'Approved physical inventory close' },
+    'reporting.cash-audit.create': { fiscalPeriodId: periodId, cashBookId: 'cash-main', reason: 'Generated daily cash-book audit data' },
+    'reporting.package.approve': { packageId: overview?.operations.artifacts.find(item => item.objectType === 'CompliancePackage')?.objectId ?? 'package-id', reason: 'Independent approval and establishment' },
   }
 }
