@@ -6,13 +6,12 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
 .navbar .nav-link { border-radius: 8px; margin: 0 2px; }
 .navbar .nav-link.active { color: var(--green) !important; background: var(--green-soft); font-weight: 650; }
 .app-shell { max-width: 1540px; padding: 1rem clamp(16px, 3vw, 48px) 0; display: flex; flex: 1; flex-direction: column; }
+.app-shell--full-width { max-width: none; padding: 1rem 16px 0; }
 .app-shell>.row { flex: 1; }
 .app-shell>.row>.col { display: flex; flex-direction: column; }
 .page-content { flex: 1; }
 .workspace { display: flex; flex-direction: column; gap: 20px; }
 .workspace-toolbar { display: flex; justify-content: flex-end; }
-.bookings-workspace { width: calc(100vw - 32px); margin-left: calc(50% - 50vw + 16px); }
-.app-shell:has(.bookings-workspace) .app-footer { width: calc(100vw - 32px); margin-left: calc(50% - 50vw + 16px); }
 .page-heading { display: flex; justify-content: space-between; align-items: end; gap: 24px; padding: 0 0 4px; }
 .page-heading h1 { font-size: clamp(2rem, 4vw, 3rem); letter-spacing: -.045em; margin: 2px 0 4px; font-weight: 760; }
 .page-heading p { color: var(--muted); margin: 0; }

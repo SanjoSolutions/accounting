@@ -6,6 +6,7 @@ import { NextIntlClientProvider } from 'next-intl'
 import { getLocale, getMessages, getTranslations } from 'next-intl/server'
 import type { ReactNode } from 'react'
 import '../index.css'
+import { AppShell } from '../AppShell'
 import { LanguageSelect } from '../LanguageSelect'
 import { Navbar } from '../Navbar'
 import { getAuthMode, isSignUpEnabled } from '@/server/auth-mode'
@@ -33,7 +34,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <NextIntlClientProvider messages={messages}>
           <Providers>
             <Navbar authMode={authMode} signUpEnabled={isSignUpEnabled()} user={user} />
-            <main className="container-fluid app-shell">
+            <AppShell>
               <div className="row mb-2">
                 <div className="col">
                   <div className="page-content">{children}</div>
@@ -42,7 +43,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                   </footer>
                 </div>
               </div>
-            </main>
+            </AppShell>
           </Providers>
         </NextIntlClientProvider>
       </body>
