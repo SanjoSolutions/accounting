@@ -229,13 +229,15 @@ model CashCloseRecord {
 }
 
 model DocumentRecord {
-  id                String                      @id
-  payload           String
-  ownerId           String?
-  attachments       JournalDocumentAttachment[]
-  structuredInvoice StructuredInvoice?
+  id                  String                      @id
+  payload             String
+  ownerId             String?
+  availableForBooking Boolean                     @default(true)
+  attachments         JournalDocumentAttachment[]
+  structuredInvoice   StructuredInvoice?
 
   @@index([ownerId])
+  @@index([ownerId, availableForBooking])
 }
 
 model DocumentStorageClaim {

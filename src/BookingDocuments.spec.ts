@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import de from '../messages/de.json'
 import en from '../messages/en.json'
 import { readFileSync } from 'node:fs'
-import { acceptedPdfFiles, clampDocumentColumnPercent, DocumentCard, documentDisplayName, LongTouchSelectionGesture, longTouchSelectionDelayMs, mergeDocumentLists, mergeDocumentSelection, mergeUploadedDocument, parseSavedDocumentColumnPercent, readDocumentUploadResponse, selectDocument, selectionExtendsForActivation } from './BookingDocuments'
+import { acceptedPdfFiles, availableBookingDocuments, clampDocumentColumnPercent, DocumentCard, documentDisplayName, LongTouchSelectionGesture, longTouchSelectionDelayMs, mergeDocumentLists, mergeDocumentSelection, mergeUploadedDocument, parseSavedDocumentColumnPercent, readDocumentUploadResponse, selectDocument, selectionExtendsForActivation } from './BookingDocuments'
 
 afterEach(() => vi.useRealTimers())
 
@@ -97,6 +97,11 @@ describe('booking document selection', () => {
     expect(en.Workspaces).not.toHaveProperty('documentsSelected')
   })
 
+  it('localizes the continue-with-documents checkbox', () => {
+    expect(en.Workspaces.continueWithSameDocuments).toBe('Continue with same documents')
+    expect(de.Workspaces.continueWithSameDocuments).toBe('Mit denselben Belegen fortfahren')
+  })
+
   it('accepts one or many PDFs from the viewport drop target or file picker', () => {
     const files = [{ name: 'invoice.pdf', type: '' }, { name: 'scan', type: 'application/pdf' }, { name: 'notes.txt', type: 'text/plain' }]
     expect(acceptedPdfFiles(files).map(file => file.name)).toEqual(['invoice.pdf', 'scan'])
@@ -117,6 +122,11 @@ describe('booking document selection', () => {
     const uploaded = { id: 'uploaded', url: '/uploaded' }
     const fetched = { id: 'existing', url: '/existing' }
     expect(mergeDocumentLists([uploaded], [fetched])).toEqual([uploaded, fetched])
+  })
+
+  it('hides documents consumed by a completed posting from the available list', () => {
+    const documents = [{ id: 'booked', url: '/booked' }, { id: 'available', url: '/available' }]
+    expect(availableBookingDocuments(documents, new Set(['booked']))).toEqual([{ id: 'available', url: '/available' }])
   })
 
   it('resizes the document column while keeping both panels usable', () => {

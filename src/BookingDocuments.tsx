@@ -16,11 +16,13 @@ const documentColumnStorageKey = 'accounting.bookings.document-column-percent'
 
 export function BookingDocuments({
   selectedDocumentIds,
+  unavailableDocumentIds = [],
   onSelectionChange,
   onUploadingChange,
   children,
 }: {
   selectedDocumentIds: string[]
+  unavailableDocumentIds?: string[]
   onSelectionChange: (ids: string[]) => void
   onUploadingChange: (uploading: boolean) => void
   children: ReactNode
@@ -122,6 +124,11 @@ export function BookingDocuments({
     () => selectedDocumentIds.flatMap(id => documents.find(document => document.id === id) ?? []),
     [documents, selectedDocumentIds],
   )
+  const unavailableDocumentIdSet = useMemo(() => new Set(unavailableDocumentIds), [unavailableDocumentIds])
+  const availableDocuments = useMemo(
+    () => availableBookingDocuments(documents, unavailableDocumentIdSet),
+    [documents, unavailableDocumentIdSet],
+  )
   const activeDocument = selectedDocuments.find(document => document.id === activeDocumentId) ?? selectedDocuments[0]
 
   function select(documentId: string, extendSelection: boolean) {
@@ -166,9 +173,9 @@ export function BookingDocuments({
         </div>
       </div>
       {error && <div className="alert alert-danger" role="alert">{error}</div>}
-      {documents.length === 0 && !uploading
+      {availableDocuments.length === 0 && !uploading
         ? <div className="document-empty" onClick={() => inputRef.current?.click()}><i className="bi bi-file-earmark-arrow-up" /><strong>{t('noDocuments')}</strong><span>{t('noDocumentsHelp')}</span></div>
-        : <div className="document-strip" aria-label={t('availableDocuments')}>{documents.map(document => {
+        : <div className="document-strip" aria-label={t('availableDocuments')}>{availableDocuments.map(document => {
           const selected = selectedDocumentIds.includes(document.id)
           return <DocumentCard
             key={document.id}
@@ -329,6 +336,10 @@ export function mergeUploadedDocument(documents: BookingDocument[], uploadedDocu
 export function mergeDocumentLists(current: BookingDocument[], fetched: BookingDocument[]): BookingDocument[] {
   const currentIds = new Set(current.map(document => document.id))
   return [...current, ...fetched.filter(document => !currentIds.has(document.id))]
+}
+
+export function availableBookingDocuments(documents: BookingDocument[], unavailableDocumentIds: ReadonlySet<string>): BookingDocument[] {
+  return documents.filter(document => !unavailableDocumentIds.has(document.id))
 }
 
 export function acceptedPdfFiles(files: ArrayLike<{ name: string; type: string }>): File[] {

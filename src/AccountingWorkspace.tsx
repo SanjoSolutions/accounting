@@ -40,6 +40,8 @@ export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
   const [busy, setBusy] = useState(false)
   const [success, setSuccess] = useState('')
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([])
+  const [unavailableDocumentIds, setUnavailableDocumentIds] = useState<string[]>([])
+  const [continueWithSameDocuments, setContinueWithSameDocuments] = useState(defaultContinueWithSameDocuments)
   const [documentsUploading, setDocumentsUploading] = useState(false)
   const [storageRestored, setStorageRestored] = useState(false)
   const yearRef = useRef(year)
@@ -130,6 +132,7 @@ export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
       })
       if (!response.ok) { const body = await response.json(); if (yearRef.current === submittedYear) setIssues(body.issues ?? [t('postingFailed')]); return }
       if (yearRef.current === submittedYear) {
+        const postedDocumentState = documentStateAfterPosting(selectedDocumentIds, continueWithSameDocuments)
         const storage = getBrowserBookingWorkspaceStorage()
         suppressNextDraftSaveRef.current = storage ? clearBookingWorkspaceState(storage, ownerId) : false
         const clearedLines = [emptyLine(), emptyLine()]
@@ -138,9 +141,11 @@ export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
           lines: clearedLines,
           documentNumber: '',
           description: '',
-          selectedDocumentIds: [],
+          selectedDocumentIds: postedDocumentState.selectedDocumentIds,
         }
-        setLines(clearedLines); setDocumentNumber(''); setDescription(''); setSelectedDocumentIds([]); setSuccess(t('postingSaved')); await load()
+        setLines(clearedLines); setDocumentNumber(''); setDescription(''); setSelectedDocumentIds(postedDocumentState.selectedDocumentIds)
+        setUnavailableDocumentIds(current => [...new Set([...current, ...postedDocumentState.unavailableDocumentIds])])
+        setSuccess(t('postingSaved')); await load()
       }
     } catch { if (yearRef.current === submittedYear) setIssues([t('postingFailed')]) }
     finally { if (yearRef.current === submittedYear) setBusy(false) }
@@ -159,7 +164,7 @@ export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
       <div className="card metric"><span>{t('status')}</span><strong className={`badge status ${currentWorkspace.fiscalYear.status.toLowerCase()}`}>{currentWorkspace.fiscalYear.status === 'OPEN' ? t('open') : t('locked')}</strong></div>
     </section>}
 
-    <BookingDocuments selectedDocumentIds={selectedDocumentIds} onSelectionChange={setSelectedDocumentIds} onUploadingChange={setDocumentsUploading}>
+    <BookingDocuments selectedDocumentIds={selectedDocumentIds} unavailableDocumentIds={unavailableDocumentIds} onSelectionChange={setSelectedDocumentIds} onUploadingChange={setDocumentsUploading}>
       <section className="card panel booking-panel">
         <div className="panel-title"><div><span className="step">2 · {t('newPosting')}</span><h2>{t('recordTransaction')}</h2></div><span className="badge text-bg-light hint">{t('debitEqualsCredit')}</span></div>
         <form onSubmit={post}>
@@ -184,6 +189,10 @@ export function AccountingWorkspace({ ownerId }: { ownerId: string }) {
           <button className="btn btn-link add-line" type="button" onClick={() => setLines(current => [...current, emptyLine()])}>+ {t('addSplitLine')}</button>
           {issues.length > 0 && <div className="alert alert-danger" role="alert"><strong>{t('pleaseReview')}</strong><ul>{issues.map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
           {success && <p className="alert alert-success" role="status">{success}</p>}
+          <label className="form-check">
+            <input className="form-check-input" type="checkbox" checked={continueWithSameDocuments} onChange={event => setContinueWithSameDocuments(event.target.checked)} />
+            <span className="form-check-label">{t('continueWithSameDocuments')}</span>
+          </label>
           <div className={`balance-bar ${difference === 0 && totals.debit > 0 ? 'balanced' : ''}`} aria-live="polite">
             <div><span>{t('totalDebit')}</span><strong>{money.format(totals.debit / 100)}</strong></div>
             <div><span>{t('totalCredit')}</span><strong>{money.format(totals.credit / 100)}</strong></div>
@@ -220,6 +229,14 @@ export function shouldApplyWorkspace(requestedYear: number, currentYear: number,
 }
 export function isBookingFormDisabled(busy: boolean, documentsUploading = false, storagePending = false) {
   return busy || documentsUploading || storagePending
+}
+
+export const defaultContinueWithSameDocuments = false
+
+export function documentStateAfterPosting(selectedDocumentIds: string[], continueWithSameDocuments: boolean) {
+  return continueWithSameDocuments
+    ? { selectedDocumentIds: [...selectedDocumentIds], unavailableDocumentIds: [] as string[] }
+    : { selectedDocumentIds: [] as string[], unavailableDocumentIds: [...selectedDocumentIds] }
 }
 export function bookingFormRows() { return [['bookingDate', 'documentNumber'], ['description']] as const }
 

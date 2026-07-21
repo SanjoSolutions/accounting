@@ -21,7 +21,7 @@ describe('Prisma document repository', () => {
     await createPrismaPersistence().documents.findAllByOwner('owner-1')
 
     expect(mocks.findMany).toHaveBeenCalledWith({
-      where: { ownerId: 'owner-1' },
+      where: { ownerId: 'owner-1', availableForBooking: true },
       orderBy: { id: 'desc' },
     })
   })
