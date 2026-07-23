@@ -25,6 +25,7 @@
       }
     ],
     "types": [
+      "node",
       "vitest/globals"
     ],
     "allowJs": true,
@@ -35,6 +36,8 @@
   },
   "include": [
     "next-env.d.ts",
+    "playwright.config.ts",
+    "e2e/**/*.ts",
     ".next/types/**/*.ts",
     "src/**/*.ts",
     "src/**/*.tsx",

@@ -3,6 +3,9 @@ import createNextIntlPlugin from 'next-intl/plugin'
 
 export const nextConfig: NextConfig = {
   allowedDevOrigins: ['127.0.0.1'],
+  sassOptions: {
+    silenceDeprecations: ['color-functions', 'global-builtin', 'if-function', 'import'],
+  },
   // Native dependencies used by storage and the isolated thumbnail worker.
   serverExternalPackages: ['@napi-rs/canvas', 'opendal', 'pdfjs-dist'],
   outputFileTracingIncludes: {

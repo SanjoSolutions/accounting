@@ -2,6 +2,13 @@ node_modules
 /.next
 /build
 /coverage
+/playwright-report
+/test-results
+/.playwright
+/playwright.db
+/playwright.db-journal
+/playwright.db-shm
+/playwright.db-wal
 /database
 /accounting.db
 /accounting.db-journal
