@@ -13,6 +13,7 @@ import {
   persistBookingWorkspaceStateChange,
   saveBookingWorkspaceState,
   shouldApplyWorkspace,
+  shouldShowPostingLineRemoveButtons,
   workspaceSections,
   type BookingWorkspaceState,
 } from './AccountingWorkspace'
@@ -46,6 +47,13 @@ describe('accounting workspace request ordering', () => {
     expect(isBookingFormDisabled(false)).toBe(false)
     expect(isBookingFormDisabled(false, true)).toBe(true)
     expect(isBookingFormDisabled(false, false, true)).toBe(true)
+  })
+
+  it('shows posting-line remove buttons only when more than two lines exist', () => {
+    expect(shouldShowPostingLineRemoveButtons(0)).toBe(false)
+    expect(shouldShowPostingLineRemoveButtons(1)).toBe(false)
+    expect(shouldShowPostingLineRemoveButtons(2)).toBe(false)
+    expect(shouldShowPostingLineRemoveButtons(3)).toBe(true)
   })
 
   it('does not continue with the same documents by default', () => {
