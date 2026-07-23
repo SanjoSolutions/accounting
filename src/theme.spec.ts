@@ -63,4 +63,13 @@ describe('Bootstrap theme integration', () => {
     expect(workspace).toContain('<AccountSelector')
     expect(accountSelector).toContain('className="form-select account-selector-trigger"')
   })
+
+  it('keeps the posting-line remove button inside a narrow booking panel', () => {
+    const styles = source('src/index.css')
+
+    expect(styles).toContain(
+      '.posting-head,.posting-line { display: grid; grid-template-columns: minmax(0,1fr) 135px 135px 36px;',
+    )
+    expect(styles).not.toContain('grid-template-columns: minmax(220px,1fr) 135px 135px 36px')
+  })
 })
