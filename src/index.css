@@ -41,7 +41,7 @@ label { display: flex; flex-direction: column; gap: 6px; color: #435048; font-si
 .panel-title h2,.panel h2 { font-size: 1.25rem; margin: 3px 0 0; letter-spacing: -.02em; }
 .hint { color: var(--muted); background: #f3f5f3; border-radius: 99px; padding: 5px 9px; font-size: .75rem; }
 .form-grid { display: grid; gap: 12px; margin-bottom: 22px; }.form-grid.three { grid-template-columns: 1fr 1fr 1.5fr; }.form-grid.two { grid-template-columns: 1fr 1fr; }.booking-metadata-row { margin-bottom: 12px; }
-.posting-head,.posting-line { display: grid; grid-template-columns: minmax(220px,1fr) 135px 135px 36px; gap: 8px; align-items: center; }
+.posting-head,.posting-line { display: grid; grid-template-columns: minmax(0,1fr) 135px 135px 36px; gap: 8px; align-items: center; }
 .posting-head { color: var(--muted); font-size: .72rem; font-weight: 700; padding: 0 4px 5px; }
 .posting-line { margin-bottom: 8px; }
 .account-selector { position: relative; min-width: 0; }
