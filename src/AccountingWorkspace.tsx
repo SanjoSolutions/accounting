@@ -11,7 +11,6 @@ type Line = { accountId: string; debit: string; credit: string }
 export type BookingWorkspaceState = {
   year: number
   bookingDate: string
-  documentNumber: string
   description: string
   lines: Line[]
   selectedDocumentIds: string[]
@@ -20,7 +19,7 @@ type Workspace = {
   fiscalYear: { year: number; status: string }
   accounts: Account[]
   entries: Array<{
-    id: string; sequenceNumber: number; bookingDate: string; documentNumber: string; description: string
+    id: string; sequenceNumber: number; bookingDate: string; description: string
     lines: Array<{ id: string; debitCents: number; creditCents: number; account: Account }>
     documents: BookingDocument[]
   }>
@@ -38,7 +37,6 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [lines, setLines] = useState<Line[]>([emptyLine(), emptyLine()])
   const [bookingDate, setBookingDate] = useState(localDate)
-  const [documentNumber, setDocumentNumber] = useState('')
   const [description, setDescription] = useState('')
   const [issues, setIssues] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
@@ -52,10 +50,10 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
   const loadRef = useRef(0)
   const suppressNextDraftSaveRef = useRef(false)
   const bookingWorkspaceStateRef = useRef<BookingWorkspaceState>({
-    year, bookingDate, documentNumber, description, lines, selectedDocumentIds,
+    year, bookingDate, description, lines, selectedDocumentIds,
   })
   bookingWorkspaceStateRef.current = {
-    year, bookingDate, documentNumber, description, lines, selectedDocumentIds,
+    year, bookingDate, description, lines, selectedDocumentIds,
   }
 
   useEffect(() => {
@@ -69,7 +67,6 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
       bookingWorkspaceStateRef.current = saved
       setYear(saved.year)
       setBookingDate(saved.bookingDate)
-      setDocumentNumber(saved.documentNumber)
       setDescription(saved.description)
       setLines(saved.lines)
       setSelectedDocumentIds(saved.selectedDocumentIds)
@@ -83,9 +80,9 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
     const storage = getBrowserBookingWorkspaceStorage()
     if (!storage) return
     saveBookingWorkspaceState(storage, ownerId, {
-      year, bookingDate, documentNumber, description, lines, selectedDocumentIds,
+      year, bookingDate, description, lines, selectedDocumentIds,
     })
-  }, [storageRestored, ownerId, year, bookingDate, documentNumber, description, lines, selectedDocumentIds, view])
+  }, [storageRestored, ownerId, year, bookingDate, description, lines, selectedDocumentIds, view])
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const requestedYear = year
@@ -141,7 +138,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
     try {
       const response = await fetch('/api/booking-records', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ fiscalYear: year, bookingDate, documentNumber, description, documentIds: selectedDocumentIds, lines: lines.map(line => ({ accountId: line.accountId, debitCents: toCents(line.debit), creditCents: toCents(line.credit) })) }),
+        body: JSON.stringify({ fiscalYear: year, bookingDate, description, documentIds: selectedDocumentIds, lines: lines.map(line => ({ accountId: line.accountId, debitCents: toCents(line.debit), creditCents: toCents(line.credit) })) }),
       })
       if (!response.ok) { const body = await response.json(); if (yearRef.current === submittedYear) setIssues(body.issues ?? [t('postingFailed')]); return }
       if (yearRef.current === submittedYear) {
@@ -152,11 +149,10 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
         bookingWorkspaceStateRef.current = {
           ...bookingWorkspaceStateRef.current,
           lines: clearedLines,
-          documentNumber: '',
           description: '',
           selectedDocumentIds: postedDocumentState.selectedDocumentIds,
         }
-        setLines(clearedLines); setDocumentNumber(''); setDescription(''); setSelectedDocumentIds(postedDocumentState.selectedDocumentIds)
+        setLines(clearedLines); setDescription(''); setSelectedDocumentIds(postedDocumentState.selectedDocumentIds)
         setUnavailableDocumentIds(current => [...new Set([...current, ...postedDocumentState.unavailableDocumentIds])])
         setSuccess(t('postingSaved')); await load()
       }
@@ -183,9 +179,8 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
         <div className="panel-title"><div><span className="step">2 · {t('newPosting')}</span><h2>{t('recordTransaction')}</h2></div><span className="badge text-bg-light hint">{t('debitEqualsCredit')}</span></div>
         <form onSubmit={post}>
           <fieldset disabled={isBookingFormDisabled(busy, documentsUploading, !storageRestored)}>
-          <div className="form-grid two booking-metadata-row">
+          <div className="form-grid booking-metadata-row">
             <label>{t('postingDate')}<input className="form-control" required type="date" value={bookingDate} onChange={event => setBookingDate(event.target.value)} /></label>
-            <label>{t('documentNumber')}<input className="form-control" required value={documentNumber} onChange={event => setDocumentNumber(event.target.value)} placeholder={t('documentPlaceholder')} /></label>
           </div>
           <div className="form-grid booking-description-row">
             <label>{t('postingText')}<input className="form-control" required value={description} onChange={event => updateDescription(event.target.value)} placeholder={t('postingPlaceholder')} /></label>
@@ -220,7 +215,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
             <div><span>{t('totalDebit')}</span><strong>{money.format(totals.debit / 100)}</strong></div>
             <div><span>{t('totalCredit')}</span><strong>{money.format(totals.credit / 100)}</strong></div>
             <div><span>{t('difference')}</span><strong>{money.format(difference / 100)}</strong></div>
-            <button className="btn btn-primary" disabled={busy || difference !== 0 || totals.debit === 0 || currentWorkspace?.fiscalYear.status !== 'OPEN'}>{busy ? t('postingBusy') : t('post')}</button>
+            <button className="btn btn-primary" disabled={busy || selectedDocumentIds.length === 0 || difference !== 0 || totals.debit === 0 || currentWorkspace?.fiscalYear.status !== 'OPEN'}>{busy ? t('postingBusy') : t('post')}</button>
           </div>
           </fieldset>
         </form>
@@ -231,7 +226,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
         <div className="panel-title"><div><span className="step">{t('journal')}</span><h2>{t('postedEntries')}</h2></div><span className="badge text-bg-light hint">{t('entryCount', { count: currentWorkspace?.entries.length ?? 0 })}</span></div>
         {currentWorkspace && currentWorkspace.entries.length === 0 && <div className="empty"><strong>{t('noBookings')}</strong><p>{t('noBookingsHelp')}</p></div>}
         <div className="journal-list">{currentWorkspace?.entries.map(entry => <article className="journal-entry" key={entry.id}>
-          <div className="journal-meta"><span className="sequence">#{String(entry.sequenceNumber).padStart(4, '0')}</span><time>{formatCalendarDate(entry.bookingDate)}</time><span>{entry.documentNumber}</span></div>
+          <div className="journal-meta"><span className="sequence">#{String(entry.sequenceNumber).padStart(4, '0')}</span><time>{formatCalendarDate(entry.bookingDate)}</time></div>
           <strong>{entry.description}</strong>
           {entry.documents?.length > 0 && <div className="journal-documents">{entry.documents.map(document => <a key={document.id} href={document.url} target="_blank" rel="noreferrer"><i className="bi bi-paperclip" />{document.fileName || t('unnamedDocument')}</a>)}</div>}
           <div className="journal-lines">{entry.lines.map(line => <div key={line.id}><span>{line.account.number} · {line.account.name}</span><span>{line.debitCents ? `Soll ${money.format(line.debitCents / 100)}` : `Haben ${money.format(line.creditCents / 100)}`}</span></div>)}</div>
@@ -261,7 +256,7 @@ export function documentStateAfterPosting(selectedDocumentIds: string[], continu
     ? { selectedDocumentIds: [...selectedDocumentIds], unavailableDocumentIds: [] as string[] }
     : { selectedDocumentIds: [] as string[], unavailableDocumentIds: [...selectedDocumentIds] }
 }
-export function bookingFormRows() { return [['bookingDate', 'documentNumber'], ['description']] as const }
+export function bookingFormRows() { return [['bookingDate'], ['description']] as const }
 
 export function workspaceSections(view: AccountingWorkspaceView) {
   return {
@@ -335,14 +330,19 @@ export function parseBookingWorkspaceState(value: string | null): BookingWorkspa
     if (!isRecord(state)
       || !Number.isInteger(state.year)
       || typeof state.bookingDate !== 'string'
-      || typeof state.documentNumber !== 'string'
       || typeof state.description !== 'string'
       || !Array.isArray(state.lines)
       || state.lines.length < 2
       || !state.lines.every(isLine)
       || !Array.isArray(state.selectedDocumentIds)
       || !state.selectedDocumentIds.every(id => typeof id === 'string')) return null
-    return state as BookingWorkspaceState
+    return {
+      year: state.year,
+      bookingDate: state.bookingDate,
+      description: state.description,
+      lines: state.lines,
+      selectedDocumentIds: state.selectedDocumentIds,
+    } as BookingWorkspaceState
   } catch {
     return null
   }

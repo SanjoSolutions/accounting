@@ -127,7 +127,7 @@ const transaction = vi.hoisted(() => ({
 const storage = vi.hoisted(() => ({
   exists: vi.fn(async (key: string) => state.stored.has(key)),
   write: vi.fn(async (key: string) => { state.stored.add(key) }),
-  writeIfAbsent: vi.fn(async (key: string) => {
+  writeIfAbsent: vi.fn(async (key: string, _content?: Buffer, _metadata?: { contentType: string; fileName: string }) => {
     state.storageEvents.push('storage-write')
     if (state.stored.has(key)) return false
     state.stored.add(key)
@@ -207,6 +207,9 @@ describe('Lexware Betriebsprüfung persistence', () => {
       ] },
     })
     expect(storage.writeIfAbsent).toHaveBeenCalledOnce()
+    const documentPayload = JSON.parse(state.documents[0].create.payload)
+    expect(storage.writeIfAbsent.mock.calls[0][0]).toBe(`documents/owner-1/${documentPayload.id}.pdf`)
+    expect(storage.writeIfAbsent.mock.calls[0][2]).toMatchObject({ fileName: `${documentPayload.id}.pdf` })
     expect(state.storageEvents.slice(0, 2)).toEqual(['claim-marked', 'storage-write'])
     expect(state.documents[0].create).toMatchObject({ ownerId: 'owner-1', payload: expect.stringContaining('Invoice.PDF') })
   })
@@ -360,7 +363,7 @@ describe('Lexware Betriebsprüfung persistence', () => {
 
   it('does not delete a pre-existing stored document when an import fails', async () => {
     const contentHash = hashBytes(new TextEncoder().encode('%PDF-test'))
-    const expectedKey = `documents/owner-1/lexware-${hashPrefix(`owner-1\0invoice.pdf\0${contentHash}`)}`
+    const expectedKey = `documents/owner-1/lexware-${hashPrefix(`owner-1\0invoice.pdf\0${contentHash}`)}.pdf`
     state.stored.add(expectedKey); state.failJournalCreate = true
     await expect(importLexwareAudit('owner-1', [])).rejects.toThrow()
     expect(storage.delete).not.toHaveBeenCalled()

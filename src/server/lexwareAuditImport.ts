@@ -17,12 +17,14 @@ export async function importLexwareAudit(ownerId: string, files: LexwareAuditFil
   const documentImports = [...parsed.documents.entries()].map(([normalizedName, file]) => {
     const contentHash = digestBytes(file.bytes)
     const id = `lexware-${digest(`${ownerId}\0${normalizedName}\0${contentHash}`).slice(0, 32)}`
+    const extension = documentExtension(file.name, file.contentType)
     return {
       id,
       normalizedName,
       file,
       contentHash,
-      storageKey: `documents/${encodeURIComponent(ownerId)}/${id}`,
+      storageKey: `documents/${encodeURIComponent(ownerId)}/${id}.${extension}`,
+      storageFileName: `${id}.${extension}`,
     }
   })
   const documentHashes = new Map(documentImports.map(document => [document.normalizedName, document.contentHash]))
@@ -49,7 +51,7 @@ export async function importLexwareAudit(ownerId: string, files: LexwareAuditFil
       })
       createdStorageDocuments.push(document)
       await storage.writeIfAbsent(document.storageKey, Buffer.from(document.file.bytes), {
-        contentType: document.file.contentType, fileName: document.file.name,
+        contentType: document.file.contentType, fileName: document.storageFileName,
       })
     }
     const result = await prisma.$transaction(async transaction => {
@@ -219,6 +221,20 @@ export async function importLexwareAudit(ownerId: string, files: LexwareAuditFil
     await releaseDocumentClaims(importId, documentImports, createdStorageDocuments, storage)
     throw error
   }
+}
+
+function documentExtension(fileName: string, contentType: string) {
+  const typeExtensions: Record<string, string> = {
+    'application/pdf': 'pdf',
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/gif': 'gif',
+    'image/tiff': 'tiff',
+    'image/webp': 'webp',
+  }
+  return typeExtensions[contentType.toLowerCase()]
+    ?? fileName.match(/\.([a-z0-9]{1,10})$/i)?.[1].toLowerCase()
+    ?? 'bin'
 }
 
 async function reconcileStaleDocumentClaims(storage: ReturnType<typeof getDocumentStorage>) {
