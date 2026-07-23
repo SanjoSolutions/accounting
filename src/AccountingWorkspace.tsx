@@ -220,7 +220,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
             <div><span>{t('totalDebit')}</span><strong>{money.format(totals.debit / 100)}</strong></div>
             <div><span>{t('totalCredit')}</span><strong>{money.format(totals.credit / 100)}</strong></div>
             <div><span>{t('difference')}</span><strong>{money.format(difference / 100)}</strong></div>
-            <button className="btn btn-primary" disabled={busy || difference !== 0 || totals.debit === 0 || currentWorkspace?.fiscalYear.status !== 'OPEN'}>{busy ? t('postingBusy') : t('postBinding')}</button>
+            <button className="btn btn-primary" disabled={busy || difference !== 0 || totals.debit === 0 || currentWorkspace?.fiscalYear.status !== 'OPEN'}>{busy ? t('postingBusy') : t('post')}</button>
           </div>
           </fieldset>
         </form>
