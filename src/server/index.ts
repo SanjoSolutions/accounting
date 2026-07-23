@@ -200,7 +200,7 @@ export async function createDocument(input: DocumentFileInput, ownerId: string):
   const storage = getDocumentStorage()
   let documentSaved = false
 
-  await storage.write(storageKey, input.content, { contentType, fileName })
+  await storage.write(storageKey, input.content, { contentType, fileName: `${id}.pdf` })
   const candidateThumbnailStorageKey = `documents/${ encodeURIComponent(ownerId) }/${ id }.webp`
   let thumbnailStorageKey: string | undefined
 
@@ -208,7 +208,7 @@ export async function createDocument(input: DocumentFileInput, ownerId: string):
     const thumbnail = await generateDocumentThumbnail(input.content)
     await storage.write(candidateThumbnailStorageKey, thumbnail, {
       contentType: 'image/webp',
-      fileName: `${ fileName.replace(/\.pdf$/i, '') }.webp`,
+      fileName: `${id}.webp`,
     })
     thumbnailStorageKey = candidateThumbnailStorageKey
   } catch {

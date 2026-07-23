@@ -8,7 +8,7 @@ import { profilePayloadWithConfirmedAddress } from './compliance/companyProfile'
 
 vi.mock('server-only', () => ({}))
 vi.mock('./persistence/client', () => ({ prisma: {} }))
-import { accountSemanticFingerprint, authoritativeEBalanceMasterDataFromSettings, DEFAULT_ACCOUNTS, defaultAccountsForLedger, getEBalanceBlockingIssues, inferExistingLedgerChart, inferExistingLedgerProfile, isStandardPostingPeriod, legacyLedgerClaimApplies, mergeSubmissionHistory, nextCalendarDay, normalizeDocumentIds, postingDateBoundary, postingOrderPeriodYear, reportingSettingsPayload, requireLegacyLedgerProfile, selectBootstrapChart, selectedChartFromSettingsPayload, selectPostingPeriod, settingsPayloadWithEffectiveProfile, submissionResultStatus, successorOverlapBounds, validateDocumentNamespace, validateLegacyLedgerClaim, validateNumericPeriodBootstrap, validatePostingSuccessorBootstrap, validateSuccessorContiguity, validateSuccessorOverlap } from './ledger'
+import { accountSemanticFingerprint, authoritativeEBalanceMasterDataFromSettings, DEFAULT_ACCOUNTS, defaultAccountsForLedger, getEBalanceBlockingIssues, inferExistingLedgerChart, inferExistingLedgerProfile, isStandardPostingPeriod, journalEntryInputForSource, legacyLedgerClaimApplies, manualJournalReference, mergeSubmissionHistory, nextCalendarDay, normalizeDocumentIds, postingDateBoundary, postingOrderPeriodYear, reportingSettingsPayload, requireLegacyLedgerProfile, requireManualDocumentSelection, selectBootstrapChart, selectedChartFromSettingsPayload, selectPostingPeriod, settingsPayloadWithEffectiveProfile, submissionResultStatus, successorOverlapBounds, validateDocumentNamespace, validateLegacyLedgerClaim, validateNumericPeriodBootstrap, validatePostingSuccessorBootstrap, validateSuccessorContiguity, validateSuccessorOverlap } from './ledger'
 
 describe('default ledger taxonomy mappings', () => {
   it('reserves reopened periods for the controlled correction workflow', () => { expect(isStandardPostingPeriod('OPEN')).toBe(true); expect(isStandardPostingPeriod('REOPENED')).toBe(false) })
@@ -24,6 +24,13 @@ describe('default ledger taxonomy mappings', () => {
     expect(normalizeDocumentIds({})).toEqual([])
     expect(normalizeDocumentIds({ documentIds: ['one', 'two', 'one'] })).toEqual(['one', 'two'])
     expect(() => normalizeDocumentIds({ documentIds: [''] })).toThrow('ausgewählten Belege')
+  })
+  it('requires document selection for manual postings and uses an internal journal reference', () => {
+    expect(() => requireManualDocumentSelection('MANUAL', [])).toThrow('mindestens einen Beleg')
+    expect(() => requireManualDocumentSelection('MANUAL', ['document-1'])).not.toThrow()
+    expect(() => requireManualDocumentSelection('OPENING', [])).not.toThrow()
+    expect(manualJournalReference('entry-1')).toBe('JOURNAL-entry-1')
+    expect(journalEntryInputForSource('MANUAL', { documentNumber: 'caller-value' }, 'entry-1')).toEqual({ documentNumber: 'JOURNAL-entry-1' })
   })
   it('bootstraps only an empty tenant and rejects uncovered or overlapping posting dates', () => {
     expect(selectPostingPeriod([], 0)).toBeNull()

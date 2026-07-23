@@ -101,7 +101,7 @@ export async function storeStructuredInvoice(ownerId: string, invoice: Validated
     if (linked.count !== 1) throw new EInvoiceValidationError(['The invoice issuance request is missing before durable storage.'])
   }
   try {
-    await storage.write(storageKey, Buffer.from(main.bytes), { contentType: main.mediaType, fileName: safeFileName })
+    await storage.write(storageKey, Buffer.from(main.bytes), { contentType: main.mediaType, fileName: `${documentId}.${extension}` })
     const document = new Document(documentId, `/api/documents/${documentId}/file`, storageKey, safeFileName, main.mediaType, main.bytes.byteLength, ownerId)
     const record = await prisma.$transaction(async transaction => {
       let effectiveCorrectsId = correctsId

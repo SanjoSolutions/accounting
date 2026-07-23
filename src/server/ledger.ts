@@ -318,13 +318,16 @@ async function extendAttachedDocumentRetention(transaction: Prisma.TransactionCl
 }
 
 export async function postJournalEntry(ownerId: string, input: unknown, source = 'MANUAL', metadata: JournalPostMetadata = {}) {
-  const validated = validateJournalEntry(input)
+  const manualEntryId = source === 'MANUAL' ? randomUUID() : undefined
+  const validationInput = journalEntryInputForSource(source, input, manualEntryId)
+  const validated = validateJournalEntry(validationInput)
   if (metadata.reversalOfId && metadata.replacementOfId) throw new AccountingValidationError(['Eine Buchung kann nicht zugleich Storno und Ersatzbuchung sein.'])
   if (metadata.entryDate) {
     const entryDate = new Date(`${metadata.entryDate}T00:00:00.000Z`)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(metadata.entryDate) || !Number.isFinite(entryDate.getTime()) || entryDate.toISOString().slice(0, 10) !== metadata.entryDate) throw new AccountingValidationError(['Das Erfassungsdatum ist ungültig.'])
   }
   const documentIds = normalizeDocumentIds(input)
+  requireManualDocumentSelection(source, documentIds)
   validateDocumentNamespace(source, validated.documentNumber)
   const year = Number(validated.bookingDate.slice(0, 4))
   const bookingInstant = new Date(`${validated.bookingDate}T12:00:00.000Z`)
@@ -365,6 +368,7 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
     })
     const entry = await transaction.journalEntry.create({
       data: {
+        id: manualEntryId,
         sequenceNumber: (last?.sequenceNumber ?? 0) + 1,
         bookingDate: bookingInstant,
         documentNumber: validated.documentNumber.trim(),
@@ -484,6 +488,22 @@ export function normalizeDocumentIds(input: unknown): string[] {
     throw new AccountingValidationError(['Die ausgewählten Belege sind ungültig.'])
   }
   return [...new Set(documentIds.map(id => id.trim()))]
+}
+
+export function requireManualDocumentSelection(source: string, documentIds: string[]) {
+  if (source === 'MANUAL' && documentIds.length === 0) {
+    throw new AccountingValidationError(['Wählen Sie mindestens einen Beleg für die Buchung aus.'])
+  }
+}
+
+export function manualJournalReference(entryId: string) {
+  return `JOURNAL-${entryId}`
+}
+
+export function journalEntryInputForSource(source: string, input: unknown, entryId?: string) {
+  return source === 'MANUAL' && entryId && input && typeof input === 'object'
+    ? { ...input, documentNumber: manualJournalReference(entryId) }
+    : input
 }
 
 function publicDocumentFromPayload(payload: string) {

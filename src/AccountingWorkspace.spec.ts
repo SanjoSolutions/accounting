@@ -64,7 +64,7 @@ describe('accounting workspace request ordering', () => {
   })
 
   it('places posting text in its own full-width row', () => {
-    expect(bookingFormRows()).toEqual([['bookingDate', 'documentNumber'], ['description']])
+    expect(bookingFormRows()).toEqual([['bookingDate'], ['description']])
   })
 
   it('offers only unused balance-sheet accounts after a P&L account is selected first', () => {
@@ -97,7 +97,6 @@ describe('accounting workspace request ordering', () => {
     const state: BookingWorkspaceState = {
       year: 2025,
       bookingDate: '2025-06-18',
-      documentNumber: 'RE-42',
       description: 'Office supplies',
       lines: [
         { accountId: 'office', debit: '119.00', credit: '' },
@@ -122,7 +121,6 @@ describe('accounting workspace request ordering', () => {
     const state: BookingWorkspaceState = {
       year: 2026,
       bookingDate: '2026-07-17',
-      documentNumber: '',
       description: '',
       lines: [
         { accountId: '', debit: '', credit: '' },
@@ -144,6 +142,23 @@ describe('accounting workspace request ordering', () => {
     expect(parseBookingWorkspaceState(JSON.stringify({ year: 2025, lines: [] }))).toBeNull()
   })
 
+  it('restores a legacy draft without carrying its manual document number forward', () => {
+    const state = parseBookingWorkspaceState(JSON.stringify({
+      year: 2026,
+      bookingDate: '2026-07-17',
+      documentNumber: 'LEGACY-42',
+      description: 'Legacy draft',
+      lines: [
+        { accountId: 'expense', debit: '10', credit: '' },
+        { accountId: 'bank', debit: '', credit: '10' },
+      ],
+      selectedDocumentIds: ['document-1'],
+    }))
+
+    expect(state).not.toHaveProperty('documentNumber')
+    expect(state?.selectedDocumentIds).toEqual(['document-1'])
+  })
+
   it('keeps the last valid draft when persisting the replacement fails', () => {
     const values = new Map<string, string>()
     let rejectWrites = false
@@ -158,7 +173,6 @@ describe('accounting workspace request ordering', () => {
     const state: BookingWorkspaceState = {
       year: 2025,
       bookingDate: '2025-06-18',
-      documentNumber: 'RE-42',
       description: 'Office supplies',
       lines: [
         { accountId: 'office', debit: '119.00', credit: '' },

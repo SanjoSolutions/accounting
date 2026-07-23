@@ -30,7 +30,7 @@ describe('posting API', () => {
   it('creates a valid immutable journal entry for the owner', async () => {
     mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1' })
     mocks.postJournalEntry.mockResolvedValue({ id: 'entry-1' })
-    const body = { bookingDate: '2026-01-01', documentNumber: '1', description: 'Test', lines: [], documentIds: ['document-1', 'document-2'] }
+    const body = { bookingDate: '2026-01-01', description: 'Test', lines: [], documentIds: ['document-1', 'document-2'] }
     const response = await POST(request(body))
     expect(response.status).toBe(201)
     expect(mocks.postJournalEntry).toHaveBeenCalledWith('owner-1', body)

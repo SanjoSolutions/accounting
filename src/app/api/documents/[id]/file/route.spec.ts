@@ -39,6 +39,7 @@ describe('document download API', () => {
 
     expect(response.status).toBe(200)
     expect(mocks.readDocumentFile).toHaveBeenCalledWith('document-1', 'user-1')
+    expect(response.headers.get('content-disposition')).toBe('inline; filename="document-1.pdf"')
   })
 
   it('forces active evidence formats to download instead of rendering inline', async () => {
@@ -48,7 +49,7 @@ describe('document download API', () => {
     })
 
     const response = await download('document-1')
-    expect(response.headers.get('content-disposition')).toBe('attachment; filename="invoice.xml"')
+    expect(response.headers.get('content-disposition')).toBe('attachment; filename="document-1.xml"')
   })
 
   it('does not reveal a document outside the owner scope', async () => {

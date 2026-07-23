@@ -157,9 +157,17 @@ describe('structured invoice persistence boundary', () => {
     const bytes = readFileSync(resolve('src/core/data_fixtures/eInvoice/valid-ubl.xml'))
     const invoice = parseStructuredUpload(bytes, 'application/xml', 'incoming.xml')!
     const create = vi.fn().mockImplementation(({ data }) => ({ ...data, createdAt: new Date('2026-01-01T00:00:00Z') }))
-    mocks.transaction.mockImplementationOnce(async callback => callback({ documentRecord: { create: vi.fn() }, structuredInvoice: { create, findFirst: vi.fn() } }))
+    const createDocumentRecord = vi.fn()
+    mocks.transaction.mockImplementationOnce(async callback => callback({ documentRecord: { create: createDocumentRecord }, structuredInvoice: { create, findFirst: vi.fn() } }))
     const stored = await storeStructuredInvoice('tenant-a', invoice, 'incoming.xml')
-    expect(mocks.write).toHaveBeenCalledWith(expect.stringContaining('tenant-a'), bytes, expect.objectContaining({ contentType: 'application/xml' }))
+    expect(mocks.write).toHaveBeenCalledWith(
+      expect.stringMatching(/^documents\/tenant-a\/[^/]+\.xml$/),
+      bytes,
+      expect.objectContaining({ contentType: 'application/xml', fileName: expect.stringMatching(/^[^/]+\.xml$/) }),
+    )
+    const payload = JSON.parse(createDocumentRecord.mock.calls[0][0].data.payload)
+    expect(payload.fileName).toBe('incoming.xml')
+    expect(mocks.write.mock.calls[0][2].fileName).toBe(`${payload.id}.xml`)
     expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({ ownerId: 'tenant-a', structuredOriginal: bytes, renderedHtml: expect.not.stringMatching(/<script|javascript:/i) }) })
     expect(stored.invoiceNumber).toBe('RE-2026-0001')
   })

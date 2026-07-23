@@ -61,9 +61,14 @@ describe('document thumbnail lifecycle', () => {
 
     expect(mocks.generateDocumentThumbnail).toHaveBeenCalledOnce()
     expect(mocks.write).toHaveBeenCalledTimes(2)
+    const storedDocument = mocks.save.mock.calls[0][0] as Document
+    expect(mocks.write.mock.calls[0][0]).toBe(`documents/owner-1/${storedDocument.id}.pdf`)
+    expect(mocks.write.mock.calls[0][2]).toMatchObject({ fileName: `${storedDocument.id}.pdf` })
     expect(mocks.write.mock.calls[1][0]).toMatch(/^documents\/owner-1\/.+\.webp$/)
+    expect(mocks.write.mock.calls[1][2]).toMatchObject({ fileName: `${storedDocument.id}.webp` })
     expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({
       ownerId: 'owner-1',
+      fileName: 'invoice.pdf',
       thumbnailStorageKey: expect.stringMatching(/\.webp$/),
     }))
     expect(mocks.registerRetainedArtifact).toHaveBeenCalledWith('owner-1', 'owner-1', expect.objectContaining({ objectType: 'Document', retentionClass: 'INVOICE', content: expect.any(Buffer) }))
@@ -82,6 +87,18 @@ describe('document thumbnail lifecycle', () => {
     expect(document.thumbnailUrl).toBeUndefined()
     expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ thumbnailStorageKey: undefined }))
     expect(mocks.delete).toHaveBeenCalledWith(expect.stringMatching(/\.webp$/))
+  })
+
+  it('assigns a unique ID filename to every upload while preserving its original display name', async () => {
+    await createDocument(pdfInput(), 'owner-1')
+    await createDocument(pdfInput(), 'owner-1')
+
+    const [first, second] = mocks.save.mock.calls.map(call => call[0] as Document)
+    expect(first.id).not.toBe(second.id)
+    expect(first.fileName).toBe('invoice.pdf')
+    expect(second.fileName).toBe('invoice.pdf')
+    expect(mocks.write.mock.calls[0][0]).toBe(`documents/owner-1/${first.id}.pdf`)
+    expect(mocks.write.mock.calls[2][0]).toBe(`documents/owner-1/${second.id}.pdf`)
   })
 
   it('uses a conservative next-year retention boundary before fiscal-period assignment', async () => {
