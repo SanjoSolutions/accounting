@@ -10,4 +10,14 @@ describe('Prisma development startup', () => {
 
     expect(packageJson.scripts?.dev).toBe('prisma migrate deploy && prisma generate && next dev')
   })
+
+  it('keeps pnpm build permissions in the workspace configuration', () => {
+    const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as {
+      pnpm?: unknown
+    }
+    const workspaceConfig = readFileSync(resolve(process.cwd(), 'pnpm-workspace.yaml'), 'utf8')
+
+    expect(packageJson.pnpm).toBeUndefined()
+    expect(workspaceConfig).toMatch(/allowBuilds:\s+[\s\S]*better-sqlite3: true/)
+  })
 })
