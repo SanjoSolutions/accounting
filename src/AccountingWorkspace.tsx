@@ -109,6 +109,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
   }), { debit: 0, credit: 0 }), [lines])
   const difference = totals.debit - totals.credit
   const currentWorkspace = workspace?.fiscalYear.year === year ? workspace : null
+  const postingLineRemovalClass = shouldShowPostingLineRemoveButtons(lines.length) ? '' : ' remove-buttons-hidden'
 
   function updateLine(index: number, field: keyof Line, value: string) {
     setLines(current => {
@@ -185,10 +186,10 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
           <div className="form-grid booking-description-row">
             <label>{t('postingText')}<input className="form-control" required value={description} onChange={event => updateDescription(event.target.value)} /></label>
           </div>
-          <div className="posting-head"><span>{t('account')}</span><span>{t('debit')}</span><span>{t('credit')}</span><span /></div>
+          <div className={`posting-head${postingLineRemovalClass}`}><span>{t('account')}</span><span>{t('debit')}</span><span>{t('credit')}</span><span /></div>
           {lines.map((line, index) => {
             const availableAccounts = availableBookingAccounts(currentWorkspace?.accounts ?? [], lines, index)
-            return <div className="posting-line" key={index}>
+            return <div className={`posting-line${postingLineRemovalClass}`} key={index}>
             <AccountSelector
               accounts={availableAccounts}
               value={line.accountId}
@@ -202,7 +203,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
             />
             <MoneyInput label={t('debitLine', { line: index + 1 })} value={line.debit} onChange={value => updateLine(index, 'debit', value)} />
             <MoneyInput label={t('creditLine', { line: index + 1 })} value={line.credit} onChange={value => updateLine(index, 'credit', value)} />
-            <button type="button" className="btn btn-light icon-button" aria-label={t('removeLine', { line: index + 1 })} disabled={lines.length <= 2} onClick={() => setLines(current => current.filter((_, i) => i !== index))}>×</button>
+            <button type="button" className="btn btn-light icon-button" aria-label={t('removeLine', { line: index + 1 })} onClick={() => setLines(current => current.filter((_, i) => i !== index))}>×</button>
           </div>})}
           <button className="btn btn-link add-line" type="button" onClick={() => setLines(current => [...current, emptyLine()])}>+ {t('addSplitLine')}</button>
           {issues.length > 0 && <div className="alert alert-danger" role="alert"><strong>{t('pleaseReview')}</strong><ul>{issues.map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
@@ -247,6 +248,10 @@ export function shouldApplyWorkspace(requestedYear: number, currentYear: number,
 }
 export function isBookingFormDisabled(busy: boolean, documentsUploading = false, storagePending = false) {
   return busy || documentsUploading || storagePending
+}
+
+export function shouldShowPostingLineRemoveButtons(lineCount: number) {
+  return lineCount > 2
 }
 
 export const defaultContinueWithSameDocuments = false

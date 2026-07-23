@@ -72,4 +72,17 @@ describe('Bootstrap theme integration', () => {
     )
     expect(styles).not.toContain('grid-template-columns: minmax(220px,1fr) 135px 135px 36px')
   })
+
+  it('hides posting-line remove buttons without reserving their grid column', () => {
+    const styles = source('src/index.css')
+
+    expect(styles).toContain(
+      '.posting-head.remove-buttons-hidden,.posting-line.remove-buttons-hidden { grid-template-columns: minmax(0,1fr) 135px 135px; }',
+    )
+    expect(styles).toContain(
+      '.posting-head.remove-buttons-hidden>span:last-child,.posting-line.remove-buttons-hidden>.icon-button { display: none; }',
+    )
+    expect(styles).toContain('.posting-line.remove-buttons-hidden { grid-template-columns: 1fr 1fr; }')
+    expect(styles).toContain('.posting-line.remove-buttons-hidden>.account-selector { grid-column: 1 / 3; }')
+  })
 })
