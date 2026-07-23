@@ -183,7 +183,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
             <label>{t('postingDate')}<input className="form-control" required type="date" value={bookingDate} onChange={event => setBookingDate(event.target.value)} /></label>
           </div>
           <div className="form-grid booking-description-row">
-            <label>{t('postingText')}<input className="form-control" required value={description} onChange={event => updateDescription(event.target.value)} placeholder={t('postingPlaceholder')} /></label>
+            <label>{t('postingText')}<input className="form-control" required value={description} onChange={event => updateDescription(event.target.value)} /></label>
           </div>
           <div className="posting-head"><span>{t('account')}</span><span>{t('debit')}</span><span>{t('credit')}</span><span /></div>
           {lines.map((line, index) => {
