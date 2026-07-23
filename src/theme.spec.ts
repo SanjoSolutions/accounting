@@ -68,21 +68,30 @@ describe('Bootstrap theme integration', () => {
     const styles = source('src/index.css')
 
     expect(styles).toContain(
-      '.posting-head,.posting-line { display: grid; grid-template-columns: minmax(0,1fr) 135px 135px 36px;',
+      '.posting-grid { display: grid; grid-template-columns: minmax(0,1fr) 135px 135px 36px;',
     )
     expect(styles).not.toContain('grid-template-columns: minmax(220px,1fr) 135px 135px 36px')
+  })
+
+  it('uses one grid wrapper for the posting header and lines', () => {
+    const workspace = source('src/AccountingWorkspace.tsx')
+    const styles = source('src/index.css')
+
+    expect(workspace).toContain('className={`posting-grid${postingLineRemovalClass}`}')
+    expect(styles).toContain('.posting-head,.posting-line { display: contents; }')
+    expect(styles).not.toContain('.posting-head,.posting-line { display: grid;')
   })
 
   it('hides posting-line remove buttons without reserving their grid column', () => {
     const styles = source('src/index.css')
 
     expect(styles).toContain(
-      '.posting-head.remove-buttons-hidden,.posting-line.remove-buttons-hidden { grid-template-columns: minmax(0,1fr) 135px 135px; }',
+      '.posting-grid.remove-buttons-hidden { grid-template-columns: minmax(0,1fr) 135px 135px; }',
     )
     expect(styles).toContain(
-      '.posting-head.remove-buttons-hidden>span:last-child,.posting-line.remove-buttons-hidden>.icon-button { display: none; }',
+      '.posting-grid.remove-buttons-hidden .posting-head>span:last-child,.posting-grid.remove-buttons-hidden .posting-line>.icon-button { display: none; }',
     )
-    expect(styles).toContain('.posting-line.remove-buttons-hidden { grid-template-columns: 1fr 1fr; }')
-    expect(styles).toContain('.posting-line.remove-buttons-hidden>.account-selector { grid-column: 1 / 3; }')
+    expect(styles).toContain('.posting-grid.remove-buttons-hidden { grid-template-columns: 1fr 1fr; }')
+    expect(styles).toContain('.posting-line>.account-selector { grid-column: 1 / -1;')
   })
 })
