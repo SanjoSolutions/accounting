@@ -186,25 +186,27 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
           <div className="form-grid booking-description-row">
             <label>{t('postingText')}<input className="form-control" required value={description} onChange={event => updateDescription(event.target.value)} /></label>
           </div>
-          <div className={`posting-head${postingLineRemovalClass}`}><span>{t('account')}</span><span>{t('debit')}</span><span>{t('credit')}</span><span /></div>
-          {lines.map((line, index) => {
-            const availableAccounts = availableBookingAccounts(currentWorkspace?.accounts ?? [], lines, index)
-            return <div className={`posting-line${postingLineRemovalClass}`} key={index}>
-            <AccountSelector
-              accounts={availableAccounts}
-              value={line.accountId}
-              label={t('accountLine', { line: index + 1 })}
-              chooseLabel={t('chooseAccount')}
-              searchLabel={t('searchAccounts')}
-              noResultsLabel={t('noMatchingAccounts')}
-              balanceSheetLabel={t('balanceSheetAccounts')}
-              profitAndLossLabel={t('profitAndLossAccounts')}
-              onChange={value => updateLine(index, 'accountId', value)}
-            />
-            <MoneyInput label={t('debitLine', { line: index + 1 })} value={line.debit} onChange={value => updateLine(index, 'debit', value)} />
-            <MoneyInput label={t('creditLine', { line: index + 1 })} value={line.credit} onChange={value => updateLine(index, 'credit', value)} />
-            <button type="button" className="btn btn-light icon-button" aria-label={t('removeLine', { line: index + 1 })} onClick={() => setLines(current => current.filter((_, i) => i !== index))}>×</button>
-          </div>})}
+          <div className={`posting-grid${postingLineRemovalClass}`}>
+            <div className="posting-head"><span>{t('account')}</span><span>{t('debit')}</span><span>{t('credit')}</span><span /></div>
+            {lines.map((line, index) => {
+              const availableAccounts = availableBookingAccounts(currentWorkspace?.accounts ?? [], lines, index)
+              return <div className="posting-line" key={index}>
+              <AccountSelector
+                accounts={availableAccounts}
+                value={line.accountId}
+                label={t('accountLine', { line: index + 1 })}
+                chooseLabel={t('chooseAccount')}
+                searchLabel={t('searchAccounts')}
+                noResultsLabel={t('noMatchingAccounts')}
+                balanceSheetLabel={t('balanceSheetAccounts')}
+                profitAndLossLabel={t('profitAndLossAccounts')}
+                onChange={value => updateLine(index, 'accountId', value)}
+              />
+              <MoneyInput label={t('debitLine', { line: index + 1 })} value={line.debit} onChange={value => updateLine(index, 'debit', value)} />
+              <MoneyInput label={t('creditLine', { line: index + 1 })} value={line.credit} onChange={value => updateLine(index, 'credit', value)} />
+              <button type="button" className="btn btn-light icon-button" aria-label={t('removeLine', { line: index + 1 })} onClick={() => setLines(current => current.filter((_, i) => i !== index))}>×</button>
+            </div>})}
+          </div>
           <button className="btn btn-link add-line" type="button" onClick={() => setLines(current => [...current, emptyLine()])}>+ {t('addSplitLine')}</button>
           {issues.length > 0 && <div className="alert alert-danger" role="alert"><strong>{t('pleaseReview')}</strong><ul>{issues.map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
           {success && <p className="alert alert-success" role="status">{success}</p>}
