@@ -6,11 +6,10 @@ Never push (Git) unless explicitly asked for.
 
 Every requirement requires at least one automated test.
 Test efficiently (prefer faster unit tests over slower bigger scope test when sufficient).
-Use behavior driven development (BDD) style test descriptions.
 
 ## Unit Testing
 
-Use Vitest.
+Use Vitest. Use behavior driven development (BDD) style test descriptions.
 
 ### E2E Testing
 
@@ -19,3 +18,5 @@ Use Playwright. Use page models. Mostly focus on happy paths. Only add E2E tests
 ## Verification
 
 For test coverage you can run `pnpm run coverage`.
+Run all unit tests.
+Run E2E tests only selectively.
