@@ -44,4 +44,9 @@ describe('translation messages', () => {
     expect(de.Workspaces.searchAccounts).toBe('Kontenbezeichnung')
     expect(en.Workspaces.searchAccounts).toBe('Account name')
   })
+
+  it('does not expose the redundant debit-equals-credit booking header text', () => {
+    expect(de.Workspaces).not.toHaveProperty('debitEqualsCredit')
+    expect(en.Workspaces).not.toHaveProperty('debitEqualsCredit')
+  })
 })

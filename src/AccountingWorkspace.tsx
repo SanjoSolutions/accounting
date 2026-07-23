@@ -177,7 +177,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
 
     {sections.booking && <BookingDocuments selectedDocumentIds={selectedDocumentIds} unavailableDocumentIds={unavailableDocumentIds} onSelectionChange={setSelectedDocumentIds} onUploadingChange={setDocumentsUploading}>
       <section className="card panel booking-panel">
-        <div className="panel-title"><div><span className="step">2 · {t('newPosting')}</span><h2>{t('recordTransaction')}</h2></div><span className="badge text-bg-light hint">{t('debitEqualsCredit')}</span></div>
+        <div className="panel-title"><div><span className="step">2 · {t('newPosting')}</span><h2>{t('recordTransaction')}</h2></div></div>
         <form onSubmit={post}>
           <fieldset disabled={isBookingFormDisabled(busy, documentsUploading, !storageRestored)}>
           <div className="form-grid booking-metadata-row">
