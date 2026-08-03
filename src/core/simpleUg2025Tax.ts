@@ -19,7 +19,8 @@ export type SimpleUg2025Facts = Readonly<{
   payroll: false
 }>
 
-export type SimpleUg2025Result = Readonly<{
+/** A non-binding preparation preview. It is never an assessment or an authority result. */
+export type SimpleUg2025Preview = Readonly<{
   ruleVersion: typeof SIMPLE_UG_2025_RULE_VERSION
   taxableIncomeCents: number
   corporationTaxCents: number
@@ -40,7 +41,7 @@ function floorProduct(value: number, numerator: number, denominator: number) {
   return number
 }
 
-export function calculateSimpleUg2025Tax(hgbResultCents: number, incomeTaxAdjustmentsCents: number, tradeTaxAdjustmentsCents: number, facts: SimpleUg2025Facts): SimpleUg2025Result {
+export function calculateSimpleUg2025Tax(hgbResultCents: number, incomeTaxAdjustmentsCents: number, tradeTaxAdjustmentsCents: number, facts: SimpleUg2025Facts): SimpleUg2025Preview {
   assertSafe(hgbResultCents, 'HGB result'); assertSafe(incomeTaxAdjustmentsCents, 'Income-tax adjustments'); assertSafe(tradeTaxAdjustmentsCents, 'Trade-tax adjustments')
   if (facts.legalForm !== 'UG' || facts.year !== 2025 || facts.establishments !== 1 || !/^\d{8}$/.test(facts.municipalityCode) || !Number.isSafeInteger(facts.hebesatzBasisPoints) || facts.hebesatzBasisPoints < 20000) throw new Error('The local calculation supports only a 2025 single-municipality UG with a canonical municipality and Hebesatz of at least 200%.')
   if (facts.foreignIncome || facts.groupOrConsolidation || facts.lossCarry || facts.specialRegime || facts.withholdingOrCredits || facts.payroll) throw new Error('The local 2025 UG calculation profile does not support the declared tax fact.')
