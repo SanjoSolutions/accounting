@@ -22,16 +22,16 @@ describe('annual tax adjustment input', () => {
 
 describe('annual tax applicability profile', () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.fiscalYear.mockResolvedValue({ startsAt: new Date('2025-10-01T00:00:00.000Z'), endsAt: new Date('2026-09-30T00:00:00.000Z') }) })
-  it('fails closed when canonical annual filing facts have not been configured', async () => {
-    mocks.profile.mockResolvedValue({ legalForm: 'GMBH' })
-    await expect(annualTaxApplicability('tenant-a', 2026)).rejects.toThrow(/canonical trade-business/)
+  it('keeps annual VAT applicable without inventing income-tax obligations when annual filing facts are absent', async () => {
+    mocks.profile.mockResolvedValue({ legalForm: 'GMBH', vatRegime: 'STANDARD' })
+    await expect(annualTaxApplicability('tenant-a', 2026)).resolves.toMatchObject({ profile: undefined, kinds: ['UST_ANNUAL'], deadline: '2027-07-31' })
   })
   it('uses stored tenant facts for obligations and adviser-adjusted deadlines', async () => {
-    mocks.profile.mockResolvedValue({ legalForm: 'GMBH', annualTaxProfile: { tradeBusiness: true, establishments: 2, adviserExtension: true } })
-    await expect(annualTaxApplicability('tenant-a', 2026)).resolves.toMatchObject({ profile: { establishments: 2, adviserExtension: true, fiscalYearEnd: '2026-09-30' }, kinds: ['KST', 'GEWST', 'ZERLEGUNG'], deadline: '2028-02-29' })
+    mocks.profile.mockResolvedValue({ legalForm: 'GMBH', vatRegime: 'STANDARD', annualTaxProfile: { tradeBusiness: true, establishments: 2, adviserExtension: true } })
+    await expect(annualTaxApplicability('tenant-a', 2026)).resolves.toMatchObject({ profile: { establishments: 2, adviserExtension: true, fiscalYearEnd: '2026-09-30' }, kinds: ['UST_ANNUAL', 'KST', 'GEWST', 'ZERLEGUNG'], deadline: '2028-02-29' })
   })
   it('rejects a generic partnership instead of coercing it to a different legal form', async () => {
-    mocks.profile.mockResolvedValue({ legalForm: 'PARTNERSHIP', annualTaxProfile: { tradeBusiness: true, establishments: 1, adviserExtension: false } })
+    mocks.profile.mockResolvedValue({ legalForm: 'PARTNERSHIP', vatRegime: 'STANDARD', annualTaxProfile: { tradeBusiness: true, establishments: 1, adviserExtension: false } })
     await expect(annualTaxApplicability('tenant-a', 2026)).rejects.toThrow(/PARTNERSHIP.*not supported/)
   })
 })

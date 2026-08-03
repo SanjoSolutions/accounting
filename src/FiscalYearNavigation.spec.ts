@@ -5,6 +5,7 @@ describe('fiscal year navigation', () => {
   it('makes any valid annual-close and E-Bilanz year reachable through a generated route', () => {
     expect(fiscalYearHref('annual-close', 2025)).toBe('/annual-close/2025')
     expect(fiscalYearHref('e-bilanz', 2026)).toBe('/e-bilanz/2026')
+    expect(fiscalYearHref('reports', 2025)).toBe('/reports/2025')
   })
 
   it('rejects malformed fiscal years instead of generating broken navigation targets', () => {

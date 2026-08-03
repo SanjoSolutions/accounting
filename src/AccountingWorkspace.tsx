@@ -7,7 +7,8 @@ import { AccountSelector } from './AccountSelector'
 import { availableBookingAccounts, sanitizeBookingAccountSelections, type AccountCategory } from './core/doubleEntry'
 
 type Account = { id: string; number: number; name: string; category: AccountCategory }
-type Line = { accountId: string; debit: string; credit: string }
+export type VatTreatment = '' | 'DE_STANDARD_SALE_NET' | 'DE_STANDARD_PURCHASE_NET' | 'DE_STANDARD_SALE_GROSS' | 'DE_STANDARD_PURCHASE_GROSS'
+type Line = { accountId: string; debit: string; credit: string; vatTreatment?: VatTreatment }
 export type BookingWorkspaceState = {
   year: number
   bookingDate: string
@@ -19,7 +20,8 @@ type Workspace = {
   fiscalYear: { year: number; status: string }
   accounts: Account[]
   entries: Array<{
-    id: string; sequenceNumber: number; bookingDate: string; description: string
+    id: string; sequenceNumber: number; bookingDate: string; documentNumber: string; description: string
+    sourcePostingDate?: string | null; sourceJournalDate?: string | null; sourcePeriod?: number | null
     lines: Array<{ id: string; debitCents: number; creditCents: number; account: Account }>
     documents: BookingDocument[]
   }>
@@ -31,9 +33,13 @@ const money = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR
 
 export type AccountingWorkspaceView = 'booking' | 'journal' | 'dashboard'
 
-export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: string; view?: AccountingWorkspaceView }) {
+export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = new Date().getFullYear() }: {
+  ownerId: string
+  view?: AccountingWorkspaceView
+  initialYear?: number
+}) {
   const t = useTranslations('Workspaces')
-  const [year, setYear] = useState(new Date().getFullYear())
+  const [year, setYear] = useState(initialYear)
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [lines, setLines] = useState<Line[]>([emptyLine(), emptyLine()])
   const [bookingDate, setBookingDate] = useState(localDate)
@@ -139,7 +145,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
     try {
       const response = await fetch('/api/booking-records', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ fiscalYear: year, bookingDate, description, documentIds: selectedDocumentIds, lines: lines.map(line => ({ accountId: line.accountId, debitCents: toCents(line.debit), creditCents: toCents(line.credit) })) }),
+        body: JSON.stringify({ fiscalYear: year, bookingDate, description, documentIds: selectedDocumentIds, lines: lines.map(bookingLineRequest) }),
       })
       if (!response.ok) { const body = await response.json(); if (yearRef.current === submittedYear) setIssues(body.issues ?? [t('postingFailed')]); return }
       if (yearRef.current === submittedYear) {
@@ -187,7 +193,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
             <label>{t('postingText')}<input className="form-control" required value={description} onChange={event => updateDescription(event.target.value)} /></label>
           </div>
           <div className={`posting-grid${postingLineRemovalClass}`}>
-            <div className="posting-head"><span>{t('account')}</span><span>{t('debit')}</span><span>{t('credit')}</span><span /></div>
+            <div className="posting-head"><span>{t('account')}</span><span>{t('debit')}</span><span>{t('credit')}</span><span>{t('vatTreatment')}</span><span /></div>
             {lines.map((line, index) => {
               const availableAccounts = availableBookingAccounts(currentWorkspace?.accounts ?? [], lines, index)
               return <div className="posting-line" key={index}>
@@ -204,6 +210,18 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
               />
               <MoneyInput label={t('debitLine', { line: index + 1 })} value={line.debit} onChange={value => updateLine(index, 'debit', value)} />
               <MoneyInput label={t('creditLine', { line: index + 1 })} value={line.credit} onChange={value => updateLine(index, 'credit', value)} />
+              <select
+                className="form-select"
+                aria-label={t('vatLine', { line: index + 1 })}
+                value={line.vatTreatment ?? ''}
+                onChange={event => updateLine(index, 'vatTreatment', event.target.value as VatTreatment)}
+              >
+                <option value="">{t('vatNone')}</option>
+                <option value="DE_STANDARD_SALE_NET">{t('vatStandardSaleNet')}</option>
+                <option value="DE_STANDARD_PURCHASE_NET">{t('vatStandardPurchaseNet')}</option>
+                <option value="DE_STANDARD_SALE_GROSS">{t('vatStandardSaleGross')}</option>
+                <option value="DE_STANDARD_PURCHASE_GROSS">{t('vatStandardPurchaseGross')}</option>
+              </select>
               <button type="button" className="btn btn-light icon-button" aria-label={t('removeLine', { line: index + 1 })} onClick={() => setLines(current => current.filter((_, i) => i !== index))}>×</button>
             </div>})}
           </div>
@@ -228,8 +246,10 @@ export function AccountingWorkspace({ ownerId, view = 'booking' }: { ownerId: st
       {sections.journal && <section className="card panel journal-panel">
         <div className="panel-title"><div><span className="step">{t('journal')}</span><h2>{t('postedEntries')}</h2></div><span className="badge text-bg-light hint">{t('entryCount', { count: currentWorkspace?.entries.length ?? 0 })}</span></div>
         {currentWorkspace && currentWorkspace.entries.length === 0 && <div className="empty"><strong>{t('noBookings')}</strong><p>{t('noBookingsHelp')}</p></div>}
-        <div className="journal-list">{currentWorkspace?.entries.map(entry => <article className="journal-entry" key={entry.id}>
-          <div className="journal-meta"><span className="sequence">#{String(entry.sequenceNumber).padStart(4, '0')}</span><time>{formatCalendarDate(entry.bookingDate)}</time></div>
+        <div className="journal-list">{currentWorkspace?.entries.map(entry => <article className="journal-entry" id={`journal-entry-${entry.id}`} key={entry.id}>
+          <div className="journal-meta"><span className="sequence">#{String(entry.sequenceNumber).padStart(4, '0')}</span><span>{entry.documentNumber}</span>{journalEntrySourceMetadata(entry).map((item, index) => item.label
+            ? <span key={item.label}>{t(item.label)}: {item.value}</span>
+            : <time key={index}>{item.value}</time>)}</div>
           <strong>{entry.description}</strong>
           {entry.documents?.length > 0 && <div className="journal-documents">{entry.documents.map(document => <a key={document.id} href={document.url} target="_blank" rel="noreferrer"><i className="bi bi-paperclip" />{document.fileName || t('unnamedDocument')}</a>)}</div>}
           <div className="journal-lines">{entry.lines.map(line => <div key={line.id}><span>{line.account.number} · {line.account.name}</span><span>{line.debitCents ? `Soll ${money.format(line.debitCents / 100)}` : `Haben ${money.format(line.creditCents / 100)}`}</span></div>)}</div>
@@ -243,8 +263,37 @@ function MoneyInput({ label, value, onChange }: { label: string; value: string; 
 }
 function Metric({ label, value }: { label: string; value: number }) { return <div className="card metric"><span>{label}</span><strong>{money.format(value / 100)}</strong></div> }
 function toCents(value: string) { const number = Number(value || 0); return Number.isFinite(number) ? Math.round(number * 100) : 0 }
+export function bookingLineRequest(line: Line) {
+  const treatment = line.vatTreatment ?? ''
+  const vat = treatment ? {
+    ruleId: 'DE_STANDARD',
+    mode: treatment.endsWith('_GROSS') ? 'gross' as const : 'net' as const,
+    direction: treatment.includes('_PURCHASE_') ? 'purchase' as const : 'sale' as const,
+  } : undefined
+  return {
+    accountId: line.accountId,
+    debitCents: toCents(line.debit),
+    creditCents: toCents(line.credit),
+    ...(vat ? { vat } : {}),
+  }
+}
 function localDate() { const date = new Date(); const offset = date.getTimezoneOffset() * 60_000; return new Date(date.getTime() - offset).toISOString().slice(0, 10) }
 function formatCalendarDate(value: string) { const [year, month, day] = value.slice(0, 10).split('-'); return `${day}.${month}.${year}` }
+export function journalEntrySourceMetadata(entry: {
+  bookingDate: string
+  sourcePostingDate?: string | null
+  sourceJournalDate?: string | null
+  sourcePeriod?: number | null
+}) {
+  const isLexwareEntry = Boolean(entry.sourcePostingDate || entry.sourceJournalDate || entry.sourcePeriod !== null && entry.sourcePeriod !== undefined)
+  if (!isLexwareEntry) return [{ label: null, value: formatCalendarDate(entry.bookingDate) }]
+  return [
+    { label: 'sourcePostingDate', value: entry.sourcePostingDate ? formatCalendarDate(entry.sourcePostingDate) : '—' },
+    { label: 'sourceJournalDate', value: entry.sourceJournalDate ? formatCalendarDate(entry.sourceJournalDate) : '—' },
+    { label: 'voucherDate', value: formatCalendarDate(entry.bookingDate) },
+    { label: 'sourcePeriod', value: entry.sourcePeriod ?? '—' },
+  ]
+}
 export function shouldApplyWorkspace(requestedYear: number, currentYear: number, aborted: boolean, requestId = 0, currentRequestId = requestId) {
   return !aborted && requestedYear === currentYear && requestId === currentRequestId
 }
@@ -364,4 +413,5 @@ function isLine(value: unknown): value is Line {
     && typeof value.accountId === 'string'
     && typeof value.debit === 'string'
     && typeof value.credit === 'string'
+    && (value.vatTreatment === undefined || ['', 'DE_STANDARD_SALE_NET', 'DE_STANDARD_PURCHASE_NET', 'DE_STANDARD_SALE_GROSS', 'DE_STANDARD_PURCHASE_GROSS'].includes(String(value.vatTreatment)))
 }

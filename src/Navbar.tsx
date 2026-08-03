@@ -10,6 +10,7 @@ import { defaultFiscalYear } from './FiscalYearNavigation'
 
 export const exportImportHref = '/export-import'
 export const complianceHref = '/compliance'
+export const reportsHref = '/reports'
 export const bookingHref = '/bookings'
 export const journalHref = '/journal'
 export const accountingNavigation = [
@@ -37,6 +38,7 @@ export function Navbar({
   const annualCloseYear = defaultFiscalYear('annual-close', year)
   const eBalanceYear = defaultFiscalYear('e-bilanz', year)
   const taxYear = defaultFiscalYear('tax', year)
+  const reportsYear = defaultFiscalYear('reports', year)
 
   return (
     <nav className="navbar navbar-expand-lg navbar-light bg-light">
@@ -69,6 +71,9 @@ export function Navbar({
             </li>
             <li className="nav-item">
               <Link href={`/tax/${taxYear}`} className={navClassName('/tax')}>{ t('Tax filings') }</Link>
+            </li>
+            <li className="nav-item">
+              <Link href={`${reportsHref}/${reportsYear}`} className={navClassName(reportsHref)}>{ t('Reports') }</Link>
             </li>
             <li className="nav-item">
               <Link href={exportImportHref} className={navClassName(exportImportHref)}>{ t('ExportImport') }</Link>

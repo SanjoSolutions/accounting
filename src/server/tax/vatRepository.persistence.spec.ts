@@ -61,6 +61,15 @@ describe('persistent VAT detail and reconciliation integration', () => {
     expect(result.boxes.flatMap(box => box.entryIds)).toContain('source-a')
     expect(result.boxes.flatMap(box => box.documentIds)).toContain('document-a')
   })
+  it('prepares and persists the reconciled 2026 annual VAT dataset', async () => {
+    const result = await api.prepareReconciledAnnualVatDataset('tenant-a', 2026)
+    expect(result.dataset).toMatchObject({ kind: 'UST_ANNUAL', period: '2026', taxpayerId: 'tenant-a', formVersion: 'UST_ANNUAL-2026.1', fields: { ZAHLLAST: 1900 } })
+    expect(result.dataset.drilldown).toMatchObject({ KZ81: expect.arrayContaining(['source-a', 'document-a']) })
+    await expect(prisma.taxDatasetPreparationRecord.findUnique({ where: { ownerId_datasetHash: { ownerId: 'tenant-a', datasetHash: (await import('@/core/taxDeclarations')).declarationDatasetHash(result.dataset) } } })).resolves.toMatchObject({ kind: 'UST_ANNUAL', period: '2026' })
+  })
+  it('fails closed when no annual VAT form is installed for the requested year', async () => {
+    await expect(api.prepareReconciledAnnualVatDataset('tenant-a', 2027)).rejects.toThrow(/Unsupported UST_ANNUAL period 2027/)
+  })
   it('rejects canonical-number fallback when persisted ledger semantics conflict', async () => {
     await prisma.ledgerAccount.update({ where: { id: 'vat-output' }, data: { eBilanzPosition: 'bs.eqLiab.liab.other' } })
     await expect(api.reconcileTenantVat('tenant-a', '2026-01-01', '2026-01-31')).rejects.toThrow(/conflict with the canonical tenant chart semantics/)
@@ -129,5 +138,6 @@ describe('persistent VAT detail and reconciliation integration', () => {
     const quarterly = { ...JSON.parse(row.payload), vatFilingFrequency: 'QUARTERLY' }
     await prisma.companyProfileVersion.create({ data: { id: 'profile-quarterly', ownerId: 'tenant-quarterly', effectiveFrom: new Date('2026-01-01'), effectiveTo: new Date('2026-12-31'), payload: JSON.stringify(quarterly), createdBy: 'tester', reason: 'quarterly filing test' } })
     await expect(api.prepareReconciledVatDataset('tenant-quarterly', '2026-01')).rejects.toThrow(/STANDARD.*MONTHLY/)
+    await expect(api.prepareReconciledAnnualVatDataset('tenant-quarterly', 2026)).rejects.toThrow(/fiscal year/)
   })
 })

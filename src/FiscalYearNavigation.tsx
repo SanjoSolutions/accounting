@@ -6,12 +6,13 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 
-export type FiscalYearArea = 'annual-close' | 'e-bilanz' | 'tax'
+export type FiscalYearArea = 'annual-close' | 'e-bilanz' | 'tax' | 'reports'
 
 const ranges: Record<FiscalYearArea, { min: number; max: number }> = {
   'annual-close': { min: 1900, max: 2200 },
   'e-bilanz': { min: 2025, max: 2026 },
   'tax': { min: 2025, max: 2026 },
+  'reports': { min: 1900, max: 2200 },
 }
 
 export function fiscalYearRange(area: FiscalYearArea) { return ranges[area] }

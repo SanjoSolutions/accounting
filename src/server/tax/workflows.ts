@@ -25,7 +25,7 @@ import {
 import { prisma } from '@/server/persistence/client'
 import { reconcileAssessment, type Assessment } from '@/core/annualTax'
 import { annualTaxApplicability, revalidatePreparedAnnualDataset } from './annualRepository'
-import { currentReconciledVatDataset } from './vatRepository'
+import { currentReconciledAnnualVatDataset, currentReconciledVatDataset } from './vatRepository'
 import { secureServiceEndpoint } from './transport'
 import { isPrismaInt } from './persistenceLimits'
 import { assertProductionGatewayReady, assertTenantTaxReadiness, gatewayOperationalEvent } from './operations'
@@ -203,7 +203,7 @@ export function prepareTenantDataset(ownerId: string, input: DatasetInput) {
 function datasetHash(dataset: DeclarationDataset) { return createHash('sha256').update(stableJson(dataset)).digest('hex') }
 const annualKinds = new Set<DeclarationKind>(['KST', 'GEWST', 'ZERLEGUNG', 'EST_BUSINESS', 'FESTSTELLUNG'])
 async function requireCurrentPreparedDataset(ownerId: string, dataset: DeclarationDataset) {
-  if (dataset.kind !== 'USTVA' && !annualKinds.has(dataset.kind)) return
+  if (dataset.kind !== 'USTVA' && dataset.kind !== 'UST_ANNUAL' && !annualKinds.has(dataset.kind)) return
   if (annualKinds.has(dataset.kind)) {
     const year = Number(dataset.period)
     const applicability = await annualTaxApplicability(ownerId, year)
@@ -214,6 +214,9 @@ async function requireCurrentPreparedDataset(ownerId: string, dataset: Declarati
   if (dataset.kind === 'USTVA') {
     const current = await currentReconciledVatDataset(ownerId, dataset.period)
     if (declarationDatasetHash(current.dataset) !== declarationDatasetHash(dataset)) throw new TaxDeclarationError(['The VAT sources changed after preparation; reconcile and approve the current dataset again.'])
+  } else if (dataset.kind === 'UST_ANNUAL') {
+    const current = await currentReconciledAnnualVatDataset(ownerId, Number(dataset.period))
+    if (declarationDatasetHash(current.dataset) !== declarationDatasetHash(dataset)) throw new TaxDeclarationError(['The annual VAT sources changed after preparation; reconcile and approve the current dataset again.'])
   } else {
     await revalidatePreparedAnnualDataset(ownerId, dataset)
   }
@@ -274,7 +277,7 @@ export async function submitTaxDataset(ownerId: string, actorId: string, request
   const replay = await replaySubmission(ownerId, requestKey, dataset, 'submit')
   if (replay) return replay
   await requireCurrentPreparedDataset(ownerId, dataset)
-  assertProductionGatewayReady(dataset.formVersion)
+  assertProductionGatewayReady(dataset.formVersion, process.env, dataset.kind)
   await assertTenantTaxReadiness(ownerId, dataset.kind, dataset.period)
   const taxGateway = officialGateway()
   const claim = await claimSubmission(ownerId, requestKey, dataset, 'submit')
@@ -306,7 +309,7 @@ export async function correctTaxWorkflow(ownerId: string, actorId: string, targe
   const target = await ownedWorkflow(ownerId, targetId)
   const original = await restoreDeclarationWorkflow(target.submissionId, workflowStore())
   await requireCurrentPreparedDataset(ownerId, dataset)
-  assertProductionGatewayReady(dataset.formVersion)
+  assertProductionGatewayReady(dataset.formVersion, process.env, dataset.kind)
   await assertTenantTaxReadiness(ownerId, dataset.kind, dataset.period)
   const taxGateway = officialGateway()
   const claim = await claimSubmission(ownerId, requestKey, dataset, `correct:${targetId}`)
@@ -332,7 +335,7 @@ export async function correctTaxWorkflow(ownerId: string, actorId: string, targe
 export async function cancelTaxWorkflow(ownerId: string, actorId: string, submissionId: string) {
   const row = await ownedWorkflow(ownerId, submissionId)
   if (row.state === 'cancelled') { await releaseCancelledFilingReservation(ownerId, submissionId); return await publicWorkflow(row) }
-  assertProductionGatewayReady(taxFormRegistry.resolve(row.kind as DeclarationKind, row.period).version)
+  assertProductionGatewayReady(taxFormRegistry.resolve(row.kind as DeclarationKind, row.period).version, process.env, row.kind as DeclarationKind)
   const result = await cancelWithGateway(await restoreDeclarationWorkflow(submissionId, workflowStore()), actorId, officialGateway())
   if (result.state === 'cancelled') await releaseCancelledFilingReservation(ownerId, result.submissionId)
   return await publicWorkflow(await ownedWorkflow(ownerId, result.submissionId))

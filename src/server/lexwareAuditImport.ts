@@ -97,11 +97,87 @@ export async function importLexwareAudit(ownerId: string, files: LexwareAuditFil
       }
       if (!profile.accountLength) await transaction.ledgerProfile.update({ where: { ownerId }, data: { accountLength: parsed.accountLength } })
 
+      for (const setup of parsed.companySetup) {
+        const data = {
+          companyName: setup.companyName,
+          street: setup.street,
+          postalCode: setup.postalCode,
+          city: setup.city,
+          region: setup.region,
+          phone: setup.phone,
+          fax: setup.fax,
+          currency: setup.currency,
+          accountingMethod: setup.accountingMethod,
+          chart: setup.chart,
+          startsAt: new Date(`${setup.fiscalYear.startsAt}T00:00:00.000Z`),
+          endsAt: new Date(`${setup.fiscalYear.endsAt}T23:59:59.999Z`),
+          taxonomyVersion: setup.taxonomyVersion,
+        }
+        await transaction.lexwareCompanySetup.upsert({
+          where: { ownerId_year: { ownerId, year: setup.year } },
+          create: { ownerId, year: setup.year, ...data },
+          update: data,
+        })
+      }
+      for (const account of parsed.accounts) {
+        for (const metadata of account.metadata) {
+          const { year, ...data } = metadata
+          await transaction.lexwareAccountMetadata.upsert({
+            where: { ownerId_year_accountNumber: { ownerId, year, accountNumber: account.number } },
+            create: { ownerId, year, accountNumber: account.number, ...data },
+            update: data,
+          })
+        }
+      }
+      for (const line of parsed.trialBalance) {
+        const { year, accountNumber, lastBookingDate, ...amounts } = line
+        const data = {
+          ...amounts,
+          lastBookingDate: lastBookingDate ? new Date(`${lastBookingDate}T12:00:00.000Z`) : null,
+        }
+        await transaction.lexwareTrialBalanceLine.upsert({
+          where: { ownerId_year_accountNumber: { ownerId, year, accountNumber } },
+          create: { ownerId, year, accountNumber, ...data },
+          update: data,
+        })
+      }
+      for (const partner of parsed.businessPartners) {
+        const { year, partnerNumber, ...data } = partner
+        await transaction.lexwareBusinessPartner.upsert({
+          where: { ownerId_year_partnerNumber: { ownerId, year, partnerNumber } },
+          create: { ownerId, year, partnerNumber, ...data },
+          update: data,
+        })
+      }
+      for (const association of parsed.subledgerAssociations) {
+        await transaction.lexwareSubledgerAssociation.upsert({
+          where: {
+            ownerId_year_accountNumber_partnerNumber_kind: {
+              ownerId,
+              year: association.year,
+              accountNumber: association.accountNumber,
+              partnerNumber: association.partnerNumber,
+              kind: association.kind,
+            },
+          },
+          create: { ownerId, ...association },
+          update: {},
+        })
+      }
+      for (const field of parsed.annualVatFields) {
+        await transaction.lexwareAnnualVatField.upsert({
+          where: { ownerId_year_fieldCode: { ownerId, year: field.year, fieldCode: field.fieldCode } },
+          create: { ownerId, ...field },
+          update: { amountCents: field.amountCents },
+        })
+      }
+
       const existingEntries = await transaction.journalEntry.findMany({
         where: { externalKey: { in: prepared.map(booking => booking.externalKey) } },
         select: {
-          externalKey: true, bookingDate: true, documentNumber: true, description: true,
-          lines: { select: { debitCents: true, creditCents: true, account: { select: { number: true } } } },
+          externalKey: true, bookingDate: true, sourcePostingDate: true, sourceJournalDate: true, sourcePeriod: true,
+          documentNumber: true, description: true,
+          lines: { select: { debitCents: true, creditCents: true, taxCode: true, taxRateBasisPoints: true, account: { select: { number: true } } } },
           documents: { select: { document: { select: { payload: true } } } },
         },
       })
@@ -189,6 +265,9 @@ export async function importLexwareAudit(ownerId: string, files: LexwareAuditFil
             fiscalYearId: fiscalYear.id,
             sequenceNumber,
             bookingDate: new Date(`${booking.bookingDate}T12:00:00.000Z`),
+            sourcePostingDate: new Date(`${booking.postingDate}T12:00:00.000Z`),
+            sourceJournalDate: new Date(`${booking.journalDate}T12:00:00.000Z`),
+            sourcePeriod: booking.period,
             documentNumber: persistedDocumentNumber(booking),
             description: booking.description,
             source: 'LEXWARE_BP',
@@ -197,7 +276,9 @@ export async function importLexwareAudit(ownerId: string, files: LexwareAuditFil
               accountId: accountIds.get(line.accountNumber)!,
               debitCents: line.debitCents,
               creditCents: line.creditCents,
-              taxCode: null,
+              taxCode: line.isVatLine ? 'LEXWARE_VAT_LINE'
+                : line.vatAccountNumber ? `LEXWARE_VAT_ACCOUNT:${line.vatAccountNumber}` : null,
+              taxRateBasisPoints: line.vatRateBasisPoints ?? null,
             })) },
             ...(attachedDocumentId ? { documents: { create: [{ documentId: attachedDocumentId }] } } : {}),
           } })
@@ -211,6 +292,9 @@ export async function importLexwareAudit(ownerId: string, files: LexwareAuditFil
         accounts: parsed.accounts.length,
         documents: documentImports.length,
         years: parsed.years,
+        trialBalanceLines: parsed.trialBalance.length,
+        businessPartners: parsed.businessPartners.length,
+        annualVatFields: parsed.annualVatFields.length,
       }
       await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'LEXWARE_IMPORT_COMPLETED', reason: 'Authenticated Lexware Betriebsprüfung import', objectType: 'AccountingImport', objectId: `LEXWARE_BP:${importId}`, after: result })
       return result
@@ -298,6 +382,9 @@ function persistedDocumentNumber(booking: LexwareAuditBooking) {
 function importedFingerprint(booking: LexwareAuditBooking & { documentHash: string | null }) {
   return fingerprint(
     booking.bookingDate,
+    booking.postingDate,
+    booking.journalDate,
+    booking.period,
     persistedDocumentNumber(booking),
     booking.description,
     booking.lines,
@@ -308,9 +395,12 @@ function importedFingerprint(booking: LexwareAuditBooking & { documentHash: stri
 
 function storedFingerprint(entry: {
   bookingDate: Date
+  sourcePostingDate: Date | null
+  sourceJournalDate: Date | null
+  sourcePeriod: number | null
   documentNumber: string
   description: string
-  lines: Array<{ debitCents: number; creditCents: number; account: { number: number } }>
+  lines: Array<{ debitCents: number; creditCents: number; taxCode: string | null; taxRateBasisPoints: number | null; account: { number: number } }>
   documents: Array<{ document: { payload: string } }>
 }) {
   const documents = entry.documents.flatMap(attachment => {
@@ -321,9 +411,21 @@ function storedFingerprint(entry: {
   })
   return fingerprint(
     entry.bookingDate.toISOString().slice(0, 10),
+    entry.sourcePostingDate?.toISOString().slice(0, 10) ?? null,
+    entry.sourceJournalDate?.toISOString().slice(0, 10) ?? null,
+    entry.sourcePeriod,
     entry.documentNumber,
     entry.description,
-    entry.lines.map(line => ({ accountNumber: line.account.number, debitCents: line.debitCents, creditCents: line.creditCents })),
+    entry.lines.map(line => ({
+      accountNumber: line.account.number,
+      debitCents: line.debitCents,
+      creditCents: line.creditCents,
+      ...(line.taxCode === 'LEXWARE_VAT_LINE' ? { isVatLine: true as const } : {}),
+      ...(line.taxCode?.startsWith('LEXWARE_VAT_ACCOUNT:') ? {
+        vatAccountNumber: Number(line.taxCode.slice('LEXWARE_VAT_ACCOUNT:'.length)),
+        vatRateBasisPoints: line.taxRateBasisPoints ?? undefined,
+      } : {}),
+    })),
     documents[0]?.name ?? null,
     documents[0]?.hash ?? null,
   )
@@ -331,14 +433,24 @@ function storedFingerprint(entry: {
 
 function fingerprint(
   bookingDate: string,
+  postingDate: string | null,
+  journalDate: string | null,
+  period: number | null,
   documentNumber: string,
   description: string,
-  lines: Array<{ accountNumber: number; debitCents: number; creditCents: number }>,
+  lines: Array<{
+    accountNumber: number
+    debitCents: number
+    creditCents: number
+    vatAccountNumber?: number
+    vatRateBasisPoints?: number
+    isVatLine?: true
+  }>,
   documentName: string | null,
   documentHash: string | null,
 ) {
   return JSON.stringify({
-    bookingDate, documentNumber, description,
+    bookingDate, postingDate, journalDate, period, documentNumber, description,
     lines: [...lines].sort((left, right) => left.accountNumber - right.accountNumber || left.debitCents - right.debitCents || left.creditCents - right.creditCents),
     documentName: documentName?.toLowerCase() ?? null,
     documentHash,

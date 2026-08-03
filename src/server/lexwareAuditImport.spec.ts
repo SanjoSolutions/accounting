@@ -35,16 +35,24 @@ const parsed = vi.hoisted(() => ({
     { year: 2024, startsAt: '2023-10-01', endsAt: '2024-09-30' },
     { year: 2025, startsAt: '2024-10-01', endsAt: '2025-09-30' },
   ],
-  accounts: [
-    { number: 1200, name: 'Bank', category: 'ASSET' as const },
-    { number: 4930, name: 'Expense', category: 'EXPENSE' as const },
+  companySetup: [
+    { year: 2024, companyName: 'Synthetic GmbH', street: 'Test Street', postalCode: '12345', city: 'Berlin', region: 'Berlin', phone: null, fax: null, currency: 'EUR' as const, accountingMethod: 'ACCRUAL' as const, chart: 'SKR03' as const, fiscalYear: { year: 2024, startsAt: '2023-10-01', endsAt: '2024-09-30' }, taxonomyVersion: '6.7' },
+    { year: 2025, companyName: 'Synthetic GmbH', street: 'Test Street', postalCode: '12345', city: 'Berlin', region: 'Berlin', phone: null, fax: null, currency: 'EUR' as const, accountingMethod: 'ACCRUAL' as const, chart: 'SKR03' as const, fiscalYear: { year: 2025, startsAt: '2024-10-01', endsAt: '2025-09-30' }, taxonomyVersion: '6.8' },
   ],
+  accounts: [
+    { number: 1200, name: 'Bank', category: 'ASSET' as const, metadata: [{ year: 2025, accountName: 'Bank', accountCategory: 'ASSET' as const, subcategory: 'Bank', legacyVatPosition: null, legacyVatCode: null, currentVatPosition: null, currentVatCode: null, cashBasisMapping: null, hgbAssetMapping: 'cash', hgbLiabilityMapping: null, hgbIncomeStatementMapping: null, taxonomyAssetMapping: 'bs.ass.cash', taxonomyLiabilityMapping: null, taxonomyIncomeStatementMapping: null }] },
+    { number: 4930, name: 'Expense', category: 'EXPENSE' as const, metadata: [{ year: 2025, accountName: 'Expense', accountCategory: 'EXPENSE' as const, subcategory: 'Office', legacyVatPosition: '66', legacyVatCode: '19', currentVatPosition: '66', currentVatCode: '19', cashBasisMapping: 'EÜR-4930', hgbAssetMapping: null, hgbLiabilityMapping: null, hgbIncomeStatementMapping: 'expense', taxonomyAssetMapping: null, taxonomyLiabilityMapping: null, taxonomyIncomeStatementMapping: 'is.expense' }] },
+  ],
+  trialBalance: [{ year: 2025, accountNumber: 4930, accountName: 'Expense', lastBookingDate: '2025-01-01', openingDebitCents: 0, openingCreditCents: 0, annualDebitCents: 119, annualCreditCents: 0, cumulativeDebitCents: 119, cumulativeCreditCents: 0, closingDebitCents: 119, closingCreditCents: 0 }],
+  businessPartners: [{ year: 2025, partnerNumber: 'SUP-1', name: 'Synthetic Supplier', street: 'Test Street', houseNumber: '1', postalCode: '12345', city: 'Berlin', industry: 'Technology', vatId: 'DE123456789' }],
+  subledgerAssociations: [{ year: 2025, accountNumber: 1200, partnerNumber: 'SUP-1', kind: 'CREDITOR' as const }],
+  annualVatFields: [{ year: 2025, fieldCode: 'Kz 66', amountCents: 19 }],
   bookings: [
-    { year: 2024, bookingNumber: 7, bookingDate: '2024-09-30', documentNumber: '7', description: 'Old', documentName: null, lines: [
+    { year: 2024, bookingNumber: 7, bookingDate: '2024-09-30', postingDate: '2024-09-30', journalDate: '2024-09-30', period: 12, documentNumber: '7', description: 'Old', documentName: null, lines: [
       { accountNumber: 1200, debitCents: 100, creditCents: 0 }, { accountNumber: 4930, debitCents: 0, creditCents: 100 },
     ] },
-    { year: 2025, bookingNumber: 1, bookingDate: '2025-01-01', documentNumber: '1', description: 'New', documentName: 'invoice.pdf', lines: [
-      { accountNumber: 4930, debitCents: 119, creditCents: 0 }, { accountNumber: 1200, debitCents: 0, creditCents: 119 },
+    { year: 2025, bookingNumber: 1, bookingDate: '2025-01-01', postingDate: '2025-01-02', journalDate: '2025-01-03', period: 4, documentNumber: '1', description: 'New', documentName: 'invoice.pdf', lines: [
+      { accountNumber: 4930, debitCents: 119, creditCents: 0, vatAccountNumber: 1576, vatRateBasisPoints: 1900 }, { accountNumber: 1200, debitCents: 0, creditCents: 119 },
     ] },
   ],
   documents: new Map([['invoice.pdf', { name: 'Invoice.PDF', bytes: new TextEncoder().encode('%PDF-test'), contentType: 'application/pdf' }]]),
@@ -76,6 +84,12 @@ const transaction = vi.hoisted(() => ({
     upsert: vi.fn(async ({ create }: any) => create),
     update: vi.fn(async () => ({})),
   },
+  lexwareCompanySetup: { upsert: vi.fn(async ({ create }: any) => create) },
+  lexwareAccountMetadata: { upsert: vi.fn(async ({ create }: any) => create) },
+  lexwareTrialBalanceLine: { upsert: vi.fn(async ({ create }: any) => create) },
+  lexwareBusinessPartner: { upsert: vi.fn(async ({ create }: any) => create) },
+  lexwareSubledgerAssociation: { upsert: vi.fn(async ({ create }: any) => create) },
+  lexwareAnnualVatField: { upsert: vi.fn(async ({ create }: any) => create) },
   journalEntry: {
     findMany: vi.fn(async () => state.existing),
     findFirst: vi.fn(async () => null),
@@ -190,7 +204,10 @@ describe('Lexware Betriebsprüfung persistence', () => {
 
   it('imports multiple years chronologically with accounts and attached documents', async () => {
     const result = await importLexwareAudit('owner-1', [])
-    expect(result).toEqual({ format: 'LEXWARE_BP', imported: 2, skipped: 0, accounts: 2, documents: 1, years: [2024, 2025] })
+    expect(result).toEqual({
+      format: 'LEXWARE_BP', imported: 2, skipped: 0, accounts: 2, documents: 1, years: [2024, 2025],
+      trialBalanceLines: 1, businessPartners: 1, annualVatFields: 1,
+    })
     expect(state.transactionOptions[0]).toEqual({ maxWait: 60_000, timeout: 15 * 60_000 })
     expect(transaction.fiscalYear.upsert.mock.calls.map(call => call[0].create.year)).toEqual([2024, 2025])
     expect(transaction.fiscalYear.upsert.mock.calls[1][0].create).toMatchObject({
@@ -200,9 +217,12 @@ describe('Lexware Betriebsprüfung persistence', () => {
     expect(state.entries.map(entry => entry.source)).toEqual(['LEXWARE_BP', 'LEXWARE_BP'])
     expect(state.entries[1]).toMatchObject({
       documentNumber: expect.stringMatching(/^LEXWARE-1-[0-9a-f]{10}-2025-1$/),
+      sourcePostingDate: new Date('2025-01-02T12:00:00.000Z'),
+      sourceJournalDate: new Date('2025-01-03T12:00:00.000Z'),
+      sourcePeriod: 4,
       documents: { create: [{ documentId: expect.stringMatching(/^lexware-/) }] },
       lines: { create: [
-        { accountId: 'account-4930', debitCents: 119, creditCents: 0, taxCode: null },
+        { accountId: 'account-4930', debitCents: 119, creditCents: 0, taxCode: 'LEXWARE_VAT_ACCOUNT:1576', taxRateBasisPoints: 1900 },
         { accountId: 'account-1200', debitCents: 0, creditCents: 119, taxCode: null },
       ] },
     })
@@ -212,12 +232,45 @@ describe('Lexware Betriebsprüfung persistence', () => {
     expect(storage.writeIfAbsent.mock.calls[0][2]).toMatchObject({ fileName: `${documentPayload.id}.pdf` })
     expect(state.storageEvents.slice(0, 2)).toEqual(['claim-marked', 'storage-write'])
     expect(state.documents[0].create).toMatchObject({ ownerId: 'owner-1', payload: expect.stringContaining('Invoice.PDF') })
+    expect(transaction.lexwareCompanySetup.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ ownerId: 'owner-1', year: 2025, companyName: 'Synthetic GmbH', taxonomyVersion: '6.8' }),
+    }))
+    expect(transaction.lexwareAccountMetadata.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        year: 2025, accountNumber: 4930, accountName: 'Expense', accountCategory: 'EXPENSE',
+        currentVatPosition: '66', taxonomyIncomeStatementMapping: 'is.expense',
+      }),
+    }))
+    expect(transaction.lexwareTrialBalanceLine.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ year: 2025, accountNumber: 4930, closingDebitCents: 119 }),
+    }))
+    expect(transaction.lexwareBusinessPartner.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ partnerNumber: 'SUP-1', vatId: 'DE123456789' }),
+    }))
+    expect(transaction.lexwareSubledgerAssociation.upsert).toHaveBeenCalledOnce()
+    expect(transaction.lexwareAnnualVatField.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ fieldCode: 'Kz 66', amountCents: 19 }),
+    }))
   })
 
   it('retains a shared document through the latest referenced fiscal period', async () => {
     parsed.bookings[0].documentName = 'invoice.pdf'
     await importLexwareAudit('owner-1', [])
     expect(transaction.retainedArtifact.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ periodEndsAt: new Date('2025-09-30T23:59:59.999Z'), retainUntil: new Date('2033-12-31T23:59:59.999Z') }) }))
+  })
+
+  it('persists explicit VAT split lines as reportable journal metadata', async () => {
+    const vatLine = parsed.bookings[0].lines[0] as typeof parsed.bookings[0]['lines'][number] & { isVatLine?: true }
+    vatLine.isVatLine = true
+    try {
+      await importLexwareAudit('owner-1', [])
+      expect(state.entries[0].lines.create[0]).toMatchObject({
+        taxCode: 'LEXWARE_VAT_LINE',
+        taxRateBasisPoints: null,
+      })
+    } finally {
+      delete vatLine.isVatLine
+    }
   })
 
   it('persists and retains unreferenced evidence with a conservative fallback period', async () => {
@@ -240,6 +293,9 @@ describe('Lexware Betriebsprüfung persistence', () => {
     state.existing = state.entries.map(entry => ({
       externalKey: entry.externalKey,
       bookingDate: entry.bookingDate,
+      sourcePostingDate: entry.sourcePostingDate,
+      sourceJournalDate: entry.sourceJournalDate,
+      sourcePeriod: entry.sourcePeriod,
       documentNumber: entry.documentNumber,
       description: entry.description,
       lines: entry.lines.create.map((line: any) => ({ ...line, account: { number: Number(line.accountId.replace('account-', '')) } })),
@@ -259,6 +315,9 @@ describe('Lexware Betriebsprüfung persistence', () => {
     state.existing = state.entries.map(entry => ({
       externalKey: entry.externalKey,
       bookingDate: entry.bookingDate,
+      sourcePostingDate: entry.sourcePostingDate,
+      sourceJournalDate: entry.sourceJournalDate,
+      sourcePeriod: entry.sourcePeriod,
       documentNumber: entry.documentNumber,
       description: entry.description,
       lines: entry.lines.create.map((line: any) => ({ ...line, account: { number: Number(line.accountId.replace('account-', '')) } })),
@@ -346,6 +405,9 @@ describe('Lexware Betriebsprüfung persistence', () => {
     state.existing = state.entries.map(entry => ({
       externalKey: entry.externalKey,
       bookingDate: entry.bookingDate,
+      sourcePostingDate: entry.sourcePostingDate,
+      sourceJournalDate: entry.sourceJournalDate,
+      sourcePeriod: entry.sourcePeriod,
       documentNumber: entry.documentNumber,
       description: entry.description,
       lines: entry.lines.create.map((line: any) => ({ ...line, account: { number: Number(line.accountId.replace('account-', '')) } })),

@@ -4,21 +4,17 @@ import {
   VatValidationError,
   attachVatDocument,
   calculateVat,
-  createConfiguredVatReversalStore,
-  createConfiguredVatRuleBook,
   reconcileVat,
-  representativeGermanVatRules,
   restoreVatPosting,
   type VatPostingDetail,
   type VatSourceSplit,
 } from '@/core/vatEngine'
 import { prisma } from '@/server/persistence/client'
-import { declarationDatasetHash, taxFormRegistry, type DeclarationDataset } from '@/core/taxDeclarations'
+import { annualVatDataset, declarationDatasetHash, taxFormRegistry, type DeclarationDataset } from '@/core/taxDeclarations'
 import { scaleMappingsForAccountLength, seedChart, type AccountMapping } from '@/server/compliance/chartLifecycle'
 import { companyProfileForPeriod } from './profileRepository'
 import { isPrismaInt } from './persistenceLimits'
-
-const ruleBook = createConfiguredVatRuleBook(representativeGermanVatRules, 'german-vat-rules:2026.1')
+import { germanVatRuleBook, journalLineVatData, vatPostingCreateData, vatReversalContext, withVatOwnerLock, type VatReversalContext } from './vatPostingCalculation'
 
 export interface PersistentVatInput extends Omit<VatSourceSplit, 'ownerId'> { journalLineId?: string; documentId?: string }
 
@@ -34,40 +30,6 @@ function sourceShape(value: VatSourceSplit) {
   return { ownerId: value.ownerId, sourceId: value.sourceId, amountCents: value.reversalOf ? Math.abs(value.amountCents) : value.amountCents, mode: value.mode, taxPoint: value.taxPoint, ruleId: value.ruleId, ...(value.direction !== undefined ? { direction: value.direction } : {}), ...(value.reversalOf !== undefined ? { reversalOf: value.reversalOf } : {}), ...(value.originalTaxPoint !== undefined ? { originalTaxPoint: value.originalTaxPoint } : {}), ...(value.customerVatId !== undefined ? { customerVatId: value.customerVatId } : {}), ...(value.customerCountry !== undefined ? { customerCountry: value.customerCountry } : {}), ...(value.customerType !== undefined ? { customerType: value.customerType } : {}), ...(value.customerVatIdValidation !== undefined ? { customerVatIdValidation: value.customerVatIdValidation } : {}), ...(value.supplyKind !== undefined ? { supplyKind: value.supplyKind } : {}), ...(value.transportEvidence !== undefined ? { transportEvidence: value.transportEvidence } : {}) }
 }
 
-type ReversalContext = { registry: ReturnType<typeof createConfiguredVatReversalStore>; values: Set<string>; pending?: Set<string> }
-const reversalContexts = new Map<string, ReversalContext>()
-const ownerLocks = new Map<string, Promise<void>>()
-async function withOwnerLock<T>(ownerId: string, task: () => Promise<T>): Promise<T> {
-  const previous = ownerLocks.get(ownerId) ?? Promise.resolve()
-  let release!: () => void
-  const gate = new Promise<void>(resolve => { release = resolve })
-  const tail = previous.then(() => gate)
-  ownerLocks.set(ownerId, tail)
-  await previous
-  try { return await task() }
-  finally { release(); if (ownerLocks.get(ownerId) === tail) ownerLocks.delete(ownerId) }
-}
-async function reversalContext(ownerId: string) {
-  const durable = (await prisma.vatReversalMarker.findMany({ where: { ownerId }, select: { marker: true } })).map(item => item.marker)
-  const existing = reversalContexts.get(ownerId)
-  if (existing) {
-    durable.forEach(marker => existing.values.add(marker))
-    return existing
-  }
-  const values = new Set(durable)
-  const persistence = {
-    appendAllUnique(candidateOwner: string, markers: readonly string[]) {
-      const pending = context.pending
-      if (candidateOwner !== ownerId || !pending || markers.some(marker => values.has(marker) || pending.has(marker))) return false
-      markers.forEach(marker => pending.add(marker)); return true
-    },
-    snapshot(candidateOwner: string) { return candidateOwner === ownerId ? [...values, ...(context.pending ?? [])] : [] },
-  }
-  const context = { values } as ReversalContext
-  context.registry = createConfiguredVatReversalStore(ownerId, persistence)
-  reversalContexts.set(ownerId, context)
-  return context
-}
 
 async function assertLinks(ownerId: string, amountCents: number, taxPoint: string, journalLineId?: string, documentId?: string) {
   let linkedLine: { debitCents: number; creditCents: number } | undefined
@@ -86,7 +48,7 @@ async function assertLinks(ownerId: string, amountCents: number, taxPoint: strin
   return linkedLine
 }
 
-async function restoreExistingPosting(ownerId: string, input: PersistentVatInput, existing: { source: string; journalLineId: string | null; documentId: string | null }, context: ReversalContext) {
+async function restoreExistingPosting(ownerId: string, input: PersistentVatInput, existing: { source: string; journalLineId: string | null; documentId: string | null }, context: VatReversalContext) {
   if (existing.journalLineId !== (input.journalLineId ?? null) || existing.documentId !== (input.documentId ?? null)) throw new VatValidationError(['The VAT source ID is already bound to different journal or document provenance.'])
   const candidate = JSON.parse(existing.source) as VatPostingDetail
   const requested: VatSourceSplit = { ...input, ownerId }; delete (requested as PersistentVatInput).journalLineId; delete (requested as PersistentVatInput).documentId
@@ -95,17 +57,17 @@ async function restoreExistingPosting(ownerId: string, input: PersistentVatInput
   if (candidate.reversalOf) {
     const originalRow = await prisma.vatPostingRecord.findFirst({ where: { ownerId, sourceId: candidate.reversalOf } })
     if (!originalRow) throw new VatValidationError(['The immutable original VAT posting does not exist for this tenant.'])
-    original = restoreVatPosting(JSON.parse(originalRow.source) as VatPostingDetail, ruleBook, context.registry)
+    original = restoreVatPosting(JSON.parse(originalRow.source) as VatPostingDetail, germanVatRuleBook, context.registry)
   }
-  const restored = restoreVatPosting(candidate, ruleBook, context.registry, original)
+  const restored = restoreVatPosting(candidate, germanVatRuleBook, context.registry, original)
   return existing.documentId ? attachVatDocument(restored, existing.documentId) : restored
 }
 
 export async function persistVatPosting(ownerId: string, value: unknown) {
   const input = parsePersistentVatInput(value)
-  return withOwnerLock(ownerId, async () => {
+  return withVatOwnerLock(ownerId, async () => {
     const existing = await prisma.vatPostingRecord.findUnique({ where: { ownerId_sourceId: { ownerId, sourceId: input.sourceId } } })
-    const context = await reversalContext(ownerId)
+    const context = await vatReversalContext(ownerId)
     if (existing) return restoreExistingPosting(ownerId, input, existing, context)
     const linkedLine = await assertLinks(ownerId, input.amountCents, input.taxPoint, input.journalLineId, input.documentId)
     context.pending = new Set()
@@ -114,35 +76,23 @@ export async function persistVatPosting(ownerId: string, value: unknown) {
       if (input.reversalOf) {
         const row = await prisma.vatPostingRecord.findFirst({ where: { ownerId, sourceId: input.reversalOf } })
         if (!row) throw new VatValidationError(['The immutable original VAT posting does not exist for this tenant.'])
-        original = restoreVatPosting(JSON.parse(row.source) as VatPostingDetail, ruleBook, context.registry)
+        original = restoreVatPosting(JSON.parse(row.source) as VatPostingDetail, germanVatRuleBook, context.registry)
       }
       const split: VatSourceSplit = { ...input, ownerId }
       delete (split as PersistentVatInput).journalLineId
       delete (split as PersistentVatInput).documentId
-      const calculated = calculateVat(split, ruleBook, original, context.registry)
+      const calculated = calculateVat(split, germanVatRuleBook, original, context.registry)
       const persistedAmounts = [calculated.netBaseCents, calculated.rateBasisPoints, calculated.taxCents, calculated.deductibleTaxCents, calculated.grossCents, calculated.outputTaxCents, calculated.inputTaxCents]
       if (persistedAmounts.some(amount => !isPrismaInt(amount))) throw new VatValidationError(['Calculated VAT facts exceed signed 32-bit integer storage. Split the source into smaller traceable postings.'])
       const attached = input.documentId ? attachVatDocument(calculated, input.documentId) : calculated
-      const source = JSON.stringify(calculated)
-      const data = {
-        ownerId, sourceId: calculated.sourceId, journalLineId: input.journalLineId, documentId: input.documentId,
-        taxPoint: new Date(`${calculated.taxPoint}T00:00:00.000Z`), jurisdiction: calculated.jurisdiction,
-        netBaseCents: calculated.netBaseCents, rateBasisPoints: calculated.rateBasisPoints,
-        taxCents: calculated.taxCents, deductibleTaxCents: calculated.deductibleTaxCents,
-        grossCents: calculated.grossCents, outputTaxCents: calculated.outputTaxCents, inputTaxCents: calculated.inputTaxCents,
-        ruleId: calculated.ruleId, ruleVersion: calculated.ruleVersion, vatCase: calculated.case,
-        reason: calculated.reason, returnBoxes: JSON.stringify(calculated.returnBoxes), source,
-      }
+      const data = vatPostingCreateData(ownerId, input.journalLineId, calculated, input.documentId)
       const newMarkers = [...context.pending]
       await prisma.$transaction(async transaction => {
         await transaction.vatPostingRecord.create({ data })
         for (const marker of newMarkers) await transaction.vatReversalMarker.create({ data: { ownerId, marker } })
         if (input.journalLineId && linkedLine) {
           const updated = await transaction.journalLine.updateMany({ where: { id: input.journalLineId, debitCents: linkedLine.debitCents, creditCents: linkedLine.creditCents, journalEntry: { state: { not: 'POSTED' }, fiscalYear: { ownerId } } }, data: {
-          taxCode: calculated.ruleId, taxPoint: data.taxPoint, taxJurisdiction: calculated.jurisdiction,
-          netBaseCents: calculated.netBaseCents, taxRateBasisPoints: calculated.rateBasisPoints,
-          taxAmountCents: calculated.taxCents, deductibleTaxCents: calculated.deductibleTaxCents,
-          taxRuleId: calculated.ruleId, taxRuleVersion: calculated.ruleVersion, taxReason: calculated.reason,
+          ...journalLineVatData(calculated),
           } })
           if (updated.count !== 1) throw new VatValidationError(['The linked journal line became posted or changed before VAT attributes could be persisted.'])
         }
@@ -163,7 +113,7 @@ export async function persistVatPosting(ownerId: string, value: unknown) {
 
 async function restoreTenantPostings(ownerId: string, from?: string, to?: string) {
   const rows = await prisma.vatPostingRecord.findMany({ where: { ownerId } })
-  const context = await reversalContext(ownerId)
+  const context = await vatReversalContext(ownerId)
   const bySourceId = new Map(rows.map(row => [row.sourceId, row]))
   const restored = new Map<string, VatPostingDetail>()
   const visiting = new Set<string>()
@@ -174,7 +124,7 @@ async function restoreTenantPostings(ownerId: string, from?: string, to?: string
     visiting.add(sourceId)
     const candidate = JSON.parse(row.source) as VatPostingDetail
     const original = candidate.reversalOf ? restoreRow(candidate.reversalOf) : undefined
-    const posting = restoreVatPosting(candidate, ruleBook, context.registry, original)
+    const posting = restoreVatPosting(candidate, germanVatRuleBook, context.registry, original)
     restored.set(posting.sourceId, posting)
     visiting.delete(sourceId)
     return row.documentId ? attachVatDocument(posting, row.documentId) : posting
@@ -182,8 +132,7 @@ async function restoreTenantPostings(ownerId: string, from?: string, to?: string
   return rows.filter(row => (!from || row.taxPoint >= new Date(`${from}T00:00:00.000Z`)) && (!to || row.taxPoint <= new Date(`${to}T23:59:59.999Z`))).map(row => restoreRow(row.sourceId))
 }
 
-export async function reconcileTenantVat(ownerId: string, from: string, to: string) {
-  return withOwnerLock(ownerId, async () => {
+async function reconciledTenantVat(ownerId: string, from: string, to: string) {
   const unfinished = await prisma.vatPostingRecord.count({ where: { ownerId, taxPoint: { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T23:59:59.999Z`) }, journalLine: { journalEntry: { state: { not: 'POSTED' } } } } })
   if (unfinished) throw new VatValidationError(['Binding VAT reconciliation excludes detail linked to mutable draft journal entries.'])
   const details = await restoreTenantPostings(ownerId, from, to)
@@ -191,8 +140,11 @@ export async function reconcileTenantVat(ownerId: string, from: string, to: stri
   const lines = await prisma.journalLine.findMany({ where: { journalEntry: { state: 'POSTED', fiscalYear: { ownerId }, bookingDate: { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T23:59:59.999Z`) } }, account: { number: { in: [...outputAccounts, ...inputAccounts] } } }, include: { account: true } })
   const outputTaxCents = lines.filter(line => outputAccounts.includes(line.account.number)).reduce((sum, line) => sum + line.creditCents - line.debitCents, 0)
   const inputTaxCents = lines.filter(line => inputAccounts.includes(line.account.number)).reduce((sum, line) => sum + line.debitCents - line.creditCents, 0)
-  return reconcileVat(details, { outputTaxCents, inputTaxCents }, 0, ownerId)
-  })
+  return { details, reconciliation: reconcileVat(details, { outputTaxCents, inputTaxCents }, 0, ownerId) }
+}
+
+export async function reconcileTenantVat(ownerId: string, from: string, to: string) {
+  return withVatOwnerLock(ownerId, async () => (await reconciledTenantVat(ownerId, from, to)).reconciliation)
 }
 
 const INPUT_VAT_POSITION = 'bs.ass.currAss.receiv.other.vat'
@@ -254,6 +206,29 @@ async function reconciledVatDataset(ownerId: string, period: string, persist: bo
 
 export function prepareReconciledVatDataset(ownerId: string, period: string) { return reconciledVatDataset(ownerId, period, true) }
 export function currentReconciledVatDataset(ownerId: string, period: string) { return reconciledVatDataset(ownerId, period, false) }
+
+async function reconciledAnnualVatDataset(ownerId: string, year: number, persist: boolean): Promise<{ reconciliation: Awaited<ReturnType<typeof reconcileTenantVat>>; dataset: DeclarationDataset }> {
+  if (!Number.isSafeInteger(year) || year < 1000 || year > 9999) throw new VatValidationError(['Annual VAT preparation requires a four-digit calendar year.'])
+  const period = String(year)
+  try { taxFormRegistry.resolve('UST_ANNUAL', period) }
+  catch (error) { throw new VatValidationError([error instanceof Error ? error.message : `Annual VAT form ${period} is unsupported.`]) }
+  const from = `${period}-01-01`; const to = `${period}-12-31`
+  return withVatOwnerLock(ownerId, async () => {
+    const fiscalYear = await prisma.fiscalYear.findFirst({ where: { ownerId, year }, select: { id: true } })
+    if (!fiscalYear) throw new VatValidationError(['Configure the tenant fiscal year before annual VAT preparation.'])
+    const profile = await companyProfileForPeriod(ownerId, new Date(`${from}T00:00:00.000Z`), new Date(`${to}T23:59:59.999Z`))
+    if (profile.vatRegime === 'EXEMPT') throw new VatValidationError(['Annual VAT preparation is not available for tenants with the effective EXEMPT VAT regime.'])
+    const { details, reconciliation } = await reconciledTenantVat(ownerId, from, to)
+    if (!reconciliation.ok) throw new VatValidationError(['Binding annual VAT preparation requires VAT detail to reconcile exactly to the ledger control accounts.', ...reconciliation.discrepancies])
+    const dataset = annualVatDataset(year, details, reconciliation, taxFormRegistry, ownerId)
+    const datasetHash = declarationDatasetHash(dataset)
+    if (persist) await prisma.taxDatasetPreparationRecord.upsert({ where: { ownerId_datasetHash: { ownerId, datasetHash } }, create: { ownerId, kind: dataset.kind, period: dataset.period, datasetHash }, update: {} })
+    return { reconciliation, dataset: Object.freeze(dataset) }
+  })
+}
+
+export function prepareReconciledAnnualVatDataset(ownerId: string, year: number) { return reconciledAnnualVatDataset(ownerId, year, true) }
+export function currentReconciledAnnualVatDataset(ownerId: string, year: number) { return reconciledAnnualVatDataset(ownerId, year, false) }
 
 export async function listVatPostings(ownerId: string) {
   return prisma.vatPostingRecord.findMany({ where: { ownerId }, orderBy: { taxPoint: 'desc' } })

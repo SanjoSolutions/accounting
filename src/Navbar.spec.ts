@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { accountingRouteViews } from './accountingRoutes'
-import { accountingNavigation, bookingHref, complianceHref, exportImportHref, journalHref } from './Navbar'
+import { accountingNavigation, bookingHref, complianceHref, exportImportHref, journalHref, reportsHref } from './Navbar'
 
 describe('main navigation', () => {
   it('places the journal on a dedicated route alongside booking', () => {
@@ -23,5 +23,8 @@ describe('main navigation', () => {
   it('links to the tenant compliance workspace without replacing export/import', () => {
     expect(complianceHref).toBe('/compliance')
     expect(exportImportHref).toBe('/export-import')
+  })
+  it('links to fiscal-year accounting reports', () => {
+    expect(reportsHref).toBe('/reports')
   })
 })

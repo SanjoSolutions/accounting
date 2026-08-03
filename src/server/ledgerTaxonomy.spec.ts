@@ -8,7 +8,7 @@ import { profilePayloadWithConfirmedAddress } from './compliance/companyProfile'
 
 vi.mock('server-only', () => ({}))
 vi.mock('./persistence/client', () => ({ prisma: {} }))
-import { accountSemanticFingerprint, authoritativeEBalanceMasterDataFromSettings, DEFAULT_ACCOUNTS, defaultAccountsForLedger, getEBalanceBlockingIssues, inferExistingLedgerChart, inferExistingLedgerProfile, isStandardPostingPeriod, journalEntryInputForSource, legacyLedgerClaimApplies, manualJournalReference, mergeSubmissionHistory, nextCalendarDay, normalizeDocumentIds, postingDateBoundary, postingOrderPeriodYear, reportingSettingsPayload, requireLegacyLedgerProfile, requireManualDocumentSelection, selectBootstrapChart, selectedChartFromSettingsPayload, selectPostingPeriod, settingsPayloadWithEffectiveProfile, submissionResultStatus, successorOverlapBounds, validateDocumentNamespace, validateLegacyLedgerClaim, validateNumericPeriodBootstrap, validatePostingSuccessorBootstrap, validateSuccessorContiguity, validateSuccessorOverlap } from './ledger'
+import { accountSemanticFingerprint, authoritativeEBalanceMasterDataFromSettings, DEFAULT_ACCOUNTS, defaultAccountsForLedger, getEBalanceBlockingIssues, inferExistingLedgerChart, inferExistingLedgerProfile, isStandardPostingPeriod, journalEntryInputForSource, legacyLedgerClaimApplies, manualJournalReference, mergeSubmissionHistory, nextCalendarDay, normalizeDocumentIds, postingDateBoundary, postingOrderPeriodYear, reportingSettingsPayload, requireLegacyLedgerProfile, requireManualDocumentSelection, selectBootstrapChart, selectedChartFromSettingsPayload, selectPostingPeriod, settingsPayloadWithEffectiveProfile, submissionResultStatus, successorOverlapBounds, validateDocumentNamespace, validateJournalVatControls, validateLegacyLedgerClaim, validateNumericPeriodBootstrap, validatePostingSuccessorBootstrap, validateSuccessorContiguity, validateSuccessorOverlap } from './ledger'
 
 describe('default ledger taxonomy mappings', () => {
   it('reserves reopened periods for the controlled correction workflow', () => { expect(isStandardPostingPeriod('OPEN')).toBe(true); expect(isStandardPostingPeriod('REOPENED')).toBe(false) })
@@ -133,6 +133,12 @@ describe('default ledger taxonomy mappings', () => {
   it('reserves automatic opening document numbers from manual postings', () => {
     expect(() => validateDocumentNamespace('MANUAL', 'SYS-EB-2026')).toThrow('Systembuchungen reserviert')
     expect(() => validateDocumentNamespace('OPENING', 'SYS-EB-2026')).not.toThrow()
+  })
+  it('requires the journal control line to equal the canonically calculated output VAT', () => {
+    const detail = { ruleId: 'DE_STANDARD', taxPoint: '2026-08-04', outputTaxCents: 1900, inputTaxCents: 0 } as never
+    const accounts = [{ id: 'vat', number: 1776, category: 'LIABILITY' }]
+    expect(() => validateJournalVatControls([detail], [{ accountId: 'vat', debitCents: 0, creditCents: 1900 }], accounts)).not.toThrow()
+    expect(() => validateJournalVatControls([detail], [{ accountId: 'vat', debitCents: 0, creditCents: 1800 }], accounts)).toThrow(/1900 Cent/)
   })
   it('does not block reporting for a closed year merely because a successor is already closed', () => {
     const successor = 'Das bereits abgeschlossene Folgejahr 2026 verhindert einen nachträglichen Abschluss.'

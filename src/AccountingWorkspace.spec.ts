@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   bookingFormRows,
+  bookingLineRequest,
   bookingWorkspaceStorageKey,
   clearBookingWorkspaceState,
   consumeBookingWorkspaceSaveSuppression,
@@ -8,6 +9,7 @@ import {
   documentStateAfterPosting,
   getBrowserBookingWorkspaceStorage,
   isBookingFormDisabled,
+  journalEntrySourceMetadata,
   loadBookingWorkspaceState,
   parseBookingWorkspaceState,
   persistBookingWorkspaceStateChange,
@@ -32,6 +34,23 @@ describe('accounting workspace request ordering', () => {
     expect(workspaceSections('booking')).toEqual({ booking: true, journal: false, metrics: false })
     expect(workspaceSections('journal')).toEqual({ booking: false, journal: true, metrics: false })
     expect(workspaceSections('dashboard')).toEqual({ booking: false, journal: false, metrics: true })
+  })
+
+  it('shows all imported Lexware dates and period while keeping manual entries compact', () => {
+    expect(journalEntrySourceMetadata({
+      bookingDate: '2025-02-14',
+      sourcePostingDate: '2025-02-15',
+      sourceJournalDate: '2025-02-16',
+      sourcePeriod: 2,
+    })).toEqual([
+      { label: 'sourcePostingDate', value: '15.02.2025' },
+      { label: 'sourceJournalDate', value: '16.02.2025' },
+      { label: 'voucherDate', value: '14.02.2025' },
+      { label: 'sourcePeriod', value: 2 },
+    ])
+    expect(journalEntrySourceMetadata({ bookingDate: '2025-02-14' })).toEqual([
+      { label: null, value: '14.02.2025' },
+    ])
   })
 
   it('applies only a non-aborted response for the currently selected year', () => {
@@ -73,6 +92,14 @@ describe('accounting workspace request ordering', () => {
 
   it('places posting text in its own full-width row', () => {
     expect(bookingFormRows()).toEqual([['bookingDate'], ['description']])
+  })
+
+  it('sends canonical VAT metadata only for a selected taxable treatment', () => {
+    expect(bookingLineRequest({ accountId: 'revenue', debit: '', credit: '100.00', vatTreatment: 'DE_STANDARD_SALE_NET' })).toEqual({
+      accountId: 'revenue', debitCents: 0, creditCents: 10000,
+      vat: { ruleId: 'DE_STANDARD', mode: 'net', direction: 'sale' },
+    })
+    expect(bookingLineRequest({ accountId: 'bank', debit: '119.00', credit: '' })).not.toHaveProperty('vat')
   })
 
   it('offers only unused balance-sheet accounts after a P&L account is selected first', () => {

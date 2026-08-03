@@ -25,7 +25,12 @@ export function submissionOutcomeMessage(state: unknown, messages: { accepted: s
   return messages.failed
 }
 export function workspaceLoadStatus(workflowOk: boolean, annualOk: boolean) { return { historyAvailable: workflowOk, annualAvailable: annualOk } }
-export function preparationSourceAfterValidation(kind: string, currentSource: string, dataset: PreparedDataset) { return kind === 'USTVA' ? JSON.stringify(dataset.fields, null, 2) : currentSource }
+export function preparationSourceAfterValidation(kind: string, currentSource: string, dataset: PreparedDataset) { return ['USTVA', 'UST_ANNUAL'].includes(kind) ? JSON.stringify(dataset.fields, null, 2) : currentSource }
+export function declarationPreparationRequest(kind: string, period: string, year: number, fields: string): [string, RequestInit?] {
+  if (kind === 'USTVA') return [`/api/tax/vat-reconciliation?period=${encodeURIComponent(period)}`]
+  if (kind === 'UST_ANNUAL') return [`/api/tax/vat-annual?year=${year}`]
+  return ['/api/tax/annual', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ year, values: parseAnnualValues(fields) }) }]
+}
 
 export function TaxWorkspace({ year }: { year: number }) {
   const t = useTranslations('Tax')
@@ -64,12 +69,10 @@ export function TaxWorkspace({ year }: { year: number }) {
       if (action === 'submit') requestKeyRef.current = requestKey!
       let dataset: PreparedDataset = preparedDataset ?? { kind, period, fields: {}, drilldown: {} }
       if (action === 'validate') {
-        const preparationResponse = kind === 'USTVA'
-          ? await fetch(`/api/tax/vat-reconciliation?period=${encodeURIComponent(period)}`)
-          : await fetch('/api/tax/annual', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ year, values: parseAnnualValues(fields) }) })
+        const preparationResponse = await fetch(...declarationPreparationRequest(kind, period, year, fields))
         const preparationBody = await preparationResponse.json()
         if (!preparationResponse.ok) throw new Error(Array.isArray(preparationBody.issues) ? preparationBody.issues.join(' ') : t('actionFailed'))
-        dataset = kind === 'USTVA' ? preparationBody.data.dataset : preparationBody.data.datasets.find((candidate: PreparedDataset) => candidate.kind === kind)
+        dataset = ['USTVA', 'UST_ANNUAL'].includes(kind) ? preparationBody.data.dataset : preparationBody.data.datasets.find((candidate: PreparedDataset) => candidate.kind === kind)
         if (!dataset) throw new Error(t('actionFailed'))
         const fingerprint = JSON.stringify(dataset)
         requestKeyRef.current = requestKeyAfterPreparation(requestKeyRef.current, preparedDatasetRef.current, fingerprint)
@@ -120,7 +123,7 @@ export function TaxWorkspace({ year }: { year: number }) {
     finally { setBusy(false) }
   }
   function datasetChanged(update: () => void) { update(); requestKeyRef.current = null; preparedDatasetRef.current = null; setPreparedDataset(null); setConfirmed(false) }
-  function selectKind(nextKind: string) { datasetChanged(() => { setKind(nextKind); setPeriod(nextKind === 'USTVA' ? `${year}-01` : String(year)); setFields(nextKind === 'USTVA' ? '{"KZ81":0,"ZAHLLAST":0}' : '[]') }) }
+  function selectKind(nextKind: string) { datasetChanged(() => { setKind(nextKind); setPeriod(nextKind === 'USTVA' ? `${year}-01` : String(year)); setFields(nextKind === 'USTVA' ? '{"KZ81":0,"ZAHLLAST":0}' : nextKind === 'UST_ANNUAL' ? '{}' : '[]') }) }
 
   return <div className="workspace pb-4">
     <FiscalYearNavigation area="tax" year={year} />

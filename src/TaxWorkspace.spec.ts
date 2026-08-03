@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseAnnualValues, parseDeclarationFields, preparationSourceAfterValidation, requestKeyAfterPreparation, shouldReplaySubmissionFailure, submissionOutcomeMessage, submissionRequestKey, submissionSuccessMessage, workspaceLoadStatus } from './TaxWorkspace'
+import { declarationPreparationRequest, parseAnnualValues, parseDeclarationFields, preparationSourceAfterValidation, requestKeyAfterPreparation, shouldReplaySubmissionFailure, submissionOutcomeMessage, submissionRequestKey, submissionSuccessMessage, workspaceLoadStatus } from './TaxWorkspace'
 
 describe('tax filing workspace', () => {
   it('accepts official integer-cent fields for the usable validation/submission form', () => expect(parseDeclarationFields('{"KZ81":10000,"USTID_OK":true}')).toEqual({ KZ81: 10000, USTID_OK: true }))
@@ -31,6 +31,11 @@ describe('tax filing workspace', () => {
     const annualDataset = { kind: 'KST', period: '2026', fields: { KST_SCHULD: 15 }, drilldown: {} }
     expect(preparationSourceAfterValidation('KST', annualSource, annualDataset)).toBe(annualSource)
     expect(preparationSourceAfterValidation('USTVA', '{}', { ...annualDataset, kind: 'USTVA' })).toContain('"KST_SCHULD": 15')
+    expect(preparationSourceAfterValidation('UST_ANNUAL', '{}', { ...annualDataset, kind: 'UST_ANNUAL' })).toContain('"KST_SCHULD": 15')
+  })
+  it('routes annual VAT preparation to its reconciled full-year endpoint', () => {
+    expect(declarationPreparationRequest('UST_ANNUAL', '2026', 2026, '{}')).toEqual(['/api/tax/vat-annual?year=2026'])
+    expect(declarationPreparationRequest('USTVA', '2026-01', 2026, '{}')).toEqual(['/api/tax/vat-reconciliation?period=2026-01'])
   })
   it('preserves a successful submission result when refreshing history fails', () => {
     expect(submissionSuccessMessage('Submitted.', true, 'History could not be loaded.')).toBe('Submitted. History could not be loaded.')

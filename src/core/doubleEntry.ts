@@ -14,6 +14,11 @@ export interface PostingLineInput {
   debitCents: number
   creditCents: number
   taxCode?: string
+  vat?: {
+    ruleId: string
+    mode: 'net' | 'gross'
+    direction: 'sale' | 'purchase'
+  }
 }
 
 export interface BookingAccountChoice {
@@ -147,6 +152,15 @@ export function validateJournalEntry(input: unknown): JournalEntryInput {
     const line = rawLine as PostingLineInput
     if (typeof line.accountId !== 'string' || !line.accountId.trim()) issues.push(`Zeile ${index + 1}: Konto fehlt oder ist ungültig.`)
     if (line.taxCode !== undefined && typeof line.taxCode !== 'string') issues.push(`Zeile ${index + 1}: Steuerschlüssel ist ungültig.`)
+    if (line.vat !== undefined && (!line.vat || typeof line.vat !== 'object'
+      || typeof line.vat.ruleId !== 'string' || !line.vat.ruleId.trim()
+      || !['net', 'gross'].includes(line.vat.mode)
+      || !['sale', 'purchase'].includes(line.vat.direction))) {
+      issues.push(`Zeile ${index + 1}: Umsatzsteuerangaben sind ungültig.`)
+    }
+    if (line.vat && line.taxCode !== undefined && line.taxCode !== line.vat.ruleId) {
+      issues.push(`Zeile ${index + 1}: Steuerschlüssel und Umsatzsteuerregel widersprechen sich.`)
+    }
     if (!Number.isSafeInteger(line.debitCents) || !Number.isSafeInteger(line.creditCents)) {
       issues.push(`Zeile ${index + 1}: Beträge müssen centgenau sein.`)
       continue
@@ -176,6 +190,7 @@ export function validateJournalEntry(input: unknown): JournalEntryInput {
       debitCents: line.debitCents,
       creditCents: line.creditCents,
       ...(line.taxCode === undefined ? {} : { taxCode: line.taxCode }),
+      ...(line.vat === undefined ? {} : { vat: { ...line.vat } }),
     })),
   }
 }

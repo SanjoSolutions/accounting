@@ -22,6 +22,12 @@ describe('production tax operations readiness', () => {
   it('accepts only an explicitly enabled and qualified production configuration', () => {
     expect(productionGatewayIssues(qualified, 'USTVA-2026.1')).toEqual([])
   })
+  it('does not require the unrelated annual-tax calculator for VAT filings', () => {
+    const vatOnly = { ...qualified, ANNUAL_TAX_CALCULATOR_URL: undefined, ANNUAL_TAX_CALCULATOR_CREDENTIAL: undefined }
+    expect(productionGatewayIssues(vatOnly, 'USTVA-2026.1', 'USTVA')).toEqual([])
+    expect(productionGatewayIssues(vatOnly, 'UST_ANNUAL-2026.1', 'UST_ANNUAL')).not.toContain(expect.stringMatching(/annual-tax calculator/))
+    expect(productionGatewayIssues(vatOnly, 'KST-2026.1', 'KST').join(' ')).toMatch(/annual-tax calculator/)
+  })
   it('emits bounded monitoring dimensions without accepting credentials or declaration payloads', () => {
     expect(gatewayOperationalEvent('recover', 'timeout', 60000.4)).toEqual({ component: 'official-tax-gateway', action: 'recover', outcome: 'timeout', durationMs: 60000 })
     expect(JSON.stringify(gatewayOperationalEvent('submit', 'http-error', 5, 503))).not.toContain('credential')

@@ -338,6 +338,123 @@ model LedgerProfile {
   accountLength    Int?
 }
 
+model LexwareCompanySetup {
+  id               String   @id @default(cuid())
+  ownerId          String
+  year             Int
+  companyName      String
+  street           String
+  postalCode       String
+  city             String
+  region           String
+  phone            String?
+  fax              String?
+  currency         String
+  accountingMethod String
+  chart            String
+  startsAt         DateTime
+  endsAt           DateTime
+  taxonomyVersion  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([ownerId, year])
+  @@index([ownerId, startsAt, endsAt])
+}
+
+model LexwareAccountMetadata {
+  id                             String   @id @default(cuid())
+  ownerId                        String
+  year                           Int
+  accountNumber                  Int
+  accountName                    String
+  accountCategory                String
+  subcategory                    String?
+  legacyVatPosition              String?
+  legacyVatCode                  String?
+  currentVatPosition             String?
+  currentVatCode                 String?
+  cashBasisMapping               String?
+  hgbAssetMapping                String?
+  hgbLiabilityMapping            String?
+  hgbIncomeStatementMapping      String?
+  taxonomyAssetMapping           String?
+  taxonomyLiabilityMapping       String?
+  taxonomyIncomeStatementMapping String?
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
+
+  @@unique([ownerId, year, accountNumber])
+  @@index([ownerId, year])
+}
+
+model LexwareTrialBalanceLine {
+  id                    String   @id @default(cuid())
+  ownerId               String
+  year                  Int
+  accountNumber         Int
+  accountName           String
+  lastBookingDate       DateTime?
+  openingDebitCents     Int
+  openingCreditCents    Int
+  annualDebitCents      Int
+  annualCreditCents     Int
+  cumulativeDebitCents  Int
+  cumulativeCreditCents Int
+  closingDebitCents     Int
+  closingCreditCents    Int
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([ownerId, year, accountNumber])
+  @@index([ownerId, year])
+}
+
+model LexwareBusinessPartner {
+  id            String   @id @default(cuid())
+  ownerId       String
+  year          Int
+  partnerNumber String
+  name          String
+  street        String
+  houseNumber   String
+  postalCode    String
+  city          String
+  industry      String?
+  vatId         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([ownerId, year, partnerNumber])
+  @@index([ownerId, year, name])
+}
+
+model LexwareSubledgerAssociation {
+  id            String   @id @default(cuid())
+  ownerId       String
+  year          Int
+  accountNumber Int
+  partnerNumber String
+  kind          String
+  createdAt     DateTime @default(now())
+
+  @@unique([ownerId, year, accountNumber, partnerNumber, kind])
+  @@index([ownerId, year, kind])
+}
+
+model LexwareAnnualVatField {
+  id          String   @id @default(cuid())
+  ownerId     String
+  year        Int
+  fieldCode   String
+  amountCents Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ownerId, year, fieldCode])
+  @@index([ownerId, year])
+}
+
 model FiscalYear {
   id                  String               @id @default(cuid())
   ownerId             String
@@ -444,6 +561,9 @@ model JournalEntry {
   id              String                      @id @default(cuid())
   sequenceNumber  Int
   bookingDate     DateTime
+  sourcePostingDate DateTime?
+  sourceJournalDate DateTime?
+  sourcePeriod    Int?
   documentNumber  String
   description     String
   source          String                      @default("MANUAL")

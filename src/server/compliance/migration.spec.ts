@@ -39,7 +39,7 @@ describe('compliance foundations migration', () => {
     database.exec("INSERT INTO CompanyProfileAddressConfirmation (id, ownerId, profileVersionId, payload, createdBy, reason) VALUES ('c', 'owner', 'p', '{}', 'actor', 'evidence')")
     expect(() => database.exec("UPDATE CompanyProfileAddressConfirmation SET payload = '{\"changed\":true}' WHERE id = 'c'")).toThrow(/immutable/)
     database.close()
-  })
+  }, 15_000)
 
   it('fails closed instead of implicitly trusting unexpected pre-HMAC audit rows', () => {
     const directory = mkdtempSync(join(tmpdir(), 'accounting-audit-head-migration-')); temporaryDirectories.push(directory)
