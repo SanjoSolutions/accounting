@@ -24,6 +24,7 @@ describe('authoritative company profile', () => {
   it('requires complete canonical annual tax profile facts when that profile is configured', () => {
     expect(validateCompanyProfile({ ...profile, annualTaxProfile: { tradeBusiness: true } })).toContain('annualTaxProfile requires canonical trade, establishment and adviser facts')
     expect(validateCompanyProfile({ ...profile, annualTaxProfile: { tradeBusiness: true, establishments: 2, adviserExtension: true } })).toEqual([])
+    expect(validateCompanyProfile({ ...profile, annualTaxProfile: { tradeBusiness: true, establishments: 1, adviserExtension: false, foreignIncome: 'unknown' } })).toContain('annualTaxProfile foreignIncome must be boolean')
   })
   it('requires complete canonical E-Bilanz reporting facts when configured', () => {
     expect(validateCompanyProfile({ ...profile, eBilanz: { accountingStandard: 'HGB' } })).toContain('eBilanz requires canonical reporting profile facts')

@@ -24,6 +24,12 @@ export interface CompanyProfile {
     municipalityCode?: string
     tradeTaxMultiplierBasisPoints?: number
     establishmentAllocations?: Record<string, number>
+    foreignIncome?: boolean
+    groupOrConsolidation?: boolean
+    lossCarry?: boolean
+    specialRegime?: boolean
+    withholdingOrCredits?: boolean
+    payroll?: boolean
   }
   eBilanz?: {
     accountingStandard: 'HGB' | 'OTHER'
@@ -131,6 +137,7 @@ export function validateCompanyProfile(profile: unknown): string[] {
       if (facts.municipalityCode !== undefined && (typeof facts.municipalityCode !== 'string' || !facts.municipalityCode.trim())) issues.push('annualTaxProfile municipalityCode is invalid')
       if (facts.tradeTaxMultiplierBasisPoints !== undefined && (!Number.isSafeInteger(facts.tradeTaxMultiplierBasisPoints) || facts.tradeTaxMultiplierBasisPoints <= 0)) issues.push('annualTaxProfile tradeTaxMultiplierBasisPoints is invalid')
       if (facts.establishmentAllocations !== undefined && (!facts.establishmentAllocations || typeof facts.establishmentAllocations !== 'object' || Array.isArray(facts.establishmentAllocations) || Object.entries(facts.establishmentAllocations).some(([id, share]) => !id.trim() || !Number.isSafeInteger(share) || share < 0))) issues.push('annualTaxProfile establishmentAllocations is invalid')
+      for (const field of ['foreignIncome', 'groupOrConsolidation', 'lossCarry', 'specialRegime', 'withholdingOrCredits', 'payroll'] as const) if (facts[field] !== undefined && typeof facts[field] !== 'boolean') issues.push(`annualTaxProfile ${field} must be boolean`)
     }
   }
   if (value.eBilanz !== undefined) {

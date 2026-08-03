@@ -34,7 +34,7 @@ describe('tax workflow integration migration', () => {
     const root = resolve(process.cwd(), 'prisma', 'migrations')
     const names = readdirSync(root, { withFileTypes: true }).filter(item => item.isDirectory()).map(item => item.name).sort()
     const latest = '20260719160000_tax_workflow_integration'
-    for (const name of names.filter(name => name !== latest)) database.exec(readFileSync(join(root, name, 'migration.sql'), 'utf8'))
+    for (const name of names.filter(name => name < latest)) database.exec(readFileSync(join(root, name, 'migration.sql'), 'utf8'))
     database.exec("INSERT INTO LedgerProfile (ownerId, chart, accountLength) VALUES ('tenant-skr04', 'SKR04', 5)")
     database.exec("INSERT INTO AccountMappingVersion (id, ownerId, chartId, accountNumber, effectiveFrom, accountName, accountType, normalBalance, hgbPosition, eBilanzPosition, active) VALUES ('existing-map', 'tenant-skr04', 'SKR04', 44000, '2026-01-01', 'Erlöse', 'REVENUE', 'CREDIT', 'HGB.275.2.1', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput', 1)")
     database.exec(readFileSync(join(root, latest, 'migration.sql'), 'utf8'))

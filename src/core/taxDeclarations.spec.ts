@@ -33,7 +33,8 @@ describe('versioned VAT declaration workflow', () => {
 
   it('versions official schemas, rejects unsupported periods and prepares extension/prepayment forms', () => {
     expect(taxFormRegistry.resolve('USTVA', '2026-01').version).toBe('USTVA-2026.1')
-    expect(() => taxFormRegistry.resolve('USTVA', '2025-12')).toThrow(/Unsupported USTVA period/)
+    expect(taxFormRegistry.resolve('USTVA', '2025-12').version).toBe('USTVA-2025.1')
+    expect(() => taxFormRegistry.resolve('USTVA', '2024-12')).toThrow(/Unsupported USTVA period/)
     expect(() => taxFormRegistry.resolve('USTVA', '2026-13')).toThrow(/Invalid USTVA filing period/)
     expect(() => taxFormRegistry.resolve('KST', '2026-Q1')).toThrow(/Invalid KST filing period/)
     expect(() => taxFormRegistry.resolve('OSS', '2026-01')).toThrow(/Invalid OSS filing period/)

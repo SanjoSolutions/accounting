@@ -95,6 +95,8 @@ describe('legal-form-specific annual tax returns', () => {
     const accepted = await submitWithGateway(validated.approved('tax-user'), gateway)
     const assessment = { id: 'assessment-1', taxpayerId: corporation.companyId, kind: 'KST' as const, period: '2026', assessedAmountCents: 101, receivedAt: '2027-08-01', documentHash: 'a'.repeat(64), declarationSubmissionId: accepted.submissionId }
     expect(reconcileAssessment(assessment, accepted)).toMatchObject({ differenceCents: 1, needsReview: true })
+    const liabilityFree = await submitWithGateway((await validateWithGateway(DeclarationWorkflow.create(taxFormRegistry.prepare('KST', '2025', { STEUERLICHES_ERGEBNIS: 10_000 }, {}, corporation.companyId)), gateway)).approved('tax-user'), gateway)
+    expect(reconcileAssessment({ ...assessment, period: '2025', declarationSubmissionId: liabilityFree.submissionId }, liabilityFree, { authority: 'NON_BINDING_PREVIEW', amountCents: 101, ruleVersion: 'DE-UG-SIMPLE-2025.1', annualCaseId: 'case-1' })).toMatchObject({ differenceCents: 0, comparisonBasis: 'NON_BINDING_PREVIEW', previewRuleVersion: 'DE-UG-SIMPLE-2025.1', annualCaseId: 'case-1' })
     expect(() => reconcileAssessment({ ...assessment, receivedAt: '2000-01-01' }, accepted)).toThrow(/cannot predate.*accepted declaration submission/)
     expect(() => reconcileAssessment({ ...assessment, assessedAmountCents: Number.NaN }, accepted)).toThrow(/safe-integer cent operands/)
     expect(() => reconcileAssessment({ ...assessment, id: '', documentHash: 'hash', declarationSubmissionId: '', period: '2026-Q1', receivedAt: '2027-02-30' }, accepted)).toThrow(/valid identity.*provenance/)

@@ -20,6 +20,7 @@ import { SaxesParser } from 'saxes'
 import { companyProfileForPeriod } from './profileRepository'
 import { secureServiceEndpoint } from './transport'
 import { isPrismaInt } from './persistenceLimits'
+import { appendAuditEvent } from '@/server/compliance/auditPersistence'
 
 function mapLegalForm(value: string): AnnualTaxProfile['legalForm'] {
   if (value === 'GMBH' || value === 'UG' || value === 'AG' || value === 'GBR' || value === 'OHG' || value === 'KG' || value === 'GMBH_CO_KG') return value
@@ -63,12 +64,16 @@ export async function saveTaxAdjustment(ownerId: string, year: number, value: un
   if (!adjustment.sourceDocumentIds.length) throw new TaxDeclarationError(['A tax adjustment requires source documents.'])
   const count = await prisma.documentRecord.count({ where: { ownerId, id: { in: [...adjustment.sourceDocumentIds] } } })
   if (count !== new Set(adjustment.sourceDocumentIds).size) throw new TaxDeclarationError(['Every adjustment source document must belong to this tenant.'])
-  return prisma.taxAdjustmentRecord.create({ data: {
-    id: adjustment.id, ownerId, year, ruleVersion: adjustment.ruleVersion, field: adjustment.field,
-    layer: adjustment.layer, amountCents: adjustment.amountCents, reason: adjustment.reason,
-    sourceDocumentIds: JSON.stringify(adjustment.sourceDocumentIds), legalBasis: adjustment.legalBasis,
-    treatment: adjustment.treatment,
-  } })
+  return prisma.$transaction(async transaction => {
+    const record = await transaction.taxAdjustmentRecord.create({ data: {
+      id: adjustment.id, ownerId, year, ruleVersion: adjustment.ruleVersion, field: adjustment.field,
+      layer: adjustment.layer, amountCents: adjustment.amountCents, reason: adjustment.reason,
+      sourceDocumentIds: JSON.stringify(adjustment.sourceDocumentIds), legalBasis: adjustment.legalBasis,
+      treatment: adjustment.treatment,
+    } })
+    await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'ANNUAL_TAX_ADJUSTMENT_RECORDED', reason: adjustment.reason, objectType: 'TaxAdjustmentRecord', objectId: adjustment.id, after: { year, ruleVersion: adjustment.ruleVersion, field: adjustment.field, layer: adjustment.layer, amountCents: adjustment.amountCents, legalBasis: adjustment.legalBasis, treatment: adjustment.treatment, evidenceIds: adjustment.sourceDocumentIds } })
+    return record
+  })
 }
 
 function annualCalculator() {
@@ -129,6 +134,10 @@ async function buildAnnualTaxDatasets(ownerId: string, year: number, values: rea
 export function prepareAnnualTaxDatasets(ownerId: string, year: number, values: readonly AnnualTaxValue[]) { return buildAnnualTaxDatasets(ownerId, year, values, true) }
 
 export async function revalidatePreparedAnnualDataset(ownerId: string, dataset: DeclarationDataset) {
+  if (dataset.period === '2025' && ['KST', 'GEWST'].includes(dataset.kind)) {
+    const { revalidateNarrowUgAnnualDataset } = await import('./narrowUgAnnualRepository')
+    if (await revalidateNarrowUgAnnualDataset(ownerId, dataset)) return
+  }
   const datasetHash = declarationDatasetHash(dataset)
   const prepared = await prisma.taxDatasetPreparationRecord.findUnique({ where: { ownerId_datasetHash: { ownerId, datasetHash } } })
   if (!prepared?.sourcePayload || prepared.kind !== dataset.kind || prepared.period !== dataset.period) throw new TaxDeclarationError(['Binding annual submission requires the exact current tenant-scoped prepared dataset.'])

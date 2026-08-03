@@ -37,6 +37,8 @@ export class AnnualAdjustmentRuleRegistry {
 }
 function authoritativeAnnualAdjustmentRules(rules: readonly AnnualAdjustmentRule[]) { const registry = new AnnualAdjustmentRuleRegistry(rules); trustedAnnualRuleRegistries.add(registry); return registry }
 export const annualAdjustmentRules = authoritativeAnnualAdjustmentRules([
+  { ruleVersion: 'KStG-2025.1', validFrom: '2025', validTo: '2025', field: 'STEUERLICHES_ERGEBNIS', layer: 'income-tax', legalBasis: 'KStG §10', treatment: 'add-back' },
+  { ruleVersion: 'GewStG-2025.1', validFrom: '2025', validTo: '2025', field: 'GEWERBEERTRAG', layer: 'trade-tax', legalBasis: 'GewStG §§8/9', treatment: 'add-back' },
   { ruleVersion: 'KStG-2026.1', validFrom: '2026', validTo: '2026', field: 'STEUERLICHES_ERGEBNIS', layer: 'income-tax', legalBasis: 'KStG §10', treatment: 'add-back' },
   { ruleVersion: 'GewStG-2026.1', validFrom: '2026', validTo: '2026', field: 'GEWERBEERTRAG', layer: 'trade-tax', legalBasis: 'GewStG §§8/9', treatment: 'add-back' },
 ])
@@ -141,7 +143,7 @@ export function annualReturnDeadline(year: number, profile: AnnualTaxProfile): s
 }
 
 export interface Assessment { id: string; taxpayerId: string; kind: DeclarationKind; period: string; assessedAmountCents: number; receivedAt: string; documentHash: string; declarationSubmissionId: string }
-export function reconcileAssessment(assessment: Assessment, declaration: DeclarationWorkflow) {
+export function reconcileAssessment(assessment: Assessment, declaration: DeclarationWorkflow, preview?: { authority: 'NON_BINDING_PREVIEW'; amountCents: number; ruleVersion: string; annualCaseId: string }) {
   const annual = new Set<DeclarationKind>(['UST_ANNUAL', 'SONDERVORAUSZAHLUNG', 'DAUERFRISTVERLAENGERUNG', 'KST', 'GEWST', 'ZERLEGUNG', 'EST_BUSINESS', 'FESTSTELLUNG'])
   const validPeriod = annual.has(assessment.kind) ? /^\d{4}$/.test(assessment.period) : assessment.kind === 'OSS' ? /^\d{4}-Q[1-4]$/.test(assessment.period) : /^\d{4}-(?:0[1-9]|1[0-2]|Q[1-4])$/.test(assessment.period)
   const received = /^\d{4}-\d{2}-\d{2}$/.test(assessment.receivedAt) ? new Date(`${assessment.receivedAt}T00:00:00Z`) : new Date(Number.NaN)
@@ -153,11 +155,12 @@ export function reconcileAssessment(assessment: Assessment, declaration: Declara
   const acceptedEvent = declaration.events.find(event => event.type === 'submission-accepted')
   if (!acceptedEvent || assessment.receivedAt < acceptedEvent.at.slice(0, 10)) throw new TaxDeclarationError(['Assessment received date cannot predate its exact accepted declaration submission.'])
   const declaredAmountCents = declaration.dataset.fields[liabilityField]
-  if (!Number.isSafeInteger(assessment.assessedAmountCents) || !Number.isSafeInteger(declaredAmountCents)) throw new TaxDeclarationError(['Assessment reconciliation requires a canonical declared tax-liability field with safe-integer cent operands.'])
-  const difference = BigInt(assessment.assessedAmountCents) - BigInt(declaredAmountCents as number)
+  const comparisonAmountCents = Number.isSafeInteger(declaredAmountCents) ? declaredAmountCents as number : preview?.amountCents
+  if (!Number.isSafeInteger(assessment.assessedAmountCents) || !Number.isSafeInteger(comparisonAmountCents) || (!Number.isSafeInteger(declaredAmountCents) && (!preview || preview.authority !== 'NON_BINDING_PREVIEW' || !preview.ruleVersion.trim() || !preview.annualCaseId.trim()))) throw new TaxDeclarationError(['Assessment reconciliation requires a canonical declared tax-liability field or an immutable non-binding annual-case preview with safe-integer cent operands.'])
+  const difference = BigInt(assessment.assessedAmountCents) - BigInt(comparisonAmountCents as number)
   const differenceCents = Number(difference)
   if (!Number.isSafeInteger(differenceCents)) throw new TaxDeclarationError(['Assessment difference exceeds safe integer cents.'])
-  return { differenceCents, needsReview: differenceCents !== 0, drilldown: [assessment.id, assessment.declarationSubmissionId] as const }
+  return { differenceCents, needsReview: differenceCents !== 0, comparisonBasis: Number.isSafeInteger(declaredAmountCents) ? 'DECLARED_LIABILITY' as const : 'NON_BINDING_PREVIEW' as const, ...(preview && !Number.isSafeInteger(declaredAmountCents) ? { previewRuleVersion: preview.ruleVersion, annualCaseId: preview.annualCaseId } : {}), drilldown: [assessment.id, assessment.declarationSubmissionId] as const }
 }
 function deepFreeze<T>(value: T): Readonly<T> { if (value && typeof value === 'object') { Object.freeze(value); Object.values(value).forEach(deepFreeze) } return value }
 function safeAggregate(values: readonly number[]): number | undefined { let sum = 0; for (const value of values) { if (!Number.isSafeInteger(value)) return undefined; sum += value; if (!Number.isSafeInteger(sum)) return undefined } return sum }

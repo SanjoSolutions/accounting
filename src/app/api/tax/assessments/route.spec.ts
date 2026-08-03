@@ -12,9 +12,9 @@ describe('tax assessment route', () => {
   })
   it('binds assessments and their declaration drilldown to the authenticated tenant', async () => {
     mocks.user.mockResolvedValue({ id: 'tenant-a' }); mocks.record.mockResolvedValue({ id: 'assessment-1', differenceCents: 0 })
-    const input = { id: 'assessment-1', taxpayerId: 'tenant-b', kind: 'KST', period: '2026', assessedAmountCents: 1500, receivedAt: '2027-01-02', documentHash: 'a'.repeat(64), declarationSubmissionId: 'submission-1' }
+    const input = { id: 'assessment-1', taxpayerId: 'tenant-b', documentHash: 'untrusted-caller-value', kind: 'KST', period: '2026', assessedAmountCents: 1500, receivedAt: '2027-01-02', documentId: 'notice-document-1', noticeId: 'KSt-2026-1', authority: 'FINANZAMT', declarationSubmissionId: 'submission-1' }
     expect((await POST(new Request('http://localhost/api/tax/assessments', { method: 'POST', body: JSON.stringify(input) }))).status).toBe(201)
-    const { taxpayerId: _, ...tenantSafe } = input
+    const { taxpayerId: _, documentHash: _callerHash, ...tenantSafe } = input
     expect(mocks.record).toHaveBeenCalledWith('tenant-a', tenantSafe)
   })
 })

@@ -7,6 +7,7 @@ type Profile = {
   companyName: string; legalForm: string; registerCourt?: string; registerNumber?: string; taxNumber: string; vatId?: string; taxOffice: string
   registeredAddress?: { streetAndHouseNumber: string; zipCode: string; city: string; country: string }
   vatRegime: string; vatFilingFrequency: string; activity: string; sizeClass: string; chart: string; elections: string[]; applicabilityOverrides?: Record<string, boolean>
+  annualTaxProfile?: { tradeBusiness: boolean; establishments: number; adviserExtension: boolean; municipalityCode?: string; tradeTaxMultiplierBasisPoints?: number; foreignIncome?: boolean; groupOrConsolidation?: boolean; lossCarry?: boolean; specialRegime?: boolean; withholdingOrCredits?: boolean; payroll?: boolean }
   eBilanz?: { accountingStandard: 'HGB' | 'OTHER'; incomeStatementMethod: 'GKV' | 'UKV'; statementType: 'E' | 'K' | 'PB'; reportStatus: 'E' | 'F'; consolidationRange: 'EA' | 'KA'; incomeClassification: string; specialBalanceRequired?: boolean; supplementaryBalanceRequired?: boolean }
 }
 type Overview = {
@@ -20,6 +21,7 @@ type Overview = {
 
 export const complianceHref = '/compliance'
 export const EMPTY_PROFILE: Profile = { companyName: '', legalForm: 'SOLE_TRADER', taxNumber: '', taxOffice: '', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: '', sizeClass: 'MICRO', chart: 'SKR03', elections: [], eBilanz: { accountingStandard: 'HGB', incomeStatementMethod: 'GKV', statementType: 'E', reportStatus: 'E', consolidationRange: 'EA', incomeClassification: 'trade' } }
+const EMPTY_UG_TAX_PROFILE: NonNullable<Profile['annualTaxProfile']> = { tradeBusiness: true, establishments: 1, adviserExtension: false, municipalityCode: '', tradeTaxMultiplierBasisPoints: 40000, foreignIncome: false, groupOrConsolidation: false, lossCarry: false, specialRegime: false, withholdingOrCredits: false, payroll: false }
 
 export function parseJsonObject(value: string): Record<string, unknown> {
   const parsed = JSON.parse(value) as unknown
@@ -122,7 +124,7 @@ export function ComplianceWorkspace() {
           <Text label={t('postalCode')} value={profile.registeredAddress?.zipCode ?? ''} onChange={zipCode => setProfile({ ...profile, registeredAddress: { streetAndHouseNumber: profile.registeredAddress?.streetAndHouseNumber ?? '', zipCode, city: profile.registeredAddress?.city ?? '', country: profile.registeredAddress?.country ?? 'DE' } })} />
           <Text label={t('city')} value={profile.registeredAddress?.city ?? ''} onChange={city => setProfile({ ...profile, registeredAddress: { streetAndHouseNumber: profile.registeredAddress?.streetAndHouseNumber ?? '', zipCode: profile.registeredAddress?.zipCode ?? '', city, country: profile.registeredAddress?.country ?? 'DE' } })} />
           <Text label={t('country')} value={profile.registeredAddress?.country ?? ''} onChange={country => setProfile({ ...profile, registeredAddress: { streetAndHouseNumber: profile.registeredAddress?.streetAndHouseNumber ?? '', zipCode: profile.registeredAddress?.zipCode ?? '', city: profile.registeredAddress?.city ?? '', country } })} />
-          <Select label={t('legalForm')} value={profile.legalForm} values={['SOLE_TRADER', 'GMBH', 'UG', 'AG', 'OHG', 'KG', 'GBR', 'PARTNERSHIP', 'OTHER']} onChange={legalForm => setProfile({ ...profile, legalForm })} />
+          <Select label={t('legalForm')} value={profile.legalForm} values={['SOLE_TRADER', 'GMBH', 'UG', 'AG', 'OHG', 'KG', 'GBR', 'PARTNERSHIP', 'OTHER']} onChange={legalForm => setProfile({ ...profile, legalForm, ...(legalForm === 'UG' ? { annualTaxProfile: profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE } : {}) })} />
           <Text label={t('registerCourt')} value={profile.registerCourt ?? ''} onChange={registerCourt => setProfile({ ...profile, registerCourt: registerCourt || undefined })} />
           <Text label={t('registerNumber')} value={profile.registerNumber ?? ''} onChange={registerNumber => setProfile({ ...profile, registerNumber: registerNumber || undefined })} />
           <Text label={t('taxNumber')} value={profile.taxNumber} onChange={taxNumber => setProfile({ ...profile, taxNumber })} />
@@ -140,6 +142,16 @@ export function ComplianceWorkspace() {
           <Select label={t('eBilanzReportStatus')} value={profile.eBilanz?.reportStatus ?? 'E'} values={['E', 'F']} onChange={reportStatus => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), reportStatus: reportStatus as 'E' | 'F' } })} />
           <Select label={t('eBilanzConsolidation')} value={profile.eBilanz?.consolidationRange ?? 'EA'} values={['EA', 'KA']} onChange={consolidationRange => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), consolidationRange: consolidationRange as 'EA' | 'KA' } })} />
           <Text label={t('eBilanzIncomeClassification')} value={profile.eBilanz?.incomeClassification ?? ''} onChange={incomeClassification => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), incomeClassification } })} required />
+          {profile.legalForm === 'UG' && <>
+            <Text label="Amtlicher Gemeindeschlüssel (8 Stellen)" value={profile.annualTaxProfile?.municipalityCode ?? ''} onChange={municipalityCode => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), municipalityCode } })} required />
+            <Text label="Gewerbesteuer-Hebesatz (%)" type="number" value={String((profile.annualTaxProfile?.tradeTaxMultiplierBasisPoints ?? 40000) / 100)} onChange={value => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), tradeTaxMultiplierBasisPoints: Math.round(Number(value) * 100) } })} required />
+            <BooleanFact label="Auslandseinkünfte vorhanden" checked={profile.annualTaxProfile?.foreignIncome ?? false} onChange={foreignIncome => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), foreignIncome } })} />
+            <BooleanFact label="Organschaft/Konzern vorhanden" checked={profile.annualTaxProfile?.groupOrConsolidation ?? false} onChange={groupOrConsolidation => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), groupOrConsolidation } })} />
+            <BooleanFact label="Verlustvortrag oder laufender Verlust vorhanden" checked={profile.annualTaxProfile?.lossCarry ?? false} onChange={lossCarry => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), lossCarry } })} />
+            <BooleanFact label="Sonderregime vorhanden" checked={profile.annualTaxProfile?.specialRegime ?? false} onChange={specialRegime => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), specialRegime } })} />
+            <BooleanFact label="Anrechnungen/Quellensteuern vorhanden" checked={profile.annualTaxProfile?.withholdingOrCredits ?? false} onChange={withholdingOrCredits => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), withholdingOrCredits } })} />
+            <BooleanFact label="Lohnabrechnung vorhanden" checked={profile.annualTaxProfile?.payroll ?? false} onChange={payroll => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), payroll } })} />
+          </>}
           <label className="full-width">{t('applicabilityOverrides')}<textarea rows={4} value={overridesText} onChange={event => setOverridesText(event.target.value)} /></label>
           <Text label={t('changeReason')} value={reason} onChange={setReason} required />
         </div><button className="btn btn-primary" disabled={busy}>{t('saveProfile')}</button>
@@ -167,6 +179,7 @@ export function ComplianceWorkspace() {
 
 function Text({ label, value, onChange, required = false, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; type?: string }) { return <label>{label}<input className="form-control" type={type} required={required} value={value} onChange={event => onChange(event.target.value)} /></label> }
 function Select({ label, value, values, onChange }: { label: string; value: string; values: string[]; onChange: (value: string) => void }) { return <label>{label}<select className="form-select" value={value} onChange={event => onChange(event.target.value)}>{values.map(item => <option key={item}>{item}</option>)}</select></label> }
+function BooleanFact({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) { return <label className="form-check"><input className="form-check-input" type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} /> {label}</label> }
 function StatusList({ title, items }: { title: string; items: unknown[] }) { return <div><h3>{title}</h3>{items.length ? <pre>{JSON.stringify(items, null, 2)}</pre> : <p>—</p>}</div> }
 
 export function complianceOperationExamples(overview: Overview | null): Record<string, Record<string, unknown>> {

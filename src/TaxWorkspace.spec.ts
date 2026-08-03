@@ -36,6 +36,7 @@ describe('tax filing workspace', () => {
   it('routes annual VAT preparation to its reconciled full-year endpoint', () => {
     expect(declarationPreparationRequest('UST_ANNUAL', '2026', 2026, '{}')).toEqual(['/api/tax/vat-annual?year=2026'])
     expect(declarationPreparationRequest('USTVA', '2026-01', 2026, '{}')).toEqual(['/api/tax/vat-reconciliation?period=2026-01'])
+    expect(declarationPreparationRequest('KST', '2025', 2025, '[]')).toEqual(['/api/tax/annual/narrow', expect.objectContaining({ method: 'POST', body: '{"year":2025}' })])
   })
   it('preserves a successful submission result when refreshing history fails', () => {
     expect(submissionSuccessMessage('Submitted.', true, 'History could not be loaded.')).toBe('Submitted. History could not be loaded.')

@@ -29,6 +29,8 @@ import { currentReconciledAnnualVatDataset, currentReconciledVatDataset } from '
 import { secureServiceEndpoint } from './transport'
 import { isPrismaInt } from './persistenceLimits'
 import { assertProductionGatewayReady, assertTenantTaxReadiness, gatewayOperationalEvent } from './operations'
+import { appendAuditEvent } from '@/server/compliance/auditPersistence'
+import { assessmentNoticePayloadHash, createOrReplayAssessment, resolveCanonicalAssessmentEvidence } from './assessmentEvidence'
 
 export class TaxGatewayConfigurationError extends Error {}
 
@@ -372,19 +374,55 @@ export async function listTaxWorkflows(ownerId: string) {
   }))
 }
 
-export async function recordTaxAssessment(ownerId: string, input: Omit<Assessment, 'taxpayerId'>) {
+async function nonBindingAssessmentPreview(ownerId: string, workflow: DeclarationWorkflow) {
+  const liabilityField = workflow.dataset.kind === 'KST' ? 'KST_SCHULD' : workflow.dataset.kind === 'GEWST' ? 'GEWST_SCHULD' : undefined
+  if (!liabilityField || Number.isSafeInteger(workflow.dataset.fields[liabilityField])) return undefined
+  const preparation = await prisma.taxDatasetPreparationRecord.findUnique({
+    where: { ownerId_datasetHash: { ownerId, datasetHash: declarationDatasetHash(workflow.dataset) } },
+    include: { annualCase: true },
+  })
+  if (preparation?.bindingKind !== 'EXACT_LOCKED_HGB_CLOSE' || !preparation.annualCase || preparation.annualCase.status !== 'PREPARED' || preparation.annualCaseId !== preparation.annualCase.id || preparation.ruleVersion !== preparation.annualCase.ruleVersion) throw new TaxDeclarationError(['A liability-free KSt or GewSt declaration can only be reconciled against its exact immutable non-binding annual-case preview.'])
+  let payload: { authority?: unknown; preview?: Record<string, unknown> }
+  try { payload = JSON.parse(preparation.annualCase.previewPayload) }
+  catch { throw new TaxDeclarationError(['The immutable annual-case preview is malformed.']) }
+  if (payload.authority !== 'NON_BINDING_PREVIEW' || !payload.preview || payload.preview.ruleVersion !== preparation.annualCase.ruleVersion) throw new TaxDeclarationError(['The annual-case comparison amount is not an authenticated non-binding preview.'])
+  const amountCents = workflow.dataset.kind === 'KST'
+    ? Number(payload.preview.corporationTaxCents) + Number(payload.preview.solidaritySurchargeCents)
+    : Number(payload.preview.tradeTaxCents)
+  if (!Number.isSafeInteger(amountCents)) throw new TaxDeclarationError(['The non-binding annual-case comparison amount is not safe integer cents.'])
+  return { authority: 'NON_BINDING_PREVIEW' as const, amountCents, ruleVersion: preparation.annualCase.ruleVersion, annualCaseId: preparation.annualCase.id }
+}
+
+export async function recordTaxAssessment(ownerId: string, input: Omit<Assessment, 'taxpayerId' | 'documentHash'> & { noticeId?: string; documentId?: string; authority?: 'FINANZAMT' }) {
   if (!input || !isPrismaInt(input.assessedAmountCents)) throw new TaxDeclarationError(['The assessed amount must fit signed 32-bit integer cents storage.'])
+  if (input.authority !== 'FINANZAMT' || !input.noticeId?.trim() || !input.documentId?.trim()) throw new TaxDeclarationError(['The Finanzamt notice identity and tenant evidence document are required.'])
+  const evidence = await resolveCanonicalAssessmentEvidence(ownerId, input.documentId)
   const row = await ownedWorkflow(ownerId, input.declarationSubmissionId)
   const workflow = await restoreDeclarationWorkflow(row.submissionId, workflowStore())
-  const assessment: Assessment = { ...input, taxpayerId: ownerId }
-  const result = reconcileAssessment(assessment, workflow)
+  const assessment: Assessment = { ...input, documentHash: evidence.documentHash, taxpayerId: ownerId }
+  const preview = await nonBindingAssessmentPreview(ownerId, workflow)
+  const result = reconcileAssessment(assessment, workflow, preview)
   if (!isPrismaInt(result.differenceCents)) throw new TaxDeclarationError(['The assessment difference exceeds signed 32-bit integer cents storage.'])
-  return prisma.taxAssessmentRecord.create({ data: {
-    id: input.id, ownerId, kind: input.kind, period: input.period,
+  const notice = {
+    authority: 'FINANZAMT' as const, noticeId: input.noticeId, kind: input.kind, period: input.period,
     assessedAmountCents: input.assessedAmountCents, receivedAt: new Date(`${input.receivedAt}T00:00:00.000Z`),
-    documentHash: input.documentHash, declarationSubmissionId: input.declarationSubmissionId,
+    documentId: evidence.documentId, documentHash: evidence.documentHash, evidenceStorageKey: evidence.storageKey,
+    declarationSubmissionId: input.declarationSubmissionId, comparisonBasis: result.comparisonBasis,
+    previewRuleVersion: result.comparisonBasis === 'NON_BINDING_PREVIEW' ? result.previewRuleVersion! : null,
+    annualCaseId: result.comparisonBasis === 'NON_BINDING_PREVIEW' ? result.annualCaseId! : null,
     differenceCents: result.differenceCents, needsReview: result.needsReview,
-  } })
+  }
+  const persist = () => prisma.$transaction(transaction => createOrReplayAssessment(transaction, ownerId, input.id, notice, async record => {
+    await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'FINANZAMT_ASSESSMENT_RECORDED', reason: 'Authenticated authoritative assessment notice reconciliation', objectType: 'TaxAssessmentRecord', objectId: record.id, after: { ...notice, receivedAt: input.receivedAt, noticePayloadHash: assessmentNoticePayloadHash(notice) } })
+  }))
+  try { return await persist() }
+  catch (error) {
+    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')) throw error
+    const winner = await prisma.taxAssessmentRecord.findUnique({ where: { ownerId_noticeId: { ownerId, noticeId: input.noticeId.trim() } } })
+    if (!winner) throw error
+    if (winner.noticePayloadHash !== assessmentNoticePayloadHash({ ...notice, noticeId: input.noticeId.trim() })) throw new TaxDeclarationError(['This Finanzamt notice identity is already bound to different authoritative assessment data.'])
+    return winner
+  }
 }
 
 export async function listTaxAssessments(ownerId: string) {
