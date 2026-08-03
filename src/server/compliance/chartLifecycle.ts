@@ -1,7 +1,7 @@
 import type { FiscalPeriod } from './fiscalPeriods'
 
 export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'
-export interface AccountMapping { accountNumber: number; name: string; accountType: AccountType; normalBalance: 'DEBIT' | 'CREDIT'; hgbPosition: string; eBilanzPosition: string; vatCode?: string; active?: boolean }
+export interface AccountMapping { accountNumber: number; name: string; accountType: AccountType; normalBalance: 'DEBIT' | 'CREDIT'; presentationSign?: 1 | -1; hgbPosition: string; eBilanzPosition: string; vatCode?: string; active?: boolean }
 export interface MappingVersion { id: string; ownerId: string; chartId: string; effectiveFrom: string; effectiveTo?: string; mappings: AccountMapping[] }
 const accountTypes: AccountType[] = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']
 
@@ -44,6 +44,7 @@ export function validateImportedChart(input: unknown): string[] {
     for (const field of ['name', 'hgbPosition', 'eBilanzPosition'] as const) if (typeof item[field] !== 'string' || !item[field]!.trim()) issues.push(`Mapping ${index} ${field} is required`)
     if (!accountTypes.includes(item.accountType as AccountType)) issues.push(`Mapping ${index} accountType is invalid`)
     if (!['DEBIT', 'CREDIT'].includes(item.normalBalance ?? '')) issues.push(`Mapping ${index} normalBalance is invalid`)
+    if (item.presentationSign !== undefined && ![-1, 1].includes(item.presentationSign)) issues.push(`Mapping ${index} presentationSign is invalid`)
     if (item.vatCode !== undefined && (typeof item.vatCode !== 'string' || !item.vatCode.trim())) issues.push(`Mapping ${index} vatCode is invalid`)
     if (item.active !== undefined && typeof item.active !== 'boolean') issues.push(`Mapping ${index} active is invalid`)
   })

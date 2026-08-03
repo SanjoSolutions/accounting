@@ -626,6 +626,11 @@ export async function closeFiscalYear(ownerId: string, year: number) {
       if (current?.status === 'CLOSED' && current.closingSnapshot) return JSON.parse(current.closingSnapshot)
       throw new AccountingValidationError(['Das Geschäftsjahr wird bereits abgeschlossen.'])
     }
+    // Load this gate lazily to avoid the compliance-runtime -> ledger module cycle.
+    // The fingerprint is recomputed through this same transaction after the
+    // CLOSING claim, so UI readiness or an earlier approval cannot race a post.
+    const { requireCurrentReadyHgbClose } = await import('./hgbCloseRepository')
+    await requireCurrentReadyHgbClose(transaction, ownerId, { id: fiscalYear.id, year })
     const predecessors = await transaction.fiscalYear.findMany({
       where: { ownerId, year: { lt: year } },
       select: { year: true, status: true, _count: { select: { journalEntries: true } } },

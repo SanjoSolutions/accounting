@@ -1,4 +1,4 @@
-import { expect, type APIResponse, type Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 
 export class AnnualClosePage {
   constructor(private readonly page: Page) {}
@@ -39,21 +39,24 @@ export class AnnualClosePage {
     await expect(this.page.getByRole('status')).toContainText('transaction has been posted')
   }
 
-  async reviewAndLock2026() {
+  async expectHgbCloseBlocked2026() {
     await this.page.goto('/annual-close/2026')
-    await expect(this.page.getByRole('heading', { name: 'Mathematically ready for approval' })).toBeVisible()
+    await expect(this.page.getByText('A current HGB close run with READY_TO_LOCK status is required.')).toBeVisible()
     await this.expectStatement('Assets', '119,00')
     await this.expectStatement('Revenue', '119,00')
     await this.expectStatement('Annual result', '119,00')
 
-    this.page.once('dialog', dialog => dialog.accept())
-    await this.page.getByRole('button', { name: 'Review & lock' }).click()
-    await expect(this.page.getByText('Locked', { exact: true })).toBeVisible()
-    await expect(this.page.getByRole('button', { name: 'Fiscal year locked' })).toBeDisabled()
+    await expect(this.page.getByRole('button', { name: 'Review & lock' })).toBeDisabled()
   }
 
-  async attemptPosting(input: unknown): Promise<APIResponse> {
-    return this.page.request.post('/api/booking-records', { data: input })
+  async lockReadyFiscalYear(year: number) {
+    await this.page.goto(`/annual-close/${year}`)
+    await expect(this.page.getByText('READY_TO_LOCK', { exact: false })).toBeVisible()
+    const button = this.page.getByRole('button', { name: 'Review & lock' })
+    await expect(button).toBeEnabled()
+    this.page.once('dialog', dialog => dialog.accept())
+    await button.click()
+    await expect(this.page.locator('.page-heading .status')).toContainText('Locked')
   }
 
   private async selectAccount(row: number, account: string) {

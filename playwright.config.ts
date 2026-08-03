@@ -44,6 +44,7 @@ export default defineConfig({
         AUDIT_INTEGRITY_SECRET: 'playwright-only-audit-key-with-32-characters',
         DOCUMENT_STORAGE_DRIVER: 'fs',
         DOCUMENT_STORAGE_ROOT: './.playwright/documents',
+        DOCUMENT_STORAGE_REGION: 'DE',
         TAX_GATEWAY_URL: 'http://127.0.0.1:3199',
         TAX_GATEWAY_CREDENTIAL: 'playwright-only-tax-gateway-credential',
         TAX_WORKFLOW_INTEGRITY_MATERIAL: 'playwright-only-tax-workflow-integrity-material',

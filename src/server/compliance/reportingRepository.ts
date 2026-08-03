@@ -3,6 +3,8 @@ import 'server-only'
 import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { canonicalJson, createAuditPackage, type AuditExportSource, type MigrationPackageAuthenticator } from '@/core/compliance/auditExport'
 import { BALANCE_SHEET_ORDER, GKV_ORDER, MICRO_BALANCE_SHEET_ORDER, SMALL_BALANCE_SHEET_ORDER, UKV_ORDER, prepareAnnualAccounts, type AnnualPackageInput } from '@/core/compliance/annualAccounts'
+import { buildHgbStatements, createHgbStatementRuleSet, type HgbStatementLineResult, type HgbTrialBalanceAccount } from '@/core/hgbStatements'
+import { hgbWorkpaperChecksum, validateHgbWorkpaper, type HgbWorkpaperDraft, type OpeningBalanceSchedule, type PolicyElectionsSchedule, type NotesQuestionnaireSchedule } from '@/core/hgbWorkpapers'
 import { closePhysicalInventory, createAssetSchedules, type AssetEvent, type FixedAsset, type InventoryCount, type InventoryItem } from '@/core/compliance/assetsInventory'
 import { exportCashAudit, type CashBook } from '@/core/compliance/cashBook'
 import { validateProcedureVersion, type ProcedureDocumentVersion } from '@/core/compliance/procedureDocumentation'
@@ -178,16 +180,72 @@ async function loadAuthoritativeAnnualInput(ownerId: string, actorId: string, pe
   if (!current) throw new ComplianceRuntimeError('Fiscal period not found', 404)
   const profile = JSON.parse(profileVersion.payload) as Record<string, unknown>
   const chart = required(profile.chart, 'Authoritative company profile chart')
-  const mappings = await prisma.accountMappingVersion.findMany({ where: { ownerId, chartId: chart, active: true, effectiveFrom: { lte: period.endsAt }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: period.endsAt } }] }, orderBy: { effectiveFrom: 'desc' } })
-  const presentation = input.presentation as Partial<AnnualPackageInput> | undefined
-  const size = String(profile.sizeClass ?? 'MICRO') as AnnualPackageInput['profile']['size']; const method = presentation?.method ?? 'GKV'
-  const mappingByAccount = new Map<number, string>(); for (const mapping of mappings) if (!mappingByAccount.has(mapping.accountNumber)) mappingByAccount.set(mapping.accountNumber, mapping.hgbPosition)
-  const balances = (year: typeof current) => { const result = new Map<string, { amount: number; accountIds: Set<string> }>(); for (const entry of year.journalEntries) for (const line of entry.lines) { const code = mappingByAccount.get(line.account.number); if (!code) continue; const currentValue = result.get(code) ?? { amount: 0, accountIds: new Set<string>() }; currentValue.amount += line.debitCents - line.creditCents; currentValue.accountIds.add(line.accountId); result.set(code, currentValue) } return result }
-  const currentBalances = balances(current); const previousBalances = balances(previous as typeof current)
-  const balanceCodes = size === 'MICRO' ? MICRO_BALANCE_SHEET_ORDER : size === 'SMALL' ? SMALL_BALANCE_SHEET_ORDER : BALANCE_SHEET_ORDER
+  const [mappings, records] = await Promise.all([
+    prisma.accountMappingVersion.findMany({ where: { ownerId, chartId: chart, active: true, effectiveFrom: { lte: period.endsAt }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: previous.startsAt } }] }, orderBy: [{ accountNumber: 'asc' }, { effectiveFrom: 'asc' }] }),
+    prisma.hgbWorkpaperRecord.findMany({ where: { ownerId, fiscalPeriodId: period.id }, orderBy: [{ kind: 'asc' }, { version: 'desc' }] }),
+  ])
+  const latest = records.filter((item, index) => records.findIndex(candidate => candidate.kind === item.kind) === index)
+  const reviewed = new Map<string, HgbWorkpaperDraft>()
+  for (const item of latest.filter(item => item.status === 'REVIEWED')) {
+    let payload: ReturnType<typeof validateHgbWorkpaper>
+    try { payload = validateHgbWorkpaper(JSON.parse(item.payload) as HgbWorkpaperDraft, { startsAt: dateOnly(period.startsAt), endsAt: dateOnly(period.endsAt) }) } catch { throw new ComplianceRuntimeError(`The reviewed ${item.kind} workpaper is malformed`, 409) }
+    if (hgbWorkpaperChecksum({ ownerId, fiscalPeriodId: period.id, kind: item.kind, payload }) !== item.checksum) throw new ComplianceRuntimeError(`The reviewed ${item.kind} workpaper checksum is invalid`, 409)
+    reviewed.set(item.kind, payload)
+  }
+  const adjustments = latest.length ? await prisma.hgbAdjustmentRecord.findMany({ where: { ownerId, workpaperId: { in: latest.map(item => item.id) } } }) : []
+  if (adjustments.some(item => item.status !== 'POSTED')) throw new ComplianceRuntimeError('Every reviewed workpaper adjustment must be posted before annual-account generation', 409)
+  const requireWorkpaper = (kind: string) => { const workpaper = reviewed.get(kind); if (!workpaper) throw new ComplianceRuntimeError(`A current independently reviewed ${kind} workpaper is required`, 409); return workpaper }
+  const sizeSchedule = requireWorkpaper('SIZE_AND_APPLICABILITY').schedule
+  if (sizeSchedule.type !== 'SIZE_APPLICABILITY') throw new ComplianceRuntimeError('The reviewed size workpaper is malformed', 409)
+  const size = sizeSchedule.establishedSize
+  const policySchedule = requireWorkpaper('POLICY_ELECTIONS').schedule as PolicyElectionsSchedule
+  const methods = policySchedule.elections.filter(item => item.applicable && item.selected && (item.policy === 'TOTAL_COST_PNL' || item.policy === 'FUNCTION_OF_EXPENSE_PNL'))
+  if (methods.length !== 1) throw new ComplianceRuntimeError('Exactly one reviewed income-statement method election is required', 409)
+  const method = methods[0].policy === 'TOTAL_COST_PNL' ? 'GKV' as const : 'UKV' as const
+  if (size === 'MICRO' && method !== 'GKV') throw new ComplianceRuntimeError('The initial micro-entity annual-package adapter supports the condensed HGB § 275a layout with total-cost presentation only', 409)
+  const opening = requireWorkpaper('OPENING_BALANCE').schedule as OpeningBalanceSchedule
+  requireWorkpaper('MAPPING_AND_PRESENTATION'); requireWorkpaper('RECOGNITION_AND_OWNERSHIP'); requireWorkpaper('CUT_OFF_AND_ACCRUAL_DEFERRAL'); requireWorkpaper('PROVISIONS_AND_CONTINGENCIES'); requireWorkpaper('RECEIVABLE_AND_MARKET_VALUATION')
+  const ruleSet = createHgbStatementRuleSet(size, method)
+  const trialBalance = (year: typeof current): HgbTrialBalanceAccount[] => {
+    const accounts = new Map<string, HgbTrialBalanceAccount>()
+    for (const entry of year.journalEntries) for (const line of entry.lines) {
+      const key = String(line.account.number); const value = accounts.get(key) ?? { accountNumber: key, openingDebitCents: 0, openingCreditCents: 0, debitCents: 0, creditCents: 0 }
+      value.debitCents += line.debitCents; value.creditCents += line.creditCents
+      if (!Number.isSafeInteger(value.debitCents) || !Number.isSafeInteger(value.creditCents)) throw new ComplianceRuntimeError(`Trial balance arithmetic is unsafe for account ${key}`, 409)
+      accounts.set(key, value)
+    }
+    return [...accounts.values()].sort((left, right) => left.accountNumber.localeCompare(right.accountNumber))
+  }
+  const statement = buildHgbStatements({
+    ruleSet,
+    current: { startsAt: dateOnly(current.startsAt), endsAt: dateOnly(current.endsAt), accounts: trialBalance(current) },
+    comparative: { startsAt: dateOnly(previous.startsAt), endsAt: dateOnly(previous.endsAt), accounts: trialBalance(previous as typeof current) },
+    mappings: mappings.map(mapping => ({ accountNumber: String(mapping.accountNumber), lineId: mapping.hgbPosition, normalBalance: mapping.normalBalance as 'DEBIT' | 'CREDIT', presentationSign: mapping.presentationSign as 1 | -1, effectiveFrom: dateOnly(mapping.effectiveFrom), ...(mapping.effectiveTo ? { effectiveTo: dateOnly(mapping.effectiveTo) } : {}) })),
+    expectedComparativeLeaves: opening.approvedComparativeLeaves,
+  })
+  const accountIds = new Map<number, string>(); for (const year of [current, previous as typeof current]) for (const entry of year.journalEntries) for (const line of entry.lines) accountIds.set(line.account.number, line.accountId)
+  const byId = new Map(statement.lines.map(line => [line.id, line]))
+  const sourceAccounts = (lineId: string) => statement.mappedAccounts.filter(item => item.lineId === lineId).map(item => accountIds.get(Number(item.accountNumber))).filter((id): id is string => Boolean(id))
+  const convert = (codes: readonly string[], map: Record<string, string>) => codes.map(code => { const line = byId.get(map[code]); const sign = line?.role === 'EXPENSE' ? -1 : 1; return { code, label: line?.label ?? code, amountCents: (line?.amountCents ?? 0) * sign, comparativeCents: (line?.comparativeAmountCents ?? 0) * sign, accountIds: line ? [...new Set(sourceAccounts(line.id))] : [] } })
+  const balanceMap = hgbAnnualBalanceMap()
+  const incomeMap = hgbAnnualIncomeMap(size, method)
+  const balanceCodes = size === 'MICRO' ? MICRO_BALANCE_SHEET_ORDER : SMALL_BALANCE_SHEET_ORDER
   const incomeCodes = method === 'GKV' ? GKV_ORDER.filter(code => code !== 'GROSS_PROFIT') : UKV_ORDER
-  const lines = (codes: readonly string[]) => codes.map(code => ({ code, label: code, amountCents: currentBalances.get(code)?.amount ?? 0, comparativeCents: previousBalances.get(code)?.amount ?? 0, accountIds: [...new Set([...(currentBalances.get(code)?.accountIds ?? []), ...(previousBalances.get(code)?.accountIds ?? [])])] }))
-  return { profile: { tenantId: ownerId, legalName: String(profile.companyName ?? ''), legalForm: String(profile.legalForm ?? ''), registerCourt: String(profile.registerCourt ?? ''), registerNumber: String(profile.registerNumber ?? ''), registeredOffice: String((profile.registeredAddress as Record<string, unknown> | undefined)?.city ?? ''), size, currency: 'EUR', language: 'de' }, fiscalYear: period.year, previousFiscalYear: previous.year, previousFiscalPeriodStart: dateOnly(previous.startsAt), previousFiscalPeriodEnd: dateOnly(previous.endsAt), previousFiscalPeriodId: previous.id, fiscalPeriodStart: dateOnly(period.startsAt), fiscalPeriodEnd: dateOnly(period.endsAt), fiscalTimeZone: 'Europe/Berlin', method, balanceSheet: lines(balanceCodes), incomeStatement: lines(incomeCodes), policies: presentation?.policies ?? [], notes: presentation?.notes ?? [], checks: presentation?.checks ?? { nonOffsetting: false, accrual: false, provisions: false, valuation: false, continuity: false }, preparedBy: actorId, preparedAt: new Date().toISOString() }
+  const notesWorkpaper = reviewed.get('NOTES')?.schedule as NotesQuestionnaireSchedule | undefined
+  const notes = notesWorkpaper?.type === 'NOTES_QUESTIONNAIRE' && Array.isArray(notesWorkpaper.questions) ? notesWorkpaper.questions.filter(item => item.answer === 'YES' && item.disclosureText?.trim()).map(item => item.disclosureText!.trim()) : ['Anhangangaben werden aufgrund der dokumentierten Kleinstkapitalgesellschaft-Erleichterung unter der Bilanz ausgewiesen.']
+  return { profile: { tenantId: ownerId, legalName: String(profile.companyName ?? ''), legalForm: String(profile.legalForm ?? ''), registerCourt: String(profile.registerCourt ?? ''), registerNumber: String(profile.registerNumber ?? ''), registeredOffice: String((profile.registeredAddress as Record<string, unknown> | undefined)?.city ?? ''), size, currency: 'EUR', language: 'de' }, fiscalYear: period.year, previousFiscalYear: previous.year, previousFiscalPeriodStart: dateOnly(previous.startsAt), previousFiscalPeriodEnd: dateOnly(previous.endsAt), previousFiscalPeriodId: previous.id, fiscalPeriodStart: dateOnly(period.startsAt), fiscalPeriodEnd: dateOnly(period.endsAt), fiscalTimeZone: 'Europe/Berlin', method, balanceSheet: convert(balanceCodes, balanceMap), incomeStatement: convert(incomeCodes, incomeMap), policies: policySchedule.elections.filter(item => item.applicable && item.selected).map(item => `${item.policy}: ${item.rationale.trim()}`), notes, checks: { nonOffsetting: true, accrual: true, provisions: true, valuation: true, continuity: true }, preparedBy: actorId, preparedAt: new Date().toISOString() }
+}
+
+function hgbAnnualBalanceMap(): Record<string, string> {
+  return { 'A.ASSETS': 'BS.ASSETS', 'A.FIXED': 'BS.A.A', 'A.INTANGIBLE': 'BS.A.A.I', 'A.TANGIBLE': 'BS.A.A.II', 'A.FINANCIAL': 'BS.A.A.III', 'A.CURRENT': 'BS.A.B', 'A.INVENTORIES': 'BS.A.B.I', 'A.RECEIVABLES': 'BS.A.B.II', 'A.SECURITIES': 'BS.A.B.III', 'A.CASH': 'BS.A.B.IV', 'A.PREPAID': 'BS.A.C', 'A.DEFERRED_TAX': 'BS.A.D', 'A.PENSION_DIFFERENCE': 'BS.A.E', 'B.EQUITY_LIABILITIES': 'BS.EQUITY_LIABILITIES', 'B.EQUITY': 'BS.P.A', 'B.SUBSCRIBED_CAPITAL': 'BS.P.A.I', 'B.CAPITAL_RESERVE': 'BS.P.A.II', 'B.REVENUE_RESERVES': 'BS.P.A.III', 'B.CARRYFORWARD': 'BS.P.A.IV', 'B.NET_INCOME': 'BS.P.A.V', 'B.PROVISIONS': 'BS.P.B', 'B.LIABILITIES': 'BS.P.C', 'B.DEFERRED': 'BS.P.D', 'B.DEFERRED_TAX': 'BS.P.E' }
+}
+
+function hgbAnnualIncomeMap(size: 'MICRO' | 'SMALL', method: 'GKV' | 'UKV'): Record<string, string> {
+  if (size === 'MICRO') return { REVENUE: 'IS.M.1', OTHER_INCOME: 'IS.M.2', MATERIAL_RAW: 'IS.M.3', PERSONNEL_WAGES: 'IS.M.4', DEPRECIATION_FIXED: 'IS.M.5', OTHER_EXPENSE: 'IS.M.6', INCOME_TAX: 'IS.M.7', RESULT_AFTER_TAX: 'IS.M.8', NET_INCOME: 'IS.M.8' }
+  const prefix = `IS.${method}`
+  return method === 'GKV'
+    ? { REVENUE: 'IS.GKV.1', INVENTORY_CHANGE: 'IS.GKV.2', OWN_WORK: 'IS.GKV.3', OTHER_INCOME: 'IS.GKV.4', MATERIAL_RAW: 'IS.GKV.5.A', MATERIAL_SERVICES: 'IS.GKV.5.B', PERSONNEL_WAGES: 'IS.GKV.6.A', PERSONNEL_SOCIAL: 'IS.GKV.6.B', DEPRECIATION_FIXED: 'IS.GKV.7.A', DEPRECIATION_CURRENT: 'IS.GKV.7.B', OTHER_EXPENSE: 'IS.GKV.8', PARTICIPATION_INCOME: `${prefix}.FIN.1`, AFFILIATED_INCOME: `${prefix}.FIN.2`, INTEREST_INCOME: `${prefix}.FIN.3`, FINANCIAL_DEPRECIATION: `${prefix}.FIN.4`, INTEREST_EXPENSE: `${prefix}.FIN.5`, INCOME_TAX: `${prefix}.TAX.INCOME`, RESULT_AFTER_TAX: `${prefix}.AFTER_TAX`, OTHER_TAX: `${prefix}.TAX.OTHER`, NET_INCOME: `${prefix}.NET` }
+    : { REVENUE: 'IS.UKV.1', COST_OF_SALES: 'IS.UKV.2', GROSS_SALES_PROFIT: 'IS.UKV.3', DISTRIBUTION: 'IS.UKV.4', ADMINISTRATION: 'IS.UKV.5', OTHER_INCOME: 'IS.UKV.6', OTHER_EXPENSE: 'IS.UKV.7', PARTICIPATION_INCOME: `${prefix}.FIN.1`, AFFILIATED_INCOME: `${prefix}.FIN.2`, INTEREST_INCOME: `${prefix}.FIN.3`, FINANCIAL_DEPRECIATION: `${prefix}.FIN.4`, INTEREST_EXPENSE: `${prefix}.FIN.5`, INCOME_TAX: `${prefix}.TAX.INCOME`, RESULT_AFTER_TAX: `${prefix}.AFTER_TAX`, OTHER_TAX: `${prefix}.TAX.OTHER`, NET_INCOME: `${prefix}.NET` }
 }
 
 export async function getReportingOverview(ownerId: string) {
