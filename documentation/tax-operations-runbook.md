@@ -2,6 +2,30 @@
 
 Production filing is fail-closed. `TAX_PRODUCTION_FILING_ENABLED=true` is necessary but is not sufficient: both service URLs must be HTTPS, both credentials must be supplied through the deployment secret store, `TAX_GATEWAY_QUALIFICATION_ID` must identify the retained qualification record, and `TAX_GATEWAY_QUALIFIED_FORM_VERSIONS` must contain the exact form version being sent. Never place credential values in logs, tickets, qualification records, or diagnostics.
 
+## Test gateway boundaries
+
+The default Playwright service, `e2e/local-tax-gateway-emulator.mjs`, is only a
+local lifecycle emulator. Its synthetic validation result and receipt prove
+application workflow, persistence and idempotency behavior only. They are not
+ELSTER, ERiC, official form validation, or interoperability evidence.
+
+An authorised external annual-tax gateway can be checked without mocks by
+setting `ANNUAL_TAX_GATEWAY_CONTRACT_URL` to its HTTPS test endpoint and
+`ANNUAL_TAX_GATEWAY_CONTRACT_CREDENTIAL` through the local secret environment,
+then running:
+
+```sh
+pnpm exec playwright test e2e/annual-tax-gateway.contract.spec.ts
+```
+
+`ANNUAL_TAX_GATEWAY_CONTRACT_TAXPAYER_ID` may select the authorised test-tenant
+identity. The contract sends synthetic 2025 KSt and GewSt datasets only to the
+gateway's non-binding `validate` endpoint. It deliberately does not call
+`submit`; a passing result demonstrates this application's HTTP adapter
+contract, not ERiC interoperability or acceptance by a Finanzamt. Retain the
+external gateway's redacted protocol and independent qualification evidence
+before enabling any production form version.
+
 ## Onboarding and release gate
 
 1. Reconcile imported outgoing invoice numbers for each tenant/year with `reconcile-number-sequence`. Supply the immutable imported numbers and explicitly confirm the first unused number. The service refuses duplicates, other formats, backward movement, and collisions with issued, reserved, or voided local numbers.

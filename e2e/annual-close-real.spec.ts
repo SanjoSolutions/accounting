@@ -53,7 +53,7 @@ test.describe('real annual close', () => {
     await context.close()
   })
 
-  test('completes an evidence-backed reviewed HGB close and locks the ledger', async ({ browser }, testInfo) => {
+  test('completes the reviewed HGB close, E-Bilanz export, KSt and GewSt lifecycle for a 2025 UG', async ({ browser }, testInfo) => {
     const baseURL = testInfo.project.use.baseURL as string
     const ownerContext = await browser.newContext({ baseURL }); await ownerContext.addCookies([{ name: 'NEXT_LOCALE', value: 'en', url: baseURL }]); const ownerPage = await ownerContext.newPage()
     const reviewerContext = await browser.newContext({ baseURL }); const reviewerPage = await reviewerContext.newPage()
@@ -71,10 +71,10 @@ test.describe('real annual close', () => {
 
     const periods = new Map<number, { id: string }>()
     for (const year of [2024, 2025]) periods.set(year, await api(ownerPage, 'post', '/api/compliance', { action: 'period.create', referenceYear: year, label: `HGB ${year}`, startsAt: `${year}-01-01`, endsAt: `${year}-12-31`, reason: 'HGB close acceptance period' }))
-    const companyProfile = { companyName: 'HGB E2E GmbH', registeredAddress: { streetAndHouseNumber: 'Test 1', zipCode: '10115', city: 'Berlin', country: 'DE' }, legalForm: 'GMBH', registerCourt: 'Berlin', registerNumber: 'HRB 1', taxNumber: '12/345/67890', taxOffice: 'Berlin', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: 'Software', sizeClass: 'MICRO', chart: 'CUSTOM:HGB-MICRO', elections: [] }
+    const companyProfile = { companyName: 'HGB E2E UG (haftungsbeschränkt)', registeredAddress: { streetAndHouseNumber: 'Test 1', zipCode: '10115', city: 'Berlin', country: 'DE' }, legalForm: 'UG', registerCourt: 'Berlin', registerNumber: 'HRB 1', taxNumber: '1234567890123', taxOffice: 'Berlin', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: 'Software', sizeClass: 'MICRO', chart: 'CUSTOM:HGB-MICRO', elections: [], annualTaxProfile: { tradeBusiness: true, establishments: 1, adviserExtension: false, municipalityCode: '11000000', tradeTaxMultiplierBasisPoints: 41000, foreignIncome: false, groupOrConsolidation: false, lossCarry: false, specialRegime: false, withholdingOrCredits: false, payroll: false }, eBilanz: { accountingStandard: 'HGB', incomeStatementMethod: 'GKV', statementType: 'E', reportStatus: 'E', consolidationRange: 'EA', incomeClassification: 'trade' } }
     const mappingInput = { chartId: 'CUSTOM:HGB-MICRO', size: 'MICRO', method: 'GKV', reason: 'Reviewed HGB presentation mapping', evidenceId, mappings: [
-      { accountNumber: 1200, name: 'Bank', accountType: 'ASSET', normalBalance: 'DEBIT', presentationSign: 1, hgbPosition: 'BS.A.B', eBilanzPosition: 'cash' },
-      { accountNumber: 8400, name: 'Revenue', accountType: 'REVENUE', normalBalance: 'CREDIT', presentationSign: 1, hgbPosition: 'IS.M.1', eBilanzPosition: 'revenue' },
+      { accountNumber: 1200, name: 'Bank', accountType: 'ASSET', normalBalance: 'DEBIT', presentationSign: 1, hgbPosition: 'BS.A.B', eBilanzPosition: 'bs.ass.currAss.cashEquiv.bank' },
+      { accountNumber: 8400, name: 'Revenue', accountType: 'REVENUE', normalBalance: 'CREDIT', presentationSign: 1, hgbPosition: 'IS.M.1', eBilanzPosition: 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput' },
     ] }
     const mappingIds: string[] = []
     for (const year of [2024, 2025]) {
@@ -85,7 +85,7 @@ test.describe('real annual close', () => {
     const accountId = (number: number) => (workspace.accounts as Array<{ id: string; number: number }>).find(account => account.number === number)!.id
     await api(ownerPage, 'post', '/api/booking-records', { fiscalYear: 2025, bookingDate: '2025-12-15', documentNumber: 'HGB-2025', description: 'HGB revenue 2025', documentIds: [evidenceId], lines: [{ accountId: accountId(1200), debitCents: 100, creditCents: 0 }, { accountId: accountId(8400), debitCents: 0, creditCents: 100 }] })
 
-    const closeProfile: HgbCloseProfile = { ruleSetVersion: 'HGB-DE-2024.1', legalForm: 'GMBH', fiscalPeriodStart: '2025-01-01', fiscalPeriodEnd: '2025-12-31', germanRegisteredEntity: true, groupStatus: 'STANDALONE_NO_EXEMPTION', publicInterestEntity: false, capitalMarketOrListed: false, regulatedIndustry: false, liquidationOrInsolvencyBasis: false, goingConcern: true, formedOrConvertedInCurrentPeriod: false, currentSizeFacts: { balanceSheetTotalCents: 100, revenueCents: 100, quarterlyEmployeeCounts: [1, 1, 1, 1], microExcludedBySection267a: false }, priorSizeFacts: { balanceSheetTotalCents: 90, revenueCents: 90, quarterlyEmployeeCounts: [1, 1, 1, 1], microExcludedBySection267a: false }, priorEstablishedSize: 'MICRO', hasInventory: false, hasFixedAssets: false, microNotesOmission: { requiredSection268Paragraph7DisclosuresIncludedBelowBalanceSheet: true, advancesAndLoansToManagementDisclosedBelowBalanceSheet: true, requiredAdditionalTrueAndFairDisclosuresIncludedBelowBalanceSheet: true }, section5aApplies: false }
+    const closeProfile: HgbCloseProfile = { ruleSetVersion: 'HGB-DE-2024.1', legalForm: 'UG', fiscalPeriodStart: '2025-01-01', fiscalPeriodEnd: '2025-12-31', germanRegisteredEntity: true, groupStatus: 'STANDALONE_NO_EXEMPTION', publicInterestEntity: false, capitalMarketOrListed: false, regulatedIndustry: false, liquidationOrInsolvencyBasis: false, goingConcern: true, formedOrConvertedInCurrentPeriod: false, currentSizeFacts: { balanceSheetTotalCents: 100, revenueCents: 100, quarterlyEmployeeCounts: [1, 1, 1, 1], microExcludedBySection267a: false }, priorSizeFacts: { balanceSheetTotalCents: 90, revenueCents: 90, quarterlyEmployeeCounts: [1, 1, 1, 1], microExcludedBySection267a: false }, priorEstablishedSize: 'MICRO', hasInventory: false, hasFixedAssets: false, microNotesOmission: { requiredSection268Paragraph7DisclosuresIncludedBelowBalanceSheet: true, advancesAndLoansToManagementDisclosedBelowBalanceSheet: true, requiredAdditionalTrueAndFairDisclosuresIncludedBelowBalanceSheet: true }, section5aApplies: false }
     const prior: Record<string, number> = {}
     const rule = createHgbStatementRuleSet('MICRO', 'GKV'); const approvedComparativeLeaves = rule.lines.filter(line => !rule.lines.some(candidate => candidate.parentId === line.id)).map(line => ({ lineId: line.id, amountCents: prior[line.id] ?? 0 }))
     const base = (kind: typeof HGB_WORKPAPER_KINDS[number], schedule: Record<string, unknown>, conclusion: HgbWorkpaperDraft['conclusion'] = 'COMPLETE'): HgbWorkpaperDraft => ({ kind, title: `Reviewed ${kind}`, conclusion, evidenceIds: [evidenceId], schedule: schedule as unknown as HgbWorkpaperDraft['schedule'], adjustments: [] })
@@ -105,7 +105,7 @@ test.describe('real annual close', () => {
       base('NOTES', notApplicable('NOTES_QUESTIONNAIRE'), 'NOT_APPLICABLE'),
       base('GMBH_EQUITY_AND_RESULT', { ...applicable, type: 'GMBH_EQUITY_RESULT', shareCapitalCents: 0, resultCents: 100, equityReconciled: true, section5aReserveApplicable: false, evidenceId, proposalIds: [] }),
       base('MICRO_NOTES_OMISSION', { ...applicable, type: 'MICRO_NOTES_OMISSION', section268Paragraph7Disclosed: true, managementLoansDisclosed: true, additionalTrueAndFairDisclosureAssessed: true, evidenceId }),
-      base('SIZE_AND_APPLICABILITY', { ...applicable, type: 'SIZE_APPLICABILITY', legalForm: 'GMBH', establishedSize: 'MICRO', currentFactsEvidenceId: evidenceId, priorFactsEvidenceId: evidenceId, standaloneNoExemption: true, nonPieUnlistedUnregulated: true, closeProfile }),
+      base('SIZE_AND_APPLICABILITY', { ...applicable, type: 'SIZE_APPLICABILITY', legalForm: 'UG', establishedSize: 'MICRO', currentFactsEvidenceId: evidenceId, priorFactsEvidenceId: evidenceId, standaloneNoExemption: true, nonPieUnlistedUnregulated: true, closeProfile }),
     ]
     for (const paper of papers) {
       const saved = await api(ownerPage, 'put', '/api/fiscal-years/2025/hgb-close/workpapers', { workpaper: paper })
@@ -124,6 +124,41 @@ test.describe('real annual close', () => {
     expect((await api(ownerPage, 'get', '/api/booking-records?year=2025')).fiscalYear.status).toBe('CLOSED')
     const rejected = await ownerPage.request.post('/api/booking-records', { data: { fiscalYear: 2025, bookingDate: '2025-12-20', documentNumber: 'LATE', description: 'Must reject', lines: [{ accountId: accountId(1200), debitCents: 1, creditCents: 0 }, { accountId: accountId(8400), debitCents: 0, creditCents: 1 }] } })
     expect(rejected.status()).toBe(400)
+
+    await ownerPage.goto('/e-bilanz/2025')
+    await ownerPage.getByLabel('Company name').fill(companyProfile.companyName)
+    await ownerPage.getByLabel('Street and house number').fill('Test 1')
+    await ownerPage.getByLabel('Postal code').fill('10115')
+    await ownerPage.getByLabel('City').fill('Berlin')
+    await ownerPage.getByLabel('13-digit ELSTER tax number').fill('1234567890123')
+    await ownerPage.getByLabel('Legal form').selectOption('UG')
+    const download = ownerPage.waitForEvent('download')
+    await ownerPage.getByRole('button', { name: 'Create XBRL validation package' }).click()
+    expect((await download).suggestedFilename()).toBe('e-bilanz-2025-pruefpaket.zip')
+    await expect(ownerPage.getByText(/v1 · EXPORTED/)).toBeVisible()
+
+    for (const kind of ['KST', 'GEWST'] as const) {
+      await ownerPage.goto('/tax/2025')
+      await expect(ownerPage.getByText(/Local lifecycle emulator/)).toBeVisible()
+      await ownerPage.getByLabel('Form').selectOption(kind)
+      await ownerPage.getByRole('button', { name: 'Validate officially' }).click()
+      await expect(ownerPage.getByText('The official gateway validated the dataset.')).toBeVisible()
+      await expect(ownerPage.getByText(/Finanzamt assessment is authoritative/).first()).toBeVisible()
+      await ownerPage.getByLabel('I explicitly approve this binding transmission.').check()
+      await ownerPage.getByRole('button', { name: 'Submit binding' }).click()
+      await expect(ownerPage.getByRole('cell', { name: `e2e-${kind.toLowerCase()}-2025-receipt` })).toBeVisible()
+    }
+    await ownerPage.goto('/tax/2025')
+    await ownerPage.getByLabel('Accepted declaration').selectOption({ label: 'KST · 2025' })
+    await ownerPage.getByLabel('Notice ID').fill('KST-2025-E2E-1')
+    await ownerPage.getByLabel('Assessed amount (cents)').fill('42')
+    await ownerPage.getByLabel('Received on').fill(new Date().toISOString().slice(0, 10))
+    await ownerPage.getByLabel('Evidence document ID').fill(evidenceId)
+    await ownerPage.getByRole('button', { name: 'Record authoritative assessment' }).click()
+    await expect(ownerPage.getByText('Authoritative Finanzamt assessment recorded and reconciled.')).toBeVisible()
+    await expect(ownerPage.getByRole('cell', { name: 'KST-2025-E2E-1' })).toBeVisible()
+    await ownerPage.reload()
+    await expect(ownerPage.getByRole('cell', { name: 'KST-2025-E2E-1' })).toBeVisible()
     await ownerContext.close(); await reviewerContext.close()
   })
 })

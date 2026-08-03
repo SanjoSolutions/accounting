@@ -82,10 +82,11 @@ test.describe('accounting workspaces', () => {
       closed = true
       await fulfillJson(route, { data: { status: 'CLOSED' } })
     })
+    await page.route(`**/api/fiscal-years/${currentYear}/hgb-close`, route => fulfillJson(route, { data: { ledgerFingerprint: 'current-hgb-fingerprint', runs: [{ status: 'READY_TO_LOCK', ledgerFingerprint: 'current-hgb-fingerprint' }] } }))
     page.once('dialog', dialog => dialog.accept())
 
     await app.open(`/annual-close/${currentYear}`)
-    await expect(page.getByRole('heading', { name: 'Mathematically ready for approval' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'HGB close is approved for locking' })).toBeVisible()
     await page.getByRole('button', { name: 'Review & lock' }).click()
     await expect(page.getByText('Locked', { exact: true })).toBeVisible()
   })

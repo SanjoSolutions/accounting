@@ -92,7 +92,7 @@ test.describe('tax and statutory reporting', () => {
 
     await tax.open(`/tax/${currentYear}`)
     await tax.validateAndSubmit()
-    await expect(page.getByRole('status')).toContainText('transmitted and archived')
+    await expect(page.getByText('The declaration was transmitted and archived.', { exact: true })).toBeVisible()
     await expect(page.getByRole('cell', { name: 'receipt-1' })).toBeVisible()
   })
 

@@ -7,7 +7,11 @@ const credential = 'playwright-only-tax-gateway-credential'
 const server = createServer(async (request, response) => {
   if (request.method === 'GET' && request.url === '/health') {
     response.writeHead(200, { 'content-type': 'application/json' })
-    response.end(JSON.stringify({ ok: true }))
+    response.end(JSON.stringify({
+      ok: true,
+      service: 'local-tax-lifecycle-emulator',
+      officialInteroperability: false,
+    }))
     return
   }
 
@@ -22,13 +26,13 @@ const server = createServer(async (request, response) => {
   const hasDataset = body?.dataset && typeof body.dataset === 'object'
   if (!authorized || !hasDataset || !['validate', 'submit'].includes(action ?? '')) {
     response.writeHead(400, { 'content-type': 'application/json' })
-    response.end(JSON.stringify({ error: 'Invalid E2E gateway request.' }))
+    response.end(JSON.stringify({ error: 'Invalid local E2E tax lifecycle emulator request.' }))
     return
   }
 
   response.writeHead(200, { 'content-type': 'application/json' })
   if (action === 'validate') {
-    response.end(JSON.stringify({ valid: true, errors: [], protocol: 'e2e-loopback-2026' }))
+    response.end(JSON.stringify({ valid: true, errors: [], protocol: 'local-lifecycle-emulator-2026' }))
     return
   }
   if (typeof body.idempotencyKey !== 'string' || !body.idempotencyKey) {

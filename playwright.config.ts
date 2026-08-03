@@ -25,7 +25,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'node e2e/official-tax-gateway.mjs',
+      command: 'node e2e/local-tax-gateway-emulator.mjs',
       url: 'http://127.0.0.1:3199/health',
       reuseExistingServer: false,
       timeout: 30_000,
