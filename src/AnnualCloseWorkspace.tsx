@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { FiscalYearNavigation } from './FiscalYearNavigation'
+import { HgbCloseWorkbench } from './HgbCloseWorkbench'
 
 type CloseData = {
   fiscalYear: { year: number; status: string; lockedAt: string | null }
@@ -20,6 +21,7 @@ export function getCloseSteps(data: CloseData | null, t: (key: string) => string
     { title: t('bookingJournal'), detail: data?.entries?.length ? t('journalComplete') : t('journalEmpty'), done: Boolean(data?.entries?.length) },
     { title: t('accountsTaxonomy'), detail: ready ? t('accountsMapped') : t('plausibilityBlocked'), done: ready },
     { title: t('balanceAndIncome'), detail: ready ? t('statementsBalanced') : t('plausibilityBlocked'), done: ready },
+    { title: t('hgbWorkpapers'), detail: data?.closingIssues.includes(t('hgbRunRequired')) ? t('hgbEvidencePending') : ready ? t('hgbEvidenceReady') : t('plausibilityBlocked'), done: ready && !data?.closingIssues.includes(t('hgbRunRequired')) },
     { title: t('approvalAndLock'), detail: closed ? t('yearImmutable') : t('approvalPending'), done: closed },
   ]
 }
@@ -31,6 +33,7 @@ export function AnnualCloseWorkspace({ year }: { year: number }) {
   const [closeError, setCloseError] = useState('')
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [hgbReady, setHgbReady] = useState(false)
   const yearRef = useRef(year)
   const operationRef = useRef(0)
   const loadRef = useRef(0)
@@ -40,10 +43,13 @@ export function AnnualCloseWorkspace({ year }: { year: number }) {
     const generation = ++loadRef.current
     setLoading(true); setData(null)
     try {
-      const response = await fetch(`/api/booking-records?year=${requestedYear}`, { signal })
+      const [response, hgbResponse] = await Promise.all([fetch(`/api/booking-records?year=${requestedYear}`, { signal }), fetch(`/api/fiscal-years/${requestedYear}/hgb-close`, { signal })])
       if (!response.ok) throw new Error('load failed')
-      const body = await response.json()
-      if (generation === loadRef.current && requestedYear === yearRef.current && !signal?.aborted) { setData(body); setIssues(body.closingIssues) }
+      const body = await response.json(); const hgbBody = hgbResponse.ok ? await hgbResponse.json() : undefined
+      const currentFingerprint = hgbBody?.data?.ledgerFingerprint
+      const latestRun = hgbBody?.data?.runs?.[0]
+      const currentHgbReady = latestRun?.status === 'READY_TO_LOCK' && latestRun.ledgerFingerprint === currentFingerprint
+      if (generation === loadRef.current && requestedYear === yearRef.current && !signal?.aborted) { setData(body); setHgbReady(currentHgbReady); setIssues(currentHgbReady ? body.closingIssues : [...body.closingIssues, t('hgbRunRequired')]) }
     } catch (error) { if ((error as { name?: string }).name !== 'AbortError' && generation === loadRef.current && requestedYear === yearRef.current) setIssues([t('closeFailed')]) }
     finally { if (generation === loadRef.current && requestedYear === yearRef.current && !signal?.aborted) setLoading(false) }
   }, [year])
@@ -85,15 +91,16 @@ export function AnnualCloseWorkspace({ year }: { year: number }) {
         {currentData && <dl><Statement label={t('assets')} value={currentData.statements.assetsCents} /><Statement label={t('liabilities')} value={currentData.statements.liabilitiesCents} /><Statement label={t('equityIncludingResult')} value={currentData.statements.equityCents} /><Statement label={t('revenue')} value={currentData.statements.revenueCents} /><Statement label={t('expenses')} value={currentData.statements.expenseCents} /><Statement label={t('annualResult')} value={currentData.statements.netIncomeCents} important /></dl>}
       </section>
     </div>
+    <HgbCloseWorkbench year={year} onChanged={() => void load()} />
     <section className={`card panel readiness ${unavailable || displayIssues.length ? 'blocked' : 'ready'}`}>
       <div><span className="eyebrow">{t('closeReview')}</span><h2>{transitioning ? t('closingBusy') : unavailable ? t('closeFailed') : displayIssues.length ? t('closeBlockers', { count: displayIssues.length }) : t('readyForApproval')}</h2>
       {!unavailable && (displayIssues.length ? <ul>{displayIssues.map(issue => <li key={issue}>{issue}</li>)}</ul> : <p>{t('professionalReviewNote')}</p>)}</div>
       {closeError && <p className="alert alert-danger" role="alert">{closeError}</p>}
-      <div className="action-stack"><Link className="btn btn-outline-secondary" href={`/e-bilanz/${year}`}>{t('reviewEBalance')}</Link><button className="btn btn-primary" disabled={!canCloseYear(data, displayIssues, loading, busy, year)} onClick={close}>{data?.fiscalYear.status === 'CLOSED' ? t('yearLocked') : busy ? t('closingBusy') : t('reviewAndLock')}</button></div>
+      <div className="action-stack"><Link className="btn btn-outline-secondary" href={`/e-bilanz/${year}`}>{t('reviewEBalance')}</Link><button className="btn btn-primary" disabled={!canCloseYear(data, displayIssues, loading, busy, year, hgbReady)} onClick={close}>{data?.fiscalYear.status === 'CLOSED' ? t('yearLocked') : busy ? t('closingBusy') : t('reviewAndLock')}</button></div>
     </section>
   </div>
 }
-export function canCloseYear(data: CloseData | null, issues: string[], loading: boolean, busy: boolean, selectedYear = data?.fiscalYear.year) {
-  return Boolean(data && data.fiscalYear.year === selectedYear && data.entries?.length && !loading && !busy && issues.length === 0 && data.fiscalYear.status === 'OPEN')
+export function canCloseYear(data: CloseData | null, issues: string[], loading: boolean, busy: boolean, selectedYear = data?.fiscalYear.year, hgbReady = false) {
+  return Boolean(data && data.fiscalYear.year === selectedYear && data.entries?.length && !loading && !busy && hgbReady && issues.length === 0 && data.fiscalYear.status === 'OPEN')
 }
 function Statement({ label, value = 0, important = false }: { label: string; value?: number; important?: boolean }) { return <div className={important ? 'important' : ''}><dt>{label}</dt><dd>{money.format(value / 100)}</dd></div> }

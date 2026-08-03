@@ -8,10 +8,15 @@ import type { DeclarationDataset } from '@/core/taxDeclarations'
 import { declarationDatasetHash } from '@/core/taxDeclarations'
 
 const currentVatDatasets = vi.hoisted(() => new Map<string, DeclarationDataset>())
+const currentAnnualVatDatasets = vi.hoisted(() => new Map<string, DeclarationDataset>())
 vi.mock('server-only', () => ({}))
 vi.mock('./vatRepository', () => ({ currentReconciledVatDataset: vi.fn(async (ownerId: string, period: string) => {
   const prepared = currentVatDatasets.get(`${ownerId}:${period}`)
   if (!prepared) throw new Error(`Missing current VAT dataset for ${period}`)
+  return { reconciliation: { ok: true }, dataset: prepared }
+}), currentReconciledAnnualVatDataset: vi.fn(async (ownerId: string, year: number) => {
+  const prepared = currentAnnualVatDatasets.get(`${ownerId}:${year}`)
+  if (!prepared) throw new Error(`Missing current annual VAT dataset for ${year}`)
   return { reconciliation: { ok: true }, dataset: prepared }
 }) }))
 const directory = mkdtempSync(join(tmpdir(), 'accounting-tax-workflows-'))
@@ -56,6 +61,15 @@ afterAll(async () => { await prisma.$disconnect(); delete process.env.DATABASE_U
 const dataset = (amount: number) => ({ kind: 'USTVA' as const, period: '2026-01', fields: { ZAHLLAST: amount }, drilldown: { ZAHLLAST: ['entry-1', 'document-1'] } })
 
 describe('durable official tax workflow integration', () => {
+  it('rejects annual VAT datasets that bypass tenant-scoped reconciled preparation', async () => {
+    await expect(api.submitTaxDataset('tenant-a', 'approver-a', 'annual-vat-unprepared-key', { kind: 'UST_ANNUAL', period: '2026', fields: { ZAHLLAST: 1900 }, drilldown: {} })).rejects.toThrow(/exact tenant-scoped reconciled dataset/)
+  })
+  it('revalidates a prepared annual VAT dataset against current full-year sources', async () => {
+    const prepared = api.prepareTenantDataset('tenant-a', { kind: 'UST_ANNUAL', period: '2026', fields: { ZAHLLAST: 1900 }, drilldown: { ZAHLLAST: ['source-a'] } })
+    await prisma.taxDatasetPreparationRecord.create({ data: { ownerId: 'tenant-a', kind: prepared.kind, period: prepared.period, datasetHash: declarationDatasetHash(prepared) } })
+    currentAnnualVatDatasets.set('tenant-a:2026', api.prepareTenantDataset('tenant-a', { kind: 'UST_ANNUAL', period: '2026', fields: { ZAHLLAST: 1800 }, drilldown: { ZAHLLAST: ['source-a'] } }))
+    await expect(api.submitTaxDataset('tenant-a', 'approver-a', 'annual-vat-stale-source-key', prepared)).rejects.toThrow(/annual VAT sources changed/)
+  })
   it('rejects binding annual datasets that did not pass tenant-scoped preparation', async () => {
     await expect(api.submitTaxDataset('tenant-a', 'approver-a', 'annual-unprepared-key', { kind: 'KST', period: '2026', fields: { STEUERLICHES_ERGEBNIS: 100, KST_SCHULD: 15 }, drilldown: {} })).rejects.toThrow(/fiscal year|company-profile/)
   })

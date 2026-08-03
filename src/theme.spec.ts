@@ -68,9 +68,9 @@ describe('Bootstrap theme integration', () => {
     const styles = source('src/index.css')
 
     expect(styles).toContain(
-      '.posting-grid { display: grid; grid-template-columns: minmax(0,1fr) 135px 135px 36px;',
+      '.posting-grid { display: grid; grid-template-columns: minmax(0,1fr) 135px 135px minmax(170px,220px) 36px;',
     )
-    expect(styles).not.toContain('grid-template-columns: minmax(220px,1fr) 135px 135px 36px')
+    expect(styles).toContain('.posting-grid .form-control,.posting-grid .form-select,.posting-grid .account-selector-trigger { min-width: 0; }')
   })
 
   it('uses one grid wrapper for the posting header and lines', () => {
@@ -86,7 +86,7 @@ describe('Bootstrap theme integration', () => {
     const styles = source('src/index.css')
 
     expect(styles).toContain(
-      '.posting-grid.remove-buttons-hidden { grid-template-columns: minmax(0,1fr) 135px 135px; }',
+      '.posting-grid.remove-buttons-hidden { grid-template-columns: minmax(0,1fr) 135px 135px minmax(170px,220px); }',
     )
     expect(styles).toContain(
       '.posting-grid.remove-buttons-hidden .posting-head>span:last-child,.posting-grid.remove-buttons-hidden .posting-line>.icon-button { display: none; }',

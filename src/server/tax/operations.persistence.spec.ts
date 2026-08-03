@@ -55,4 +55,15 @@ describe('persisted tax operations readiness', () => {
     await getTaxReadiness('tenant-a', 'KST', '2026')
     expect(mocks.drafts).toHaveBeenCalledWith({ where: { fiscalYearId: 'fy-1', state: { not: 'POSTED' } } })
   })
+
+  it('requires full-year VAT controls without income-tax profile or E-Bilanz evidence for annual VAT', async () => {
+    vi.stubEnv('TAX_GATEWAY_QUALIFIED_FORM_VERSIONS', 'UST_ANNUAL-2026.1')
+    mocks.onboarding.mockResolvedValue({ firstUnusedNumber: 42, importedCount: 3, importedNumbersHash: 'b'.repeat(64), confirmedBy: 'admin-a' })
+    const report = await getTaxReadiness('tenant-a', 'UST_ANNUAL', '2026')
+    expect(report.ready).toBe(true)
+    expect(mocks.mappings).toHaveBeenCalled()
+    expect(mocks.drafts).toHaveBeenCalledWith({ where: { fiscalYearId: 'fy-1', state: { not: 'POSTED' } } })
+    expect(mocks.eBilanz).not.toHaveBeenCalled()
+    expect(report.checks.find(check => check.id === 'annual-profile')).toMatchObject({ ready: true })
+  })
 })

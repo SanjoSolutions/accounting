@@ -1,5 +1,6 @@
 node_modules
 /.next
+/tmp/next-stale-*/
 /build
 /coverage
 /playwright-report

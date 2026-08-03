@@ -6,6 +6,7 @@ import {
   CompliancePage,
   SettingsPage,
   TaxPage,
+  AccountingReportsPage,
 } from './pages'
 
 type Pages = {
@@ -15,6 +16,7 @@ type Pages = {
   compliance: CompliancePage
   settings: SettingsPage
   tax: TaxPage
+  reports: AccountingReportsPage
 }
 
 export const test = base.extend<Pages>({
@@ -24,6 +26,7 @@ export const test = base.extend<Pages>({
   compliance: async ({ page }, use) => use(new CompliancePage(page)),
   settings: async ({ page }, use) => use(new SettingsPage(page)),
   tax: async ({ page }, use) => use(new TaxPage(page)),
+  reports: async ({ page }, use) => use(new AccountingReportsPage(page)),
 })
 
 export { expect }

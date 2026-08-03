@@ -27,6 +27,13 @@ import { retentionDeadline, sha256 } from './compliance/retention'
 import { profilePayloadWithConfirmedAddress, validateCompanyProfile, type CompanyProfile } from './compliance/companyProfile'
 import { getDocumentStorage } from './storage'
 import { persistComplianceObject } from './compliance/objectStorage'
+import { VatValidationError, type VatPostingDetail, type VatSourceSplit } from '@/core/vatEngine'
+import {
+  journalLineVatData,
+  vatControlAccount,
+  vatPostingCreateData,
+  withCalculatedOriginalVatPostings,
+} from './tax/vatPostingCalculation'
 
 export const DEFAULT_ACCOUNTS = [
   [1000, 'Kasse', 'ASSET', 'bs.ass.currAss.cashEquiv.cash'],
@@ -278,6 +285,41 @@ export interface JournalPostMetadata {
   externalKey?: string
 }
 
+type VatControlAccount = { id: string; number: number; category: string }
+
+export function validateJournalVatControls(
+  details: readonly VatPostingDetail[],
+  lines: readonly { accountId: string; debitCents: number; creditCents: number }[],
+  accounts: readonly VatControlAccount[],
+  accountLength = 4,
+) {
+  const accountsById = new Map(accounts.map(account => [account.id, account]))
+  const scale = 10 ** (accountLength - 4)
+  const expected = new Map<number, { outputCents: number; inputCents: number }>()
+  for (const detail of details) {
+    const output = Number(vatControlAccount(detail, 'output')) * scale
+    const inputValue = vatControlAccount(detail, 'input')
+    const input = inputValue ? Number(inputValue) * scale : undefined
+    const outputExpected = expected.get(output) ?? { outputCents: 0, inputCents: 0 }
+    outputExpected.outputCents += detail.outputTaxCents
+    expected.set(output, outputExpected)
+    if (input !== undefined) {
+      const inputExpected = expected.get(input) ?? { outputCents: 0, inputCents: 0 }
+      inputExpected.inputCents += detail.inputTaxCents
+      expected.set(input, inputExpected)
+    }
+  }
+  const issues: string[] = []
+  for (const [number, amounts] of expected) {
+    const controlLines = lines.filter(line => accountsById.get(line.accountId)?.number === number)
+    const outputCents = controlLines.reduce((sum, line) => sum + line.creditCents - line.debitCents, 0)
+    const inputCents = controlLines.reduce((sum, line) => sum + line.debitCents - line.creditCents, 0)
+    if (amounts.outputCents && outputCents !== amounts.outputCents) issues.push(`Das Umsatzsteuerkonto ${number} muss ${amounts.outputCents} Cent Umsatzsteuer ausweisen.`)
+    if (amounts.inputCents && inputCents !== amounts.inputCents) issues.push(`Das Vorsteuerkonto ${number} muss ${amounts.inputCents} Cent Vorsteuer ausweisen.`)
+  }
+  if (issues.length) throw new AccountingValidationError(issues)
+}
+
 export function correctionPostingFingerprint(input: {
   fiscalYearId: string; bookingDate: string; documentNumber: string; description: string; source: string; entryDate: string | null; lateReason: string | null;
   reversalOfId: string | null; replacementOfId: string | null; externalKey: string | null;
@@ -321,6 +363,7 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
   const manualEntryId = source === 'MANUAL' ? randomUUID() : undefined
   const validationInput = journalEntryInputForSource(source, input, manualEntryId)
   const validated = validateJournalEntry(validationInput)
+  const entryId = manualEntryId ?? randomUUID()
   if (metadata.reversalOfId && metadata.replacementOfId) throw new AccountingValidationError(['Eine Buchung kann nicht zugleich Storno und Ersatzbuchung sein.'])
   if (metadata.entryDate) {
     const entryDate = new Date(`${metadata.entryDate}T00:00:00.000Z`)
@@ -343,12 +386,28 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
   if (source === 'MANUAL') validateManualAccountCombination(accounts, validated.lines)
   const postingLedgerProfile = await prisma.ledgerProfile.findUniqueOrThrow({ where: { ownerId } })
   const postingAccountFingerprint = accountSemanticFingerprint(postingLedgerProfile.chart, accounts)
+  const accountsById = new Map(accounts.map(account => [account.id, account]))
+  const linePlans = validated.lines.map((line, index) => ({ ...line, id: randomUUID(), index }))
+  for (const plan of linePlans.filter(plan => plan.vat)) {
+    const category = accountsById.get(plan.accountId)?.category
+    if (plan.vat!.direction === 'sale' && category !== 'REVENUE') throw new AccountingValidationError([`Zeile ${plan.index + 1}: Umsatzsteuer für einen Verkauf muss einem Erlöskonto zugeordnet sein.`])
+    if (plan.vat!.direction === 'purchase' && category !== 'EXPENSE' && category !== 'ASSET') throw new AccountingValidationError([`Zeile ${plan.index + 1}: Vorsteuer muss einem Aufwands- oder Aktivkonto zugeordnet sein.`])
+  }
+  const vatSplits: VatSourceSplit[] = linePlans.flatMap(plan => plan.vat ? [{
+    ownerId,
+    sourceId: `journal:${entryId}:line:${plan.id}`,
+    amountCents: Math.abs(plan.debitCents - plan.creditCents),
+    mode: plan.vat.mode,
+    direction: plan.vat.direction,
+    taxPoint: validated.bookingDate,
+    ruleId: plan.vat.ruleId,
+  }] : [])
   if (documentIds.length) {
     const ownedDocumentCount = await prisma.documentRecord.count({ where: { id: { in: documentIds }, ownerId } })
     if (ownedDocumentCount !== documentIds.length) throw new AccountingValidationError(['Mindestens ein ausgewählter Beleg ist ungültig oder gehört zu einem anderen Mandanten.'])
   }
 
-  try { return await prisma.$transaction(async transaction => {
+  const persist = async (vatDetails: readonly VatPostingDetail[], markers: readonly string[]) => prisma.$transaction(async transaction => {
     // This write acquires SQLite's writer lock before status/sequence checks. Closing
     // uses the same lock, so an entry can never slip into an already snapshotted year.
     const openYear = await transaction.fiscalYear.updateMany({
@@ -366,9 +425,11 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
     const last = await transaction.journalEntry.findFirst({
       where: { fiscalYearId: fiscalYear.id }, orderBy: { sequenceNumber: 'desc' }, select: { sequenceNumber: true },
     })
+    const detailBySource = new Map(vatDetails.map(detail => [detail.sourceId, detail]))
+    validateJournalVatControls(vatDetails, linePlans, currentAccounts, currentLedgerProfile.accountLength ?? 4)
     const entry = await transaction.journalEntry.create({
       data: {
-        id: manualEntryId,
+        id: entryId,
         sequenceNumber: (last?.sequenceNumber ?? 0) + 1,
         bookingDate: bookingInstant,
         documentNumber: validated.documentNumber.trim(),
@@ -379,19 +440,36 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
         reversalOfId: metadata.reversalOfId ?? null,
         replacementOfId: metadata.replacementOfId ?? null,
         externalKey: metadata.externalKey ?? null,
-        lines: { create: validated.lines.map(line => ({
+        lines: { create: linePlans.map(line => {
+          const detail = detailBySource.get(`journal:${entryId}:line:${line.id}`)
+          return {
+          id: line.id,
           accountId: line.accountId,
           debitCents: line.debitCents,
           creditCents: line.creditCents,
-          taxCode: line.taxCode || null,
-        })) },
+          taxCode: detail?.ruleId ?? line.taxCode ?? null,
+          ...(detail ? journalLineVatData(detail) : {}),
+        }}) },
         documents: { create: documentIds.map(documentId => ({ documentId })) },
       },
       include: { lines: true, documents: true },
     })
+    for (const marker of markers) await transaction.vatReversalMarker.create({ data: { ownerId, marker } })
+    for (const detail of vatDetails) {
+      const lineId = detail.sourceId.slice(detail.sourceId.lastIndexOf(':') + 1)
+      await transaction.vatPostingRecord.create({
+        data: vatPostingCreateData(ownerId, lineId, detail, documentIds.length === 1 ? documentIds[0] : undefined),
+      })
+    }
     await extendAttachedDocumentRetention(transaction, ownerId, documentIds, fiscalYear.endsAt)
     return entry
-  }) } catch (error) {
+  })
+  try {
+    return vatSplits.length
+      ? await withCalculatedOriginalVatPostings(ownerId, vatSplits, persist)
+      : await persist([], [])
+  } catch (error) {
+    if (error instanceof VatValidationError) throw new AccountingValidationError([...error.issues])
     if ((error as { code?: string }).code === 'P2002') throw new AccountingValidationError(['Belegnummer oder Journalnummer ist in diesem Geschäftsjahr bereits vergeben.'])
     throw error
   }
@@ -548,6 +626,11 @@ export async function closeFiscalYear(ownerId: string, year: number) {
       if (current?.status === 'CLOSED' && current.closingSnapshot) return JSON.parse(current.closingSnapshot)
       throw new AccountingValidationError(['Das Geschäftsjahr wird bereits abgeschlossen.'])
     }
+    // Load this gate lazily to avoid the compliance-runtime -> ledger module cycle.
+    // The fingerprint is recomputed through this same transaction after the
+    // CLOSING claim, so UI readiness or an earlier approval cannot race a post.
+    const { requireCurrentReadyHgbClose } = await import('./hgbCloseRepository')
+    await requireCurrentReadyHgbClose(transaction, ownerId, { id: fiscalYear.id, year })
     const predecessors = await transaction.fiscalYear.findMany({
       where: { ownerId, year: { lt: year } },
       select: { year: true, status: true, _count: { select: { journalEntries: true } } },

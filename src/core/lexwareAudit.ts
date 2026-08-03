@@ -10,26 +10,107 @@ export type LexwareAuditFiscalYear = {
   endsAt: string
 }
 
+export type LexwareAuditCompanySetup = {
+  year: number
+  companyName: string
+  street: string
+  postalCode: string
+  city: string
+  region: string
+  phone: string | null
+  fax: string | null
+  currency: 'EUR'
+  accountingMethod: 'CASH' | 'ACCRUAL'
+  chart: 'SKR03' | 'SKR04'
+  fiscalYear: LexwareAuditFiscalYear
+  taxonomyVersion: string | null
+}
+
+export type LexwareAuditAccountMetadata = {
+  year: number
+  accountName: string
+  accountCategory: AccountCategory
+  subcategory: string | null
+  legacyVatPosition: string | null
+  legacyVatCode: string | null
+  currentVatPosition: string | null
+  currentVatCode: string | null
+  cashBasisMapping: string | null
+  hgbAssetMapping: string | null
+  hgbLiabilityMapping: string | null
+  hgbIncomeStatementMapping: string | null
+  taxonomyAssetMapping: string | null
+  taxonomyLiabilityMapping: string | null
+  taxonomyIncomeStatementMapping: string | null
+}
+
 export type LexwareAuditAccount = {
   number: number
   name: string
   category: AccountCategory
+  metadata: LexwareAuditAccountMetadata[]
 }
 
 export type LexwareAuditLine = {
   accountNumber: number
   debitCents: number
   creditCents: number
+  vatAccountNumber?: number
+  vatRateBasisPoints?: number
+  isVatLine?: true
 }
 
 export type LexwareAuditBooking = {
   year: number
   bookingNumber: number
   bookingDate: string
+  postingDate: string
+  journalDate: string
+  period: number
   documentNumber: string
   description: string
   lines: LexwareAuditLine[]
   documentName: string | null
+}
+
+export type LexwareAuditTrialBalanceLine = {
+  year: number
+  accountNumber: number
+  accountName: string
+  lastBookingDate: string | null
+  openingDebitCents: number
+  openingCreditCents: number
+  annualDebitCents: number
+  annualCreditCents: number
+  cumulativeDebitCents: number
+  cumulativeCreditCents: number
+  closingDebitCents: number
+  closingCreditCents: number
+}
+
+export type LexwareAuditBusinessPartner = {
+  year: number
+  partnerNumber: string
+  name: string
+  street: string
+  houseNumber: string
+  postalCode: string
+  city: string
+  industry: string | null
+  vatId: string | null
+}
+
+export type LexwareAuditSubledgerAssociation = {
+  year: number
+  accountNumber: number
+  partnerNumber: string
+  kind: 'DEBTOR' | 'CREDITOR'
+}
+
+export type LexwareAuditAnnualVatField = {
+  year: number
+  fieldCode: string
+  amountCents: number
 }
 
 export type LexwareAuditImport = {
@@ -37,6 +118,11 @@ export type LexwareAuditImport = {
   accountLength: number
   accounts: LexwareAuditAccount[]
   bookings: LexwareAuditBooking[]
+  companySetup: LexwareAuditCompanySetup[]
+  trialBalance: LexwareAuditTrialBalanceLine[]
+  businessPartners: LexwareAuditBusinessPartner[]
+  subledgerAssociations: LexwareAuditSubledgerAssociation[]
+  annualVatFields: LexwareAuditAnnualVatField[]
   documents: Map<string, LexwareAuditDocument>
   fiscalYears: LexwareAuditFiscalYear[]
   years: number[]
@@ -50,6 +136,12 @@ const MAX_POSTING_LINES = 100_000
 const MAX_LINES_PER_BOOKING = 1_000
 const MAX_ACCOUNTS = 10_000
 const MAX_DOCUMENTS = 5_000
+const MAX_TRIAL_BALANCE_LINES = 20_000
+const MAX_BUSINESS_PARTNERS = 20_000
+const MAX_SUBLEDGER_ROWS = 100_000
+const MAX_ANNUAL_VAT_FIELDS = 500
+const MAX_TABLE_BYTES = 32 * 1024 * 1024
+const MAX_TEXT_LENGTH = 500
 
 export function isLexwareAuditExport(files: ArrayLike<{ name: string }>) {
   const names = Array.from(files).map(file => leafName(file.name).toLowerCase())
@@ -73,7 +165,12 @@ export function parseLexwareAuditFiles(files: LexwareAuditFile[]): LexwareAuditI
   const charts = new Set<'SKR03' | 'SKR04'>()
   const accountLengths = new Set<number>()
   const fiscalYears: LexwareAuditFiscalYear[] = []
+  const companySetup: LexwareAuditCompanySetup[] = []
   const accounts = new Map<number, LexwareAuditAccount>()
+  const trialBalance: LexwareAuditTrialBalanceLine[] = []
+  const businessPartners: LexwareAuditBusinessPartner[] = []
+  const subledgerAssociations: LexwareAuditSubledgerAssociation[] = []
+  const annualVatFields: LexwareAuditAnnualVatField[] = []
   const bookingGroups = new Map<string, LexwareAuditBooking & { descriptions: Set<string> }>()
   const referencedDocuments = new Map<string, string>()
   let journalRows = 0
@@ -86,22 +183,26 @@ export function parseLexwareAuditFiles(files: LexwareAuditFile[]): LexwareAuditI
     const chart = companyMetadata.chart
     charts.add(chart)
     fiscalYears.push(companyMetadata.fiscalYear)
+    companySetup.push(companyMetadata.setup)
     const chartRows = parseTable(requiredFile(byName, `ktpl_bp${year}.txt`), CHART_HEADERS, MAX_ACCOUNTS)
     const accountLength = parseAccountLength(chartRows, year)
     accountLengths.add(accountLength)
     const chartByNumber = new Map<number, LexwareAuditAccount>()
     for (const row of chartRows) {
       const number = parseAccount(row['Konto-Nummer'], `KTPL_BP${year}.txt`)
+      const name = requiredBoundedText(row['Kontenbezeichnung'], `KTPL_BP${year}.txt: Konto ${number} hat keine Bezeichnung.`)
+      const category = lexwareCategory(row.Kontenkategorie, row['Konto-Nummer'], chart)
       const account = {
         number,
-        name: requiredText(row['Kontenbezeichnung'], `KTPL_BP${year}.txt: Konto ${number} hat keine Bezeichnung.`),
-        category: lexwareCategory(row.Kontenkategorie, row['Konto-Nummer'], chart),
+        name,
+        category,
+        metadata: [parseAccountMetadata(row, year, name, category)],
       }
       const previous = accounts.get(number)
       if (previous && previous.category !== account.category) {
         throw new AccountingValidationError([`KTPL_BP${year}.txt: Konto ${number} wechselt zwischen Abschlusskategorien.`])
       }
-      accounts.set(number, account)
+      accounts.set(number, previous ? { ...account, metadata: [...previous.metadata, ...account.metadata] } : account)
       if (accounts.size > MAX_ACCOUNTS) throw new AccountingValidationError([`Ein Lexware-Import darf höchstens ${MAX_ACCOUNTS} Konten enthalten.`])
       chartByNumber.set(number, account)
     }
@@ -113,6 +214,9 @@ export function parseLexwareAuditFiles(files: LexwareAuditFile[]): LexwareAuditI
       const bookingNumber = parsePositiveInteger(row.Buchungsnummer, `${location}: Ungültige Buchungsnummer.`)
       const key = `${year}:${bookingNumber}`
       const bookingDate = parseLexwareDate(row.Belegdatum, companyMetadata.fiscalYear, location)
+      const postingDate = parseLexwareActivityDate(row.Buchungsdatum, companyMetadata.fiscalYear, location, 'Buchungsdatum')
+      const journalDate = parseLexwareActivityDate(row.Journaldatum, companyMetadata.fiscalYear, location, 'Journaldatum')
+      const period = parseFiscalPeriod(row.Periode, location)
       const lines = parsePartialLines(row, location)
       validateDeclaredBookingAmount(row.Buchungsbetrag, lines, location)
       postingLines += lines.length
@@ -124,10 +228,12 @@ export function parseLexwareAuditFiles(files: LexwareAuditFile[]): LexwareAuditI
       const documentName = normalizeDocumentName(row.Beleglink, location)
       if (documentName) referencedDocuments.set(documentName.toLowerCase(), documentName)
       const documentNumber = row.Belegnummer.trim()
-      const description = requiredText(row.Buchungstext, `${location}: Der Buchungstext fehlt.`)
+      const description = requiredBoundedText(row.Buchungstext, `${location}: Der Buchungstext fehlt.`)
       const existingGroup = bookingGroups.get(key)
       if (existingGroup) {
-        if (existingGroup.bookingDate !== bookingDate || existingGroup.documentNumber !== documentNumber ||
+        if (existingGroup.bookingDate !== bookingDate || existingGroup.postingDate !== postingDate ||
+          existingGroup.journalDate !== journalDate || existingGroup.period !== period ||
+          existingGroup.documentNumber !== documentNumber ||
           existingGroup.documentName?.toLowerCase() !== documentName?.toLowerCase()) {
           throw new AccountingValidationError([`${location}: Die Teilzeilen der Buchungsnummer ${bookingNumber} haben widersprüchliche Belegdaten.`])
         }
@@ -143,6 +249,9 @@ export function parseLexwareAuditFiles(files: LexwareAuditFile[]): LexwareAuditI
           year,
           bookingNumber,
           bookingDate,
+          postingDate,
+          journalDate,
+          period,
           documentNumber,
           description,
           descriptions: new Set([description]),
@@ -150,6 +259,31 @@ export function parseLexwareAuditFiles(files: LexwareAuditFile[]): LexwareAuditI
           documentName,
         })
       }
+    }
+
+    enrichJournalWithAccountSheet(
+      byName.get(`kto_bp_sach_sach${year}.txt`),
+      year,
+      companyMetadata.fiscalYear,
+      chartByNumber,
+      bookingGroups,
+    )
+    const yearTrialBalance = parseTrialBalance(byName.get(`sald_bp${year}.txt`), year, companyMetadata.fiscalYear, chartByNumber)
+    trialBalance.push(...yearTrialBalance)
+    if (trialBalance.length > MAX_TRIAL_BALANCE_LINES) throw new AccountingValidationError([`Ein Lexware-Import darf höchstens ${MAX_TRIAL_BALANCE_LINES} Summen- und Saldenzeilen enthalten.`])
+    const yearPartners = parseBusinessPartners(byName.get(`kto_bp_adr_pers${year}.txt`), year)
+    businessPartners.push(...yearPartners)
+    if (businessPartners.length > MAX_BUSINESS_PARTNERS) throw new AccountingValidationError([`Ein Lexware-Import darf höchstens ${MAX_BUSINESS_PARTNERS} Personenkonten-Adressen enthalten.`])
+    const parsedSubledger = parseSubledger(byName.get(`kto_bp_pers_pers${year}.txt`), year, companyMetadata.fiscalYear, chartByNumber, yearPartners)
+    subledgerAssociations.push(...parsedSubledger.associations)
+    for (const [partnerNumber, vatId] of parsedSubledger.vatIds) {
+      const partner = yearPartners.find(item => item.partnerNumber === partnerNumber)
+      if (partner) partner.vatId = vatId
+    }
+    const yearVatFields = parseAnnualVat(byName.get(`ust_bp${year}.txt`), year)
+    annualVatFields.push(...yearVatFields)
+    if (annualVatFields.length > MAX_ANNUAL_VAT_FIELDS * journalFiles.length) {
+      throw new AccountingValidationError([`Eine Lexware-Umsatzsteuererklärung darf höchstens ${MAX_ANNUAL_VAT_FIELDS} Felder pro Geschäftsjahr enthalten.`])
     }
   }
   if (charts.size !== 1) throw new AccountingValidationError(['Die Lexware-Geschäftsjahre verwenden unterschiedliche Kontenrahmen.'])
@@ -172,6 +306,11 @@ export function parseLexwareAuditFiles(files: LexwareAuditFile[]): LexwareAuditI
     bookings: [...bookingGroups.values()].map(({ descriptions, ...booking }) => validateBookingLines({
       ...booking, description: [...descriptions].join(' | '),
     })),
+    companySetup,
+    trialBalance,
+    businessPartners,
+    subledgerAssociations: uniqueSubledgerAssociations(subledgerAssociations),
+    annualVatFields,
     documents,
     fiscalYears,
     years: journalFiles.map(item => item.year),
@@ -214,7 +353,60 @@ function parseCompanyMetadata(file: LexwareAuditFile, year: number) {
   if (currency !== 'EUR' && currency !== 'EURO' && currency !== '€' && currency !== '\u0080') {
     throw new AccountingValidationError([`${file.name}: Nur EUR als Basiswährung wird unterstützt.`])
   }
-  return { chart, fiscalYear: parseFiscalYear(row?.Wirtschaftsjahr ?? '', year, file.name) }
+  const fiscalYear = parseFiscalYear(row?.Wirtschaftsjahr ?? '', year, file.name)
+  return {
+    chart,
+    fiscalYear,
+    setup: {
+      year,
+      companyName: requiredBoundedText(row?.Name, `${file.name}: Der Firmenname fehlt.`),
+      street: optionalBoundedText(row?.Strasse, file.name) ?? '',
+      postalCode: optionalBoundedText(row?.PLZ, file.name, 20) ?? '',
+      city: optionalBoundedText(row?.Ort, file.name) ?? '',
+      region: optionalBoundedText(row?.Land, file.name, 100) ?? '',
+      phone: optionalBoundedText(row?.Telefon, file.name, 100),
+      fax: optionalBoundedText(row?.FAX, file.name, 100),
+      currency: 'EUR' as const,
+      accountingMethod: parseAccountingMethod(row?.Gewinnermittlungsart ?? '', file.name),
+      chart,
+      fiscalYear,
+      taxonomyVersion: optionalBoundedText(row?.['Taxonomie Version'], file.name, 100),
+    },
+  }
+}
+
+function parseAccountingMethod(raw: string, fileName: string): 'CASH' | 'ACCRUAL' {
+  const normalized = raw.trim().toLocaleLowerCase('de-DE')
+  if (!normalized) return 'ACCRUAL'
+  if (normalized.includes('einnahmen') || normalized.includes('überschuss') || normalized === 'eür') return 'CASH'
+  if (normalized.includes('bilanz') || normalized.includes('betriebsvermögen') || normalized.includes('bestandsvergleich')) return 'ACCRUAL'
+  throw new AccountingValidationError([`${fileName}: Die Gewinnermittlungsart „${raw}“ wird nicht unterstützt.`])
+}
+
+function parseAccountMetadata(
+  row: Record<string, string>,
+  year: number,
+  accountName: string,
+  accountCategory: AccountCategory,
+): LexwareAuditAccountMetadata {
+  const location = `KTPL_BP${year}.txt`
+  return {
+    year,
+    accountName,
+    accountCategory,
+    subcategory: optionalBoundedText(row.Kontenunterart, location),
+    legacyVatPosition: optionalBoundedText(row['USt.Pos alt'], location),
+    legacyVatCode: optionalBoundedText(row['USt. alt'], location),
+    currentVatPosition: optionalBoundedText(row['USt.Pos neu'], location),
+    currentVatCode: optionalBoundedText(row['USt. neu'], location),
+    cashBasisMapping: optionalBoundedText(row['Zuordnung EÜ'], location),
+    hgbAssetMapping: optionalBoundedText(row['Zuordnung Aktiva'], location),
+    hgbLiabilityMapping: optionalBoundedText(row['Zuordnung Passiva'], location),
+    hgbIncomeStatementMapping: optionalBoundedText(row['Zuordnung GuV'], location),
+    taxonomyAssetMapping: optionalBoundedText(row['Taxonomie Aktiva'], location),
+    taxonomyLiabilityMapping: optionalBoundedText(row['Taxonomie Passiva'], location),
+    taxonomyIncomeStatementMapping: optionalBoundedText(row['Taxonomie GuV'], location),
+  }
 }
 
 function parseFiscalYear(raw: string, year: number, fileName: string): LexwareAuditFiscalYear {
@@ -228,6 +420,191 @@ function parseFiscalYear(raw: string, year: number, fileName: string): LexwareAu
   const endsAt = validatedIsoDate(year, endMonth, endDay, fileName)
   if (startsAt > endsAt) throw new AccountingValidationError([`${fileName}: Die Grenzen des Wirtschaftsjahres sind ungültig.`])
   return { year, startsAt, endsAt }
+}
+
+function enrichJournalWithAccountSheet(
+  file: LexwareAuditFile | undefined,
+  year: number,
+  fiscalYear: LexwareAuditFiscalYear,
+  accounts: Map<number, LexwareAuditAccount>,
+  bookings: Map<string, LexwareAuditBooking & { descriptions: Set<string> }>,
+) {
+  if (!file) return
+  const rows = parseTable(file, ACCOUNT_SHEET_HEADERS, MAX_SUBLEDGER_ROWS)
+  for (const [index, row] of rows.entries()) {
+    const location = `${file.name}, Zeile ${index + 2}`
+    const bookingNumber = parsePositiveInteger(row.Buchungsnummer, `${location}: Ungültige Buchungsnummer.`)
+    const booking = bookings.get(`${year}:${bookingNumber}`)
+    if (!booking) throw new AccountingValidationError([`${location}: Die zugehörige Journalbuchung fehlt.`])
+    const date = parseLexwareDate(row.Belegdatum, fiscalYear, location)
+    if (date !== booking.bookingDate || row.Belegnummer.trim() !== booking.documentNumber) {
+      throw new AccountingValidationError([`${location}: Kontenblatt und Journal enthalten widersprüchliche Belegdaten.`])
+    }
+    const accountNumber = parseAccount(row.Kontonummer, location)
+    const counterAccount = parseProjectedCounterAccount(row.Gegenkonto, location)
+    if (!accounts.has(accountNumber) || (counterAccount !== null && !accounts.has(counterAccount))) {
+      throw new AccountingValidationError([`${location}: Konto oder Gegenkonto fehlt im Kontenplan.`])
+    }
+    const rawDebit = row['Sollbetrag €'].trim()
+    const rawCredit = row['Habenbetrag €'].trim()
+    if (!rawDebit && !rawCredit) throw new AccountingValidationError([`${location}: Ein Kontenblatt benötigt einen Soll- oder Habenbetrag.`])
+    const debit = rawDebit ? parseGermanCents(rawDebit, location) : 0
+    const credit = rawCredit ? parseGermanCents(rawCredit, location) : 0
+    if (debit && credit) throw new AccountingValidationError([`${location}: Soll und Haben dürfen nicht gleichzeitig befüllt sein.`])
+    const vatAccountNumber = row['USt-Konto'].trim() ? parseAccount(row['USt-Konto'], location) : undefined
+    if (vatAccountNumber && !accounts.has(vatAccountNumber)) throw new AccountingValidationError([`${location}: Das Umsatzsteuerkonto ${vatAccountNumber} fehlt im Kontenplan.`])
+    let vatRateBasisPoints = parseVatRateBasisPoints(row['USt-%'], location)
+    if (vatAccountNumber === undefined && vatRateBasisPoints === 0) vatRateBasisPoints = undefined
+    if ((vatAccountNumber === undefined) !== (vatRateBasisPoints === undefined)) {
+      throw new AccountingValidationError([`${location}: Umsatzsteuerkonto und Umsatzsteuersatz müssen gemeinsam angegeben sein.`])
+    }
+    if (vatAccountNumber === undefined) continue
+    const projectedSide = rawDebit ? (debit < 0 ? 'CREDIT' : 'DEBIT') : (credit < 0 ? 'DEBIT' : 'CREDIT')
+    const candidates = booking.lines.filter(line => line.accountNumber === accountNumber &&
+      (projectedSide === 'DEBIT' ? line.debitCents > 0 : line.creditCents > 0))
+    if (candidates.length === 0) throw new AccountingValidationError([`${location}: Die Kontenblattzeile lässt sich keiner Journalzeile zuordnen.`])
+    for (const candidate of candidates) {
+      if ((candidate.vatAccountNumber !== undefined && candidate.vatAccountNumber !== vatAccountNumber) ||
+        (candidate.vatRateBasisPoints !== undefined && candidate.vatRateBasisPoints !== vatRateBasisPoints)) {
+        throw new AccountingValidationError([`${location}: Die Umsatzsteuerdaten des Kontenblatts sind widersprüchlich.`])
+      }
+      candidate.vatAccountNumber = vatAccountNumber
+      candidate.vatRateBasisPoints = vatRateBasisPoints
+    }
+  }
+}
+
+function parseVatRateBasisPoints(raw: string, location: string) {
+  const value = raw.trim()
+  if (!value) return undefined
+  if (!/^(?:0|[1-9]\d?)(?:,\d{1,2})?$/.test(value)) throw new AccountingValidationError([`${location}: Der Umsatzsteuersatz ist ungültig.`])
+  const [whole, fraction = ''] = value.split(',')
+  const basisPoints = Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
+  if (basisPoints > 10_000) throw new AccountingValidationError([`${location}: Der Umsatzsteuersatz liegt außerhalb des unterstützten Bereichs.`])
+  return basisPoints
+}
+
+function parseProjectedCounterAccount(raw: string, location: string) {
+  const normalized = raw.trim().toLocaleLowerCase('de-DE')
+  if (!normalized || normalized === 'div.') return null
+  return parseAccount(raw, location)
+}
+
+function parseTrialBalance(
+  file: LexwareAuditFile | undefined,
+  year: number,
+  fiscalYear: LexwareAuditFiscalYear,
+  accounts: Map<number, LexwareAuditAccount>,
+) {
+  if (!file) return []
+  const rows = parseTable(file, TRIAL_BALANCE_HEADERS, MAX_TRIAL_BALANCE_LINES)
+  return rows.map((row, index): LexwareAuditTrialBalanceLine => {
+    const location = `${file.name}, Zeile ${index + 2}`
+    const accountNumber = parseAccount(row.Konto, location)
+    if (!accounts.has(accountNumber)) throw new AccountingValidationError([`${location}: Konto ${accountNumber} fehlt im Kontenplan.`])
+    const result = {
+      year,
+      accountNumber,
+      accountName: requiredBoundedText(row.Name, `${location}: Die Kontenbezeichnung fehlt.`),
+      lastBookingDate: row['Letzte Buchung'].trim() ? parseLexwareDate(row['Letzte Buchung'], fiscalYear, location) : null,
+      openingDebitCents: parseOptionalNonnegativeCents(row['EB-Wert Soll'], location),
+      openingCreditCents: parseOptionalNonnegativeCents(row['EB-Wert Haben'], location),
+      annualDebitCents: parseOptionalNonnegativeCents(row['Summe für WJ Soll'], location),
+      annualCreditCents: parseOptionalNonnegativeCents(row['Summe für WJ Haben'], location),
+      cumulativeDebitCents: parseOptionalNonnegativeCents(row['Summe per WJ Soll'], location),
+      cumulativeCreditCents: parseOptionalNonnegativeCents(row['Summe per WJ Haben'], location),
+      closingDebitCents: parseOptionalNonnegativeCents(row['Saldo per WJ Soll'], location),
+      closingCreditCents: parseOptionalNonnegativeCents(row['Saldo per WJ Haben'], location),
+    }
+    if (result.openingDebitCents && result.openingCreditCents) throw new AccountingValidationError([`${location}: Ein Eröffnungssaldo darf nicht gleichzeitig Soll und Haben enthalten.`])
+    if (result.closingDebitCents && result.closingCreditCents) throw new AccountingValidationError([`${location}: Ein Schlusssaldo darf nicht gleichzeitig Soll und Haben enthalten.`])
+    return result
+  })
+}
+
+function parseBusinessPartners(file: LexwareAuditFile | undefined, year: number) {
+  if (!file) return []
+  const rows = parseTable(file, BUSINESS_PARTNER_HEADERS, MAX_BUSINESS_PARTNERS)
+  const seen = new Set<string>()
+  return rows.map((row, index): LexwareAuditBusinessPartner => {
+    const location = `${file.name}, Zeile ${index + 2}`
+    const partnerNumber = parsePartnerNumber(row['Kunden-/Lieferantennummer'], location)
+    if (seen.has(partnerNumber)) throw new AccountingValidationError([`${location}: Die Kunden-/Lieferantennummer ${partnerNumber} kommt mehrfach vor.`])
+    seen.add(partnerNumber)
+    return {
+      year,
+      partnerNumber,
+      name: requiredBoundedText(row.Name, `${location}: Der Name fehlt.`),
+      street: requiredBoundedText(row.Strasse, `${location}: Die Straße fehlt.`),
+      houseNumber: requiredBoundedText(row.Hausnummer, `${location}: Die Hausnummer fehlt.`, 30),
+      postalCode: requiredBoundedText(row.PLZ, `${location}: Die Postleitzahl fehlt.`, 20),
+      city: requiredBoundedText(row.Ort, `${location}: Der Ort fehlt.`),
+      industry: optionalBoundedText(row.Branche, location),
+      vatId: null,
+    }
+  })
+}
+
+function parseSubledger(
+  file: LexwareAuditFile | undefined,
+  year: number,
+  fiscalYear: LexwareAuditFiscalYear,
+  accounts: Map<number, LexwareAuditAccount>,
+  partners: LexwareAuditBusinessPartner[],
+) {
+  const associations: LexwareAuditSubledgerAssociation[] = []
+  const vatIds = new Map<string, string>()
+  if (!file) return { associations, vatIds }
+  const rows = parseTable(file, SUBLEDGER_HEADERS, MAX_SUBLEDGER_ROWS)
+  const knownPartners = new Set(partners.map(partner => partner.partnerNumber))
+  for (const [index, row] of rows.entries()) {
+    const location = `${file.name}, Zeile ${index + 2}`
+    parsePositiveInteger(row.Buchungsnummer, `${location}: Ungültige Buchungsnummer.`)
+    parseLexwareDate(row.Belegdatum, fiscalYear, location)
+    const accountNumber = parseAccount(row.Kontonummer, location)
+    const account = accounts.get(accountNumber)
+    if (!account) throw new AccountingValidationError([`${location}: Personenkonto ${accountNumber} fehlt im Kontenplan.`])
+    const counterAccount = parseProjectedCounterAccount(row.Gegenkonto, location)
+    if (counterAccount !== null && !accounts.has(counterAccount)) throw new AccountingValidationError([`${location}: Gegenkonto ${counterAccount} fehlt im Kontenplan.`])
+    const debitCents = row['Sollbetrag €'].trim() ? parseGermanCents(row['Sollbetrag €'].trim(), location) : 0
+    const creditCents = row['Habenbetrag €'].trim() ? parseGermanCents(row['Habenbetrag €'].trim(), location) : 0
+    if ((debitCents === 0) === (creditCents === 0)) throw new AccountingValidationError([`${location}: Eine Personenkontozeile benötigt genau einen Soll- oder Habenbetrag.`])
+    if (row['USt-Konto'].trim()) parseAccount(row['USt-Konto'], location)
+    if (row['USt-%'].trim() && !/^(?:0|[1-9]\d?)(?:,\d{1,2})?$/.test(row['USt-%'].trim())) {
+      throw new AccountingValidationError([`${location}: Der Umsatzsteuersatz ist ungültig.`])
+    }
+    const partnerNumber = parsePartnerNumber(row['Kunden-/Lieferantennummer'], location)
+    if (!knownPartners.has(partnerNumber)) throw new AccountingValidationError([`${location}: Die Adresse für Kunden-/Lieferantennummer ${partnerNumber} fehlt.`])
+    const category = row.Kontobezeichnung.trim().toLocaleLowerCase('de-DE')
+    const kind = account.category === 'ASSET' || category.includes('debitor') ? 'DEBTOR' : 'CREDITOR'
+    associations.push({ year, accountNumber, partnerNumber, kind })
+    const vatId = optionalBoundedText(row['USt-IdNr.'], location, 32)
+    if (vatId) {
+      if (!/^[A-Z]{2}[A-Z0-9]{2,14}$/i.test(vatId)) throw new AccountingValidationError([`${location}: Die USt-IdNr. ist ungültig.`])
+      const previous = vatIds.get(partnerNumber)
+      if (previous && previous !== vatId.toUpperCase()) throw new AccountingValidationError([`${location}: Die USt-IdNr. des Geschäftspartners ist widersprüchlich.`])
+      vatIds.set(partnerNumber, vatId.toUpperCase())
+    }
+  }
+  return { associations, vatIds }
+}
+
+function parseAnnualVat(file: LexwareAuditFile | undefined, year: number) {
+  if (!file) return []
+  const rows = parseTable(file, [], 1)
+  if (rows.length !== 1) throw new AccountingValidationError([`${file.name}: Die Jahres-Umsatzsteuererklärung muss genau einen Datensatz enthalten.`])
+  const entries = Object.entries(rows[0])
+  if (entries.length > MAX_ANNUAL_VAT_FIELDS) throw new AccountingValidationError([`${file.name}: Die Jahres-Umsatzsteuererklärung enthält zu viele Felder.`])
+  return entries.flatMap(([fieldCode, raw]): LexwareAuditAnnualVatField[] => {
+    if (!fieldCode.trim() || fieldCode.length > 200 || containsUnsafeControl(fieldCode)) throw new AccountingValidationError([`${file.name}: Ein Feldname der Jahres-Umsatzsteuererklärung ist ungültig.`])
+    if (!raw.trim()) return []
+    return [{ year, fieldCode: fieldCode.trim(), amountCents: parseGermanAnnualVatCents(raw.trim(), `${file.name}: Feld ${fieldCode}`) }]
+  })
+}
+
+function uniqueSubledgerAssociations(items: LexwareAuditSubledgerAssociation[]) {
+  const unique = new Map(items.map(item => [`${item.year}:${item.accountNumber}:${item.partnerNumber}:${item.kind}`, item]))
+  return [...unique.values()]
 }
 
 function parseAccountLength(rows: Record<string, string>[], year: number) {
@@ -248,7 +625,8 @@ function validatedIsoDate(year: number, month: number, day: number, location: st
 }
 
 function parseTable(file: LexwareAuditFile, requiredHeaders: string[], maximumRows: number) {
-  const text = decodeText(file.bytes)
+  if (file.bytes.byteLength > MAX_TABLE_BYTES) throw new AccountingValidationError([`${file.name}: Die Tabelle ist größer als ${MAX_TABLE_BYTES / 1024 / 1024} MiB.`])
+  const text = normalizeTrailingEmptyHeader(decodeText(file.bytes))
   if (countDataRows(text) > maximumRows) {
     throw new AccountingValidationError([`${file.name}: Die Tabelle enthält mehr als ${maximumRows} Datenzeilen.`])
   }
@@ -267,9 +645,19 @@ function parseTable(file: LexwareAuditFile, requiredHeaders: string[], maximumRo
     throw new AccountingValidationError([`${file.name}: Die tabellarischen Daten sind syntaktisch ungültig.`])
   }
   const headers = rows.length ? Object.keys(rows[0]) : firstLine(text).split('\t')
+  if (new Set(headers).size !== headers.length || headers.some(header => !header.trim())) {
+    throw new AccountingValidationError([`${file.name}: Die Tabelle enthält leere oder doppelte Spaltennamen.`])
+  }
   const missing = requiredHeaders.filter(header => !headers.includes(header))
   if (missing.length) throw new AccountingValidationError([`${file.name}: Pflichtspalten fehlen: ${missing.join(', ')}.`])
   return rows
+}
+
+function normalizeTrailingEmptyHeader(text: string) {
+  const lineEnd = text.search(/[\r\n]/)
+  const headerEnd = lineEnd < 0 ? text.length : lineEnd
+  if (headerEnd === 0 || text[headerEnd - 1] !== '\t') return text
+  return text.slice(0, headerEnd - 1) + text.slice(headerEnd)
 }
 
 function countDataRows(text: string) {
@@ -290,14 +678,14 @@ function countDataRows(text: string) {
 }
 
 function parsePartialLines(row: Record<string, string>, location: string) {
-  const candidates: Array<[string, string, 'S' | 'H']> = [
-    ['Sollkonto', 'Sollbetrag', 'S'],
-    ['Habenkonto', 'Habenbetrag', 'H'],
-    ['USt-Konto Soll', 'USt-Betrag Soll', 'S'],
-    ['USt-Konto Haben', 'USt-Betrag Haben', 'H'],
+  const candidates: Array<[string, string, 'S' | 'H', boolean]> = [
+    ['Sollkonto', 'Sollbetrag', 'S', false],
+    ['Habenkonto', 'Habenbetrag', 'H', false],
+    ['USt-Konto Soll', 'USt-Betrag Soll', 'S', true],
+    ['USt-Konto Haben', 'USt-Betrag Haben', 'H', true],
   ]
   const lines: LexwareAuditLine[] = []
-  for (const [accountField, amountField, side] of candidates) {
+  for (const [accountField, amountField, side, isVatLine] of candidates) {
     const accountRaw = row[accountField]?.trim() ?? ''
     const amountRaw = row[amountField]?.trim() ?? ''
     if (!accountRaw && !amountRaw) continue
@@ -311,6 +699,7 @@ function parsePartialLines(row: Record<string, string>, location: string) {
       accountNumber,
       debitCents: effectiveSide === 'S' ? Math.abs(signedCents) : 0,
       creditCents: effectiveSide === 'H' ? Math.abs(signedCents) : 0,
+      ...(isVatLine ? { isVatLine: true as const } : {}),
     })
   }
   return lines
@@ -348,6 +737,26 @@ function parseGermanCents(raw: string, location: string) {
   return negative ? -value : value
 }
 
+function parseGermanAnnualVatCents(raw: string, location: string) {
+  if (!/^-?(?:0|[1-9]\d{0,2}(?:\.\d{3})*|\d+)(?:,\d{2})?$/.test(raw)) {
+    throw new AccountingValidationError([`${location}: Ungültiger Jahres-Umsatzsteuerbetrag „${raw}“.`])
+  }
+  const negative = raw.startsWith('-')
+  const normalized = raw.replace('-', '').replaceAll('.', '')
+  const [euros, cents = '00'] = normalized.split(',')
+  const value = Number(euros) * 100 + Number(cents)
+  if (!Number.isSafeInteger(value) || value > MAX_DATABASE_CENTS) throw new AccountingValidationError([`${location}: Betrag liegt außerhalb des unterstützten Bereichs.`])
+  return negative ? -value : value
+}
+
+function parseOptionalNonnegativeCents(raw: string, location: string) {
+  const value = raw?.trim()
+  if (!value) return 0
+  const cents = parseGermanCents(value, location)
+  if (cents < 0) throw new AccountingValidationError([`${location}: Der Betrag darf nicht negativ sein.`])
+  return cents
+}
+
 function parseLexwareDate(raw: string, fiscalYear: LexwareAuditFiscalYear, location: string) {
   const match = /^(\d{2})\.(\d{2})\.(\d{2}|\d{4})$/.exec(raw.trim())
   if (!match) throw new AccountingValidationError([`${location}: Ungültiges Belegdatum „${raw}“.`])
@@ -361,6 +770,34 @@ function parseLexwareDate(raw: string, fiscalYear: LexwareAuditFiscalYear, locat
   if (!year || date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day ||
     isoDate < fiscalYear.startsAt || isoDate > fiscalYear.endsAt) {
     throw new AccountingValidationError([`${location}: Das Belegdatum liegt nicht im Geschäftsjahr ${fiscalYear.year}.`])
+  }
+  return isoDate
+}
+
+function parseLexwareActivityDate(
+  raw: string,
+  fiscalYear: LexwareAuditFiscalYear,
+  location: string,
+  field: 'Buchungsdatum' | 'Journaldatum',
+) {
+  const match = /^(\d{2})\.(\d{2})\.(\d{2}|\d{4})$/.exec(raw.trim())
+  if (!match) throw new AccountingValidationError([`${location}: Ungültiges ${field} „${raw}“.`])
+  const endYear = Number(fiscalYear.endsAt.slice(0, 4))
+  const shortYear = Number(match[3])
+  const century = Math.floor(endYear / 100) * 100
+  const year = match[3].length === 2
+    ? [century - 100 + shortYear, century + shortYear, century + 100 + shortYear]
+      .sort((left, right) => Math.abs(left - endYear) - Math.abs(right - endYear))[0]
+    : Number(match[3])
+  const month = Number(match[2])
+  const day = Number(match[1])
+  const date = new Date(Date.UTC(year, month - 1, day))
+  const isoDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  if (!year || date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    throw new AccountingValidationError([`${location}: Ungültiges ${field} „${raw}“.`])
+  }
+  if (isoDate < fiscalYear.startsAt || year > endYear + 10) {
+    throw new AccountingValidationError([`${location}: Das ${field} liegt außerhalb des unterstützten Erfassungszeitraums.`])
   }
   return isoDate
 }
@@ -421,10 +858,43 @@ function parsePositiveInteger(raw: string, issue: string) {
   return Number(raw)
 }
 
-function requiredText(raw: string, issue: string) {
+function parseFiscalPeriod(raw: string, location: string) {
+  const value = parsePositiveInteger(raw, `${location}: Ungültige Buchungsperiode.`)
+  if (value > 12) throw new AccountingValidationError([`${location}: Die Buchungsperiode muss zwischen 1 und 12 liegen.`])
+  return value
+}
+
+function requiredText(raw: string | undefined, issue: string) {
   const value = raw?.trim()
   if (!value) throw new AccountingValidationError([issue])
   return value
+}
+
+function requiredBoundedText(raw: string | undefined, issue: string, maximumLength = MAX_TEXT_LENGTH) {
+  const value = requiredText(raw, issue)
+  if (containsUnsafeControl(value)) throw new AccountingValidationError([issue])
+  if (value.length > maximumLength) throw new AccountingValidationError([`${issue.replace(/\.$/, '')} und darf höchstens ${maximumLength} Zeichen lang sein.`])
+  return value
+}
+
+function optionalBoundedText(raw: string | undefined, location: string, maximumLength = MAX_TEXT_LENGTH) {
+  const value = raw?.trim()
+  if (!value) return null
+  if (containsUnsafeControl(value)) throw new AccountingValidationError([`${location}: Ein Textfeld enthält ungültige Steuerzeichen.`])
+  if (value.length > maximumLength) throw new AccountingValidationError([`${location}: Ein Textfeld überschreitet ${maximumLength} Zeichen.`])
+  return value
+}
+
+function parsePartnerNumber(raw: string, location: string) {
+  const value = raw?.trim()
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,31}$/.test(value ?? '')) {
+    throw new AccountingValidationError([`${location}: Die Kunden-/Lieferantennummer ist ungültig.`])
+  }
+  return value
+}
+
+function containsUnsafeControl(value: string) {
+  return /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(value)
 }
 
 function decodeText(bytes: Uint8Array) { return new TextDecoder('windows-1252').decode(bytes).replace(/^\uFEFF/, '') }
@@ -468,6 +938,16 @@ function looksLikeXml(bytes: Uint8Array) {
 const JOURNAL_HEADERS = [
   'Buchungsnummer', 'Belegdatum', 'Belegnummer', 'Buchungstext', 'Buchungsbetrag', 'Sollkonto', 'Sollbetrag',
   'Habenkonto', 'Habenbetrag', 'USt-Konto Soll', 'USt-Betrag Soll', 'USt-Konto Haben',
-  'USt-Betrag Haben', 'Beleglink',
+  'USt-Betrag Haben', 'Buchungsdatum', 'Journaldatum', 'Beleglink', 'Periode',
 ]
 const CHART_HEADERS = ['Konto-Nummer', 'Kontenbezeichnung', 'Kontenkategorie']
+const TRIAL_BALANCE_HEADERS = [
+  'Konto', 'Name', 'Letzte Buchung', 'EB-Wert Soll', 'EB-Wert Haben', 'Summe für WJ Soll', 'Summe für WJ Haben',
+  'Summe per WJ Soll', 'Summe per WJ Haben', 'Saldo per WJ Soll', 'Saldo per WJ Haben',
+]
+const BUSINESS_PARTNER_HEADERS = ['Kunden-/Lieferantennummer', 'Name', 'Strasse', 'Hausnummer', 'PLZ', 'Ort', 'Branche']
+const SUBLEDGER_HEADERS = [
+  'Buchungsnummer', 'Kontonummer', 'Kontobezeichnung', 'Belegdatum', 'Belegnummer', 'Buchungstext', 'Gegenkonto',
+  'Sollbetrag €', 'Habenbetrag €', 'USt-Konto', 'USt-%', 'Kunden-/Lieferantennummer', 'USt-IdNr.',
+]
+const ACCOUNT_SHEET_HEADERS = SUBLEDGER_HEADERS.slice(0, 11)

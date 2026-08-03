@@ -24,12 +24,15 @@ function configuredSecret(value: string | undefined) {
   return typeof value === 'string' && value.trim().length >= 16
 }
 
-export function productionGatewayIssues(environment: TaxGatewayEnvironment, formVersion?: string): string[] {
+export function productionGatewayIssues(environment: TaxGatewayEnvironment, formVersion?: string, kind?: DeclarationKind): string[] {
   const issues: string[] = []
-  for (const [endpointKey, credentialKey, label] of [
+  const services = [
     ['TAX_GATEWAY_URL', 'TAX_GATEWAY_CREDENTIAL', 'official tax gateway'],
-    ['ANNUAL_TAX_CALCULATOR_URL', 'ANNUAL_TAX_CALCULATOR_CREDENTIAL', 'annual-tax calculator'],
-  ] as const) {
+    ...(!kind || ['KST', 'GEWST', 'ZERLEGUNG', 'EST_BUSINESS', 'FESTSTELLUNG'].includes(kind)
+      ? [['ANNUAL_TAX_CALCULATOR_URL', 'ANNUAL_TAX_CALCULATOR_CREDENTIAL', 'annual-tax calculator'] as const]
+      : []),
+  ] as const
+  for (const [endpointKey, credentialKey, label] of services) {
     const endpoint = environment[endpointKey]
     if (!endpoint) issues.push(`Configure the ${label} HTTPS endpoint (${endpointKey}).`)
     else {
@@ -45,9 +48,9 @@ export function productionGatewayIssues(environment: TaxGatewayEnvironment, form
   return issues
 }
 
-export function assertProductionGatewayReady(formVersion: string, environment: TaxGatewayEnvironment = process.env) {
+export function assertProductionGatewayReady(formVersion: string, environment: TaxGatewayEnvironment = process.env, kind?: DeclarationKind) {
   if (process.env.NODE_ENV !== 'production') return
-  const issues = productionGatewayIssues(environment, formVersion)
+  const issues = productionGatewayIssues(environment, formVersion, kind)
   if (issues.length) throw new Error(`Production tax submission is disabled: ${issues.join(' ')}`)
 }
 
@@ -86,6 +89,7 @@ export function invoiceSequenceReadinessIssues(
 }
 
 const annualKinds = new Set<DeclarationKind>(['KST', 'GEWST', 'ZERLEGUNG', 'EST_BUSINESS', 'FESTSTELLUNG'])
+const vatKinds = new Set<DeclarationKind>(['USTVA', 'UST_ANNUAL'])
 const inputVatPosition = 'bs.ass.currAss.receiv.other.vat'
 const outputVatPosition = 'bs.eqLiab.liab.other.theroffTax.vat'
 
@@ -95,7 +99,7 @@ export async function getTaxReadiness(ownerId: string, kind: DeclarationKind, pe
   let formVersion: string | undefined
   const formIssues: string[] = []
   try { formVersion = taxFormRegistry.resolve(kind, period).version } catch (error) { formIssues.push(error instanceof Error ? error.message : 'The filing form is unsupported.') }
-  const gatewayIssues = productionGatewayIssues(process.env, formVersion)
+  const gatewayIssues = productionGatewayIssues(process.env, formVersion, kind)
   const profileIssues: string[] = []
   let profile: Awaited<ReturnType<typeof companyProfileForPeriod>> | undefined
   if (!fiscalYear) profileIssues.push('Configure the tenant fiscal year for the requested filing period.')
@@ -104,9 +108,10 @@ export async function getTaxReadiness(ownerId: string, kind: DeclarationKind, pe
     catch (error) { profileIssues.push(error instanceof Error ? error.message : 'The effective company profile is unavailable.') }
   }
   if (kind === 'USTVA' && profile && (profile.vatRegime !== 'STANDARD' || profile.vatFilingFrequency !== 'MONTHLY')) profileIssues.push('UStVA production readiness requires an effective STANDARD/MONTHLY VAT profile.')
+  if (kind === 'UST_ANNUAL' && profile?.vatRegime === 'EXEMPT') profileIssues.push('Annual VAT production readiness requires an effective non-EXEMPT VAT profile.')
 
   const mappingIssues: string[] = []
-  if (kind === 'USTVA' && profile && fiscalYear) {
+  if (vatKinds.has(kind) && profile && fiscalYear) {
     const mappings = await prisma.accountMappingVersion.findMany({ where: { ownerId, chartId: profile.chart, effectiveFrom: { lte: fiscalYear.endsAt } } })
     const effective = mappings.filter(row => row.effectiveFrom <= fiscalYear.startsAt && (!row.effectiveTo || row.effectiveTo >= fiscalYear.endsAt) && row.active)
     if (!effective.some(row => row.eBilanzPosition === inputVatPosition) || !effective.some(row => row.eBilanzPosition === outputVatPosition)) mappingIssues.push('The effective chart must contain active canonical input-VAT and output-VAT control-account mappings for the complete period.')

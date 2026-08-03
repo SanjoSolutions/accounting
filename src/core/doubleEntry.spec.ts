@@ -43,6 +43,28 @@ describe('double-entry journal', () => {
     }).lines).toHaveLength(3)
   })
 
+  it('retains canonical VAT metadata on a taxable posting line', () => {
+    const result = validateJournalEntry({
+      bookingDate: '2026-08-04', documentNumber: 'INV-1', description: 'Taxable sale',
+      lines: [
+        { accountId: 'receivable', debitCents: 11900, creditCents: 0 },
+        { accountId: 'revenue', debitCents: 0, creditCents: 10000, vat: { ruleId: 'DE_STANDARD', mode: 'net', direction: 'sale' } },
+        { accountId: 'output-vat', debitCents: 0, creditCents: 1900 },
+      ],
+    })
+    expect(result.lines[1]).toMatchObject({ vat: { ruleId: 'DE_STANDARD', mode: 'net', direction: 'sale' } })
+  })
+
+  it('rejects contradictory VAT metadata', () => {
+    expect(() => validateJournalEntry({
+      bookingDate: '2026-08-04', documentNumber: 'INV-1', description: 'Taxable sale',
+      lines: [
+        { accountId: 'receivable', debitCents: 11900, creditCents: 0 },
+        { accountId: 'revenue', debitCents: 0, creditCents: 11900, taxCode: 'DE_REDUCED', vat: { ruleId: 'DE_STANDARD', mode: 'net', direction: 'sale' } },
+      ],
+    })).toThrow(/widersprechen/)
+  })
+
   it('returns only validated journal fields', () => {
     const result = validateJournalEntry({
       bookingDate: '2026-03-12', documentNumber: 'ER-44', description: 'Sicher', ignored: 'top',

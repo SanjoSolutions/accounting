@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
+import { createHgbStatementRuleSet } from '@/core/hgbStatements'
 
 const mocks = vi.hoisted(() => {
   const compliancePackage = { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() }
@@ -7,7 +8,7 @@ const mocks = vi.hoisted(() => {
     compliancePackage, procedureDocumentRecord: { create: vi.fn(), findMany: vi.fn() }, retainedArtifact: { create: vi.fn() },
     fixedAssetRecord: { findMany: vi.fn() }, assetEventRecord: { findMany: vi.fn() }, inventoryItemRecord: { findMany: vi.fn() }, inventoryCountSnapshot: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
     cashBookRecord: { findMany: vi.fn(), findFirst: vi.fn() }, cashEntryRecord: { findMany: vi.fn() }, cashCloseRecord: { findMany: vi.fn() },
-    fiscalYear: { findFirst: vi.fn() }, companyProfileVersion: { findFirst: vi.fn(), findMany: vi.fn() }, accountMappingVersion: { findMany: vi.fn() }, auditEvent: { findMany: vi.fn() }, taxWorkflowRecord: { findMany: vi.fn() },
+    fiscalYear: { findFirst: vi.fn() }, companyProfileVersion: { findFirst: vi.fn(), findMany: vi.fn() }, accountMappingVersion: { findMany: vi.fn() }, hgbWorkpaperRecord: { findMany: vi.fn() }, hgbAdjustmentRecord: { findMany: vi.fn() }, auditEvent: { findMany: vi.fn() }, taxWorkflowRecord: { findMany: vi.fn() },
   }
   return { transaction, compliancePackage, prismaTransaction: vi.fn(), persist: vi.fn(), remove: vi.fn(), audit: vi.fn() }
 })
@@ -16,6 +17,7 @@ vi.mock('@/server/persistence/client', () => ({ prisma: { ...mocks.transaction, 
 vi.mock('@/server/compliance/objectStorage', () => ({ persistComplianceObject: mocks.persist }))
 vi.mock('@/server/storage', () => ({ getDocumentStorage: () => ({ delete: mocks.remove }) }))
 vi.mock('@/server/compliance/auditPersistence', () => ({ appendAuditEvent: mocks.audit }))
+vi.mock('@/core/hgbWorkpapers', () => ({ validateHgbWorkpaper: (value: unknown) => value, hgbWorkpaperChecksum: () => 'trusted-checksum' }))
 vi.mock('./runtime', () => ({ ComplianceRuntimeError: class ComplianceRuntimeError extends Error { constructor(message: string, readonly status = 400) { super(message) } } }))
 
 import { approveReportingPackage, createDomainReportingPackage, getReportingOverview, saveProcedureDocument } from './reportingRepository'
@@ -99,8 +101,40 @@ describe('reporting compliance repository', () => {
       .mockResolvedValueOnce({ id: 'fy', year: 2026, startsAt: new Date('2026-01-01T00:00:00Z'), endsAt: new Date('2026-12-31T00:00:00Z'), journalEntries: [] })
     mocks.transaction.accountMappingVersion.findMany.mockResolvedValue([])
     await createDomainReportingPackage('tenant-a', 'actor-a', 'ANNUAL_ACCOUNTS', { fiscalPeriodId: 'fy', reason: 'annual', presentation: { checks: { nonOffsetting: true, accrual: true, provisions: true, valuation: true, continuity: true } } }).catch(() => undefined)
-    expect(mocks.transaction.accountMappingVersion.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ownerId: 'tenant-a', chartId: 'SKR04', active: true, effectiveFrom: { lte: new Date('2026-12-31T00:00:00Z') }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date('2026-12-31T00:00:00Z') } }] } }))
+    expect(mocks.transaction.accountMappingVersion.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ownerId: 'tenant-a', chartId: 'SKR04', active: true, effectiveFrom: { lte: new Date('2026-12-31T00:00:00Z') }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date('2025-01-01T00:00:00Z') } }] } }))
     expect(mocks.transaction.fiscalYear.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'fy', ownerId: 'tenant-a' }, include: { journalEntries: expect.objectContaining({ where: { state: 'POSTED' } }) } }))
+  })
+
+  it('generates annual statements only from reviewed workpapers, canonical mappings, and balanced posted journals', async () => {
+    const priorValues: Record<string, number> = { 'BS.A.B': 90, 'BS.P.A': 90, 'IS.M.1': 90, 'IS.M.8': 90 }
+    const expectedLeaves = createHgbStatementRuleSet('MICRO', 'GKV').lines.filter(line => !createHgbStatementRuleSet('MICRO', 'GKV').lines.some(candidate => candidate.parentId === line.id)).map(line => ({ lineId: line.id, amountCents: priorValues[line.id] ?? 0 }))
+    const workpapers = [
+      { kind: 'SIZE_AND_APPLICABILITY', schedule: { type: 'SIZE_APPLICABILITY', establishedSize: 'MICRO' } },
+      { kind: 'POLICY_ELECTIONS', schedule: { type: 'POLICY_ELECTIONS', elections: [{ policy: 'TOTAL_COST_PNL', applicable: true, selected: true, rationale: 'Reviewed GKV election' }] } },
+      { kind: 'OPENING_BALANCE', schedule: { type: 'OPENING_BALANCE', approvedComparativeLeaves: expectedLeaves } },
+      ...['MAPPING_AND_PRESENTATION', 'RECOGNITION_AND_OWNERSHIP', 'CUT_OFF_AND_ACCRUAL_DEFERRAL', 'PROVISIONS_AND_CONTINGENCIES', 'RECEIVABLE_AND_MARKET_VALUATION'].map(kind => ({ kind, schedule: { type: kind } })),
+    ].map((payload, index) => ({ id: `wp-${index}`, kind: payload.kind, version: 1, status: 'REVIEWED', checksum: 'trusted-checksum', payload: JSON.stringify(payload) }))
+    const entry = (amount: number) => ({ state: 'POSTED', lines: [
+      { accountId: 'bank', debitCents: amount, creditCents: 0, account: { number: 1200 } },
+      { accountId: 'revenue', debitCents: 0, creditCents: amount, account: { number: 8400 } },
+    ] })
+    mocks.transaction.fiscalYear.findFirst
+      .mockResolvedValueOnce({ id: 'fy-2025', ownerId: 'tenant-a', year: 2025, startsAt: new Date('2025-01-01Z'), endsAt: new Date('2025-12-31Z') })
+      .mockResolvedValueOnce({ id: 'fy-2024', year: 2024, startsAt: new Date('2024-01-01Z'), endsAt: new Date('2024-12-31Z'), journalEntries: [entry(90)] })
+      .mockResolvedValueOnce({ id: 'fy-2025', year: 2025, startsAt: new Date('2025-01-01Z'), endsAt: new Date('2025-12-31Z'), journalEntries: [entry(100)] })
+    mocks.transaction.companyProfileVersion.findFirst.mockResolvedValue({ payload: JSON.stringify({ chart: 'CUSTOM:HGB', companyName: 'Example GmbH', legalForm: 'GMBH', registerCourt: 'Berlin', registerNumber: 'HRB 1', registeredAddress: { city: 'Berlin' } }) })
+    mocks.transaction.accountMappingVersion.findMany.mockResolvedValue([
+      { accountNumber: 1200, hgbPosition: 'BS.A.B', normalBalance: 'DEBIT', presentationSign: 1, effectiveFrom: new Date('2024-01-01Z'), effectiveTo: new Date('2025-12-31Z') },
+      { accountNumber: 8400, hgbPosition: 'IS.M.1', normalBalance: 'CREDIT', presentationSign: 1, effectiveFrom: new Date('2024-01-01Z'), effectiveTo: new Date('2025-12-31Z') },
+    ])
+    mocks.transaction.hgbWorkpaperRecord.findMany.mockResolvedValue(workpapers)
+    mocks.transaction.hgbAdjustmentRecord.findMany.mockResolvedValue([])
+    const result = await createDomainReportingPackage('tenant-a', 'preparer-a', 'ANNUAL_ACCOUNTS', { fiscalPeriodId: 'fy-2025', reason: 'Generate reviewed annual accounts', presentation: { checks: { valuation: false } } })
+    expect(result).toMatchObject({ kind: 'ANNUAL_ACCOUNTS' })
+    const envelope = JSON.parse(mocks.compliancePackage.create.mock.calls.at(-1)![0].data.payload)
+    const annual = JSON.parse(envelope.immutablePayload)
+    expect(annual.balanceSheet.find((line: { code: string }) => line.code === 'A.ASSETS')).toMatchObject({ amountCents: 100, comparativeCents: 90 })
+    expect(annual.checks).toEqual({ nonOffsetting: true, accrual: true, provisions: true, valuation: true, continuity: true })
   })
 
   it('exports loaded mapping history, including unused mappings, instead of deriving the chart from postings', async () => {

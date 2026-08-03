@@ -32,16 +32,17 @@ export async function annualTaxApplicability(ownerId: string, year: number) {
   const fiscalYear = await prisma.fiscalYear.findFirst({ where: { ownerId, year }, select: { startsAt: true, endsAt: true } })
   if (!fiscalYear) throw new TaxDeclarationError(['Configure the tenant fiscal year before annual tax preparation.'])
   const stored = await companyProfileForPeriod(ownerId, fiscalYear.startsAt, fiscalYear.endsAt)
-  const facts = stored.annualTaxProfile!
-  if (!facts || typeof facts.tradeBusiness !== 'boolean' || !Number.isSafeInteger(facts.establishments) || facts.establishments < 1 || typeof facts.adviserExtension !== 'boolean') throw new TaxDeclarationError(['Configure canonical trade-business, establishment and adviser facts in the tenant annual tax profile.'])
-  const profile: AnnualTaxProfile = {
-    companyId: ownerId, legalForm: mapLegalForm(stored.legalForm!), tradeBusiness: facts.tradeBusiness,
-    establishments: facts.establishments, adviserExtension: facts.adviserExtension,
-    fiscalYearEnd: fiscalYear.endsAt.toISOString().slice(0, 10), municipalityCode: facts.municipalityCode,
-    tradeTaxMultiplierBasisPoints: facts.tradeTaxMultiplierBasisPoints,
-    establishmentAllocations: facts.establishmentAllocations,
-  }
-  return { profile, kinds: applicableAnnualReturns(profile), deadline: annualReturnDeadline(year, profile), professionalValidationRequired: true }
+  const facts = stored.annualTaxProfile
+  const hasCanonicalAnnualFacts = Boolean(facts && typeof facts.tradeBusiness === 'boolean' && Number.isSafeInteger(facts.establishments) && facts.establishments >= 1 && typeof facts.adviserExtension === 'boolean')
+  const profile: AnnualTaxProfile | undefined = hasCanonicalAnnualFacts ? {
+    companyId: ownerId, legalForm: mapLegalForm(stored.legalForm!), tradeBusiness: facts!.tradeBusiness,
+    establishments: facts!.establishments, adviserExtension: facts!.adviserExtension,
+    fiscalYearEnd: fiscalYear.endsAt.toISOString().slice(0, 10), municipalityCode: facts!.municipalityCode,
+    tradeTaxMultiplierBasisPoints: facts!.tradeTaxMultiplierBasisPoints,
+    establishmentAllocations: facts!.establishmentAllocations,
+  } : undefined
+  const kinds = [...(stored.vatRegime !== 'EXEMPT' ? ['UST_ANNUAL' as const] : []), ...(profile ? applicableAnnualReturns(profile) : [])]
+  return { profile, kinds, deadline: profile ? annualReturnDeadline(year, profile) : `${year + 1}-07-31`, professionalValidationRequired: true }
 }
 
 export function parseTaxAdjustmentInput(value: unknown): Omit<TaxAdjustment, 'effectiveFor'> {
@@ -89,6 +90,7 @@ async function buildAnnualTaxDatasets(ownerId: string, year: number, values: rea
   year = parseAnnualTaxYear(year)
   values = parseAnnualTaxValues(values)
   const { profile, deadline } = await annualTaxApplicability(ownerId, year)
+  if (!profile) throw new TaxDeclarationError(['Configure canonical trade-business, establishment and adviser facts in the tenant annual tax profile.'])
   const workspace = await getLedgerWorkspace(ownerId, year)
   if (workspace.entries.some(entry => entry.state !== 'POSTED')) throw new TaxDeclarationError(['Binding annual preparation requires every journal entry in the fiscal year to be immutable and posted.'])
   const resultEntryIds = deriveAnnualResultEntryIds(workspace.entries)

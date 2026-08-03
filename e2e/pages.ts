@@ -80,3 +80,53 @@ export class CompliancePage extends ApplicationPage {
     await section.getByRole('button', { name: 'Save effective profile' }).click()
   }
 }
+
+export class AccountingReportsPage extends ApplicationPage {
+  async open2025() {
+    const response = this.page.waitForResponse(value =>
+      new URL(value.url()).pathname === '/api/accounting-reports'
+      && new URL(value.url()).searchParams.get('year') === '2025',
+    )
+    await this.open('/reports/2025')
+    expect((await response).status()).toBe(200)
+    await this.expectHeading(/2025/)
+  }
+
+  section(name: string | RegExp) {
+    return this.page.getByRole('heading', { name }).locator('xpath=ancestor::section[1]')
+  }
+
+  async expectSectionContains(name: string | RegExp, ...values: string[]) {
+    const section = this.section(name)
+    await expect(section).toBeVisible()
+    for (const value of values) await expect(section).toContainText(value)
+  }
+
+  async searchChart(value: string) {
+    const section = this.section(/Chart metadata/i)
+    await section.getByRole('searchbox', { name: /Search/i }).fill(value)
+    return section
+  }
+
+  async openLedgerAccount(account: string) {
+    await this.section(/General-ledger account sheets/i).locator('summary').filter({ hasText: new RegExp(`^${account} ·`) }).click()
+  }
+
+  async openVoucherFromJournal(name: string) {
+    await this.openJournal2025()
+    const link = this.page.getByRole('link', { name })
+    const href = await link.getAttribute('href')
+    expect(href).toMatch(/^\/api\/documents\/[^/]+\/file$/)
+    const openedPage = this.page.context().waitForEvent('page')
+    await link.click()
+    const voucherPage = await openedPage
+    await voucherPage.close()
+    return this.page.context().request.get(href!)
+  }
+
+  async openJournal2025() {
+    await this.open('/journal')
+    await this.page.getByLabel('Fiscal year').fill('2025')
+    await expect(this.page.getByRole('heading', { name: 'Posted entries' })).toBeVisible()
+  }
+}

@@ -30,72 +30,75 @@ model CompanyProfileVersion {
 }
 
 model CompanyProfileAddressConfirmation {
-  id String @id @default(cuid())
-  ownerId String
-  profileVersionId String @unique
-  payload String
-  createdBy String
-  reason String
-  createdAt DateTime @default(now())
+  id               String   @id @default(cuid())
+  ownerId          String
+  profileVersionId String   @unique
+  payload          String
+  createdBy        String
+  reason           String
+  createdAt        DateTime @default(now())
+
   @@index([ownerId, createdAt])
 }
 
 model AuditEvent {
-  id            String   @id
-  ownerId       String
-  actorId       String
-  occurredAt    DateTime
-  action        String
-  reason        String
-  objectType    String
-  objectId      String
-  semanticDelta String
-  previousHash String?
-  hash String
-  integrityKeyId String @default("default")
-  createdAt DateTime @default(now())
+  id             String   @id
+  ownerId        String
+  actorId        String
+  occurredAt     DateTime
+  action         String
+  reason         String
+  objectType     String
+  objectId       String
+  semanticDelta  String
+  previousHash   String?
+  hash           String
+  integrityKeyId String   @default("default")
+  createdAt      DateTime @default(now())
+
   @@unique([ownerId, hash])
   @@index([ownerId, occurredAt])
 }
 
 model AuditHead {
-  ownerId String @id
-  headHash String?
-  legacyHeadHash String?
-  legacyEventCount Int @default(0)
-  version Int @default(0)
-  updatedAt DateTime @updatedAt
+  ownerId          String   @id
+  headHash         String?
+  legacyHeadHash   String?
+  legacyEventCount Int      @default(0)
+  version          Int      @default(0)
+  updatedAt        DateTime @updatedAt
 }
 
 model BackupManifest {
-  id              String    @id @default(cuid())
-  ownerId         String
-  createdAt       DateTime  @default(now())
-  databaseHash    String
-  objectStoreHash String
-  encryptionKeyId String
-  storageRegion   String
-  recoveryPointAt DateTime
-  verifiedAt DateTime?
-  restoredAt DateTime?
-  manifest String
+  id                String    @id @default(cuid())
+  ownerId           String
+  createdAt         DateTime  @default(now())
+  databaseHash      String
+  objectStoreHash   String
+  encryptionKeyId   String
+  storageRegion     String
+  recoveryPointAt   DateTime
+  verifiedAt        DateTime?
+  restoredAt        DateTime?
+  manifest          String
   payloadStorageKey String?
-  status String @default("CREATED")
+  status            String    @default("CREATED")
+
   @@index([ownerId, createdAt])
 }
 
 model CompliancePolicy {
-  ownerId String @id
-  allowedStorageRegions String
-  operatorIds String
+  ownerId                       String   @id
+  allowedStorageRegions         String
+  operatorIds                   String
   recoveryPointObjectiveMinutes Int
-  recoveryTimeObjectiveMinutes Int
-  backupKeyId String
-  updatedAt DateTime @updatedAt
+  recoveryTimeObjectiveMinutes  Int
+  backupKeyId                   String
+  updatedAt                     DateTime @updatedAt
 }
 
 model CompliancePackage {
-  id             String   @id
+  id             String    @id
   ownerId        String
   kind           String
   fiscalPeriodId String?
@@ -107,7 +110,7 @@ model CompliancePackage {
   supersedesId   String?
   authorityRef   String?
   createdBy      String
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
   approvedBy     String?
   approvedAt     DateTime?
 
@@ -117,7 +120,7 @@ model CompliancePackage {
 }
 
 model ProcedureDocumentRecord {
-  id            String   @id
+  id            String    @id
   ownerId       String
   documentId    String
   version       String
@@ -127,18 +130,18 @@ model ProcedureDocumentRecord {
   checksum      String
   approvedBy    String
   approvedAt    DateTime
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
 
   @@unique([ownerId, documentId, version])
   @@index([ownerId, effectiveFrom, effectiveTo])
 }
 
 model FixedAssetRecord {
-  id             String   @id
-  ownerId        String
-  payload        String
-  createdBy      String
-  createdAt      DateTime @default(now())
+  id        String   @id
+  ownerId   String
+  payload   String
+  createdBy String
+  createdAt DateTime @default(now())
 
   @@index([ownerId, createdAt])
 }
@@ -197,16 +200,16 @@ model CashBookRecord {
 }
 
 model CashEntryRecord {
-  id             String   @id
-  ownerId        String
-  cashBookId     String
-  sequence       Int
-  businessDate   DateTime
-  journalEntryId String
-  payload        String
-  correctsEntryId String?
+  id                 String   @id
+  ownerId            String
+  cashBookId         String
+  sequence           Int
+  businessDate       DateTime
+  journalEntryId     String
+  payload            String
+  correctsEntryId    String?
   replacementEntryId String?
-  createdAt      DateTime @default(now())
+  createdAt          DateTime @default(now())
 
   @@unique([ownerId, cashBookId, sequence])
   @@unique([ownerId, cashBookId, journalEntryId])
@@ -255,24 +258,25 @@ model DocumentStorageClaim {
 }
 
 model RetainedArtifact {
-  id             String    @id @default(cuid())
-  ownerId        String
-  objectType     String
-  objectId       String
-  version        Int
-  retentionClass String
-  contentHash    String
-  provenance     String
-  storageKey     String?
-  periodEndsAt   DateTime
-  retainUntil    DateTime
-  legalHoldUntil DateTime?
-  legalHoldReason String?
-  lastFixityAt DateTime?
-  disposedAt DateTime?
+  id                  String    @id @default(cuid())
+  ownerId             String
+  objectType          String
+  objectId            String
+  version             Int
+  retentionClass      String
+  contentHash         String
+  provenance          String
+  storageKey          String?
+  periodEndsAt        DateTime
+  retainUntil         DateTime
+  legalHoldUntil      DateTime?
+  legalHoldReason     String?
+  lastFixityAt        DateTime?
+  disposedAt          DateTime?
   disposalRequestedAt DateTime?
-  storageDeletedAt DateTime?
-  createdAt DateTime @default(now())
+  storageDeletedAt    DateTime?
+  createdAt           DateTime  @default(now())
+
   @@unique([ownerId, objectType, objectId, version])
   @@index([ownerId, retainUntil, legalHoldUntil])
 }
@@ -320,6 +324,7 @@ model AccountMappingVersion {
   accountName     String
   accountType     String
   normalBalance   String
+  presentationSign Int     @default(1)
   hgbPosition     String
   eBilanzPosition String
   vatCode         String?
@@ -338,6 +343,123 @@ model LedgerProfile {
   accountLength    Int?
 }
 
+model LexwareCompanySetup {
+  id               String   @id @default(cuid())
+  ownerId          String
+  year             Int
+  companyName      String
+  street           String
+  postalCode       String
+  city             String
+  region           String
+  phone            String?
+  fax              String?
+  currency         String
+  accountingMethod String
+  chart            String
+  startsAt         DateTime
+  endsAt           DateTime
+  taxonomyVersion  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([ownerId, year])
+  @@index([ownerId, startsAt, endsAt])
+}
+
+model LexwareAccountMetadata {
+  id                             String   @id @default(cuid())
+  ownerId                        String
+  year                           Int
+  accountNumber                  Int
+  accountName                    String
+  accountCategory                String
+  subcategory                    String?
+  legacyVatPosition              String?
+  legacyVatCode                  String?
+  currentVatPosition             String?
+  currentVatCode                 String?
+  cashBasisMapping               String?
+  hgbAssetMapping                String?
+  hgbLiabilityMapping            String?
+  hgbIncomeStatementMapping      String?
+  taxonomyAssetMapping           String?
+  taxonomyLiabilityMapping       String?
+  taxonomyIncomeStatementMapping String?
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
+
+  @@unique([ownerId, year, accountNumber])
+  @@index([ownerId, year])
+}
+
+model LexwareTrialBalanceLine {
+  id                    String    @id @default(cuid())
+  ownerId               String
+  year                  Int
+  accountNumber         Int
+  accountName           String
+  lastBookingDate       DateTime?
+  openingDebitCents     Int
+  openingCreditCents    Int
+  annualDebitCents      Int
+  annualCreditCents     Int
+  cumulativeDebitCents  Int
+  cumulativeCreditCents Int
+  closingDebitCents     Int
+  closingCreditCents    Int
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([ownerId, year, accountNumber])
+  @@index([ownerId, year])
+}
+
+model LexwareBusinessPartner {
+  id            String   @id @default(cuid())
+  ownerId       String
+  year          Int
+  partnerNumber String
+  name          String
+  street        String
+  houseNumber   String
+  postalCode    String
+  city          String
+  industry      String?
+  vatId         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([ownerId, year, partnerNumber])
+  @@index([ownerId, year, name])
+}
+
+model LexwareSubledgerAssociation {
+  id            String   @id @default(cuid())
+  ownerId       String
+  year          Int
+  accountNumber Int
+  partnerNumber String
+  kind          String
+  createdAt     DateTime @default(now())
+
+  @@unique([ownerId, year, accountNumber, partnerNumber, kind])
+  @@index([ownerId, year, kind])
+}
+
+model LexwareAnnualVatField {
+  id          String   @id @default(cuid())
+  ownerId     String
+  year        Int
+  fieldCode   String
+  amountCents Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ownerId, year, fieldCode])
+  @@index([ownerId, year])
+}
+
 model FiscalYear {
   id                  String               @id @default(cuid())
   ownerId             String
@@ -350,12 +472,81 @@ model FiscalYear {
   closingSnapshot     String?
   journalEntries      JournalEntry[]
   eBalanceSubmissions EBalanceSubmission[]
+  hgbCloseRuns        HgbCloseRun[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
   @@unique([ownerId, year])
   @@unique([ownerId, startsAt, endsAt])
   @@index([ownerId, startsAt, endsAt])
+}
+
+model HgbCloseRun {
+  id                String     @id @default(cuid())
+  ownerId           String
+  fiscalPeriodId    String
+  fiscalPeriod      FiscalYear @relation(fields: [fiscalPeriodId], references: [id], onDelete: Restrict)
+  version           Int
+  status            String
+  ruleSetVersion    String
+  ledgerFingerprint String
+  inputChecksum     String
+  checksum          String
+  payload           String
+  createdBy         String
+  createdAt         DateTime   @default(now())
+
+  @@unique([ownerId, fiscalPeriodId, version])
+  @@unique([ownerId, checksum])
+  @@index([ownerId, fiscalPeriodId, createdAt])
+}
+
+model HgbWorkpaperRecord {
+  id             String    @id @default(cuid())
+  ownerId        String
+  fiscalPeriodId String
+  kind           String
+  version        Int
+  status         String    @default("DRAFT")
+  ruleSetVersion String
+  payload        String
+  checksum       String
+  preparedBy     String?
+  preparedAt     DateTime?
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  reviewReason   String?
+  supersedesId   String?
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([ownerId, fiscalPeriodId, kind, version])
+  @@unique([ownerId, checksum])
+  @@index([ownerId, fiscalPeriodId, status])
+}
+
+model HgbAdjustmentRecord {
+  id             String    @id @default(cuid())
+  ownerId        String
+  fiscalPeriodId String
+  workpaperId    String
+  proposalId     String
+  fingerprint    String
+  status         String    @default("PROPOSED")
+  idempotencyKey String?
+  postedEntryId  String?
+  postedBy       String?
+  postedAt       DateTime?
+  payload        String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([ownerId, workpaperId, proposalId])
+  @@unique([ownerId, fingerprint])
+  @@unique([ownerId, idempotencyKey])
+  @@index([ownerId, fiscalPeriodId, status])
 }
 
 model EBalanceSubmission {
@@ -381,24 +572,24 @@ model EBalanceSubmission {
 }
 
 model EBalanceTaxonomyRelease {
-  version          String   @id
-  validFrom        DateTime
-  validThrough     DateTime
-  gaapNamespace    String
-  gcdNamespace     String
-  entryPoint       String
-  archiveSha256    String   @unique
+  version           String   @id
+  validFrom         DateTime
+  validThrough      DateTime
+  gaapNamespace     String
+  gcdNamespace      String
+  entryPoint        String
+  archiveSha256     String   @unique
   archiveStorageKey String
-  successorVersion String?
-  compatibility    String
-  registeredBy     String
-  registeredAt     DateTime @default(now())
+  successorVersion  String?
+  compatibility     String
+  registeredBy      String
+  registeredAt      DateTime @default(now())
 
   @@index([validFrom, validThrough])
 }
 
 model EBalanceLifecycleReport {
-  id                    String   @id
+  id                    String    @id
   ownerId               String
   fiscalYearId          String
   version               Int
@@ -416,7 +607,7 @@ model EBalanceLifecycleReport {
   approvedBy            String?
   approvedAt            DateTime?
   createdBy             String
-  createdAt             DateTime @default(now())
+  createdAt             DateTime  @default(now())
 
   @@unique([ownerId, fiscalYearId, version])
   @@unique([ownerId, reportChecksum])
@@ -424,16 +615,16 @@ model EBalanceLifecycleReport {
 }
 
 model EBalanceReconciliationRecord {
-  id             String   @id
-  ownerId        String
-  fiscalYearId   String
-  kind           String
-  payload        String
-  checksum       String
-  evidenceIds    String
-  approvedBy     String
-  approvedAt     DateTime
-  createdAt      DateTime @default(now())
+  id           String   @id
+  ownerId      String
+  fiscalYearId String
+  kind         String
+  payload      String
+  checksum     String
+  evidenceIds  String
+  approvedBy   String
+  approvedAt   DateTime
+  createdAt    DateTime @default(now())
 
   @@unique([ownerId, fiscalYearId, kind, id])
   @@unique([ownerId, fiscalYearId, kind, checksum])
@@ -441,23 +632,26 @@ model EBalanceReconciliationRecord {
 }
 
 model JournalEntry {
-  id              String                      @id @default(cuid())
-  sequenceNumber  Int
-  bookingDate     DateTime
-  documentNumber  String
-  description     String
-  source          String                      @default("MANUAL")
-  state           String                      @default("POSTED")
-  entryDate       DateTime?                   @default(now())
-  lateReason      String?
-  reversalOfId    String?                     @unique
-  replacementOfId String?                     @unique
-  externalKey     String?                     @unique
-  fiscalYearId    String
-  fiscalYear      FiscalYear                  @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
-  lines           JournalLine[]
-  documents       JournalDocumentAttachment[]
-  createdAt       DateTime                    @default(now())
+  id                String                      @id @default(cuid())
+  sequenceNumber    Int
+  bookingDate       DateTime
+  sourcePostingDate DateTime?
+  sourceJournalDate DateTime?
+  sourcePeriod      Int?
+  documentNumber    String
+  description       String
+  source            String                      @default("MANUAL")
+  state             String                      @default("POSTED")
+  entryDate         DateTime?                   @default(now())
+  lateReason        String?
+  reversalOfId      String?                     @unique
+  replacementOfId   String?                     @unique
+  externalKey       String?                     @unique
+  fiscalYearId      String
+  fiscalYear        FiscalYear                  @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+  lines             JournalLine[]
+  documents         JournalDocumentAttachment[]
+  createdAt         DateTime                    @default(now())
 
   @@unique([fiscalYearId, sequenceNumber])
   @@unique([fiscalYearId, documentNumber])
@@ -465,46 +659,49 @@ model JournalEntry {
 }
 
 model JournalDraft {
-  id String @id @default(cuid())
-  ownerId String
-  fiscalYearId String
-  payload String
-  version Int @default(1)
-  status String @default("DRAFT")
+  id            String   @id @default(cuid())
+  ownerId       String
+  fiscalYearId  String
+  payload       String
+  version       Int      @default(1)
+  status        String   @default("DRAFT")
   postedEntryId String?
-  createdBy String
-  updatedBy String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdBy     String
+  updatedBy     String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
   @@index([ownerId, fiscalYearId, status])
 }
 
 model PeriodReopenRequest {
-  id           String    @id @default(cuid())
-  ownerId      String
-  fiscalYearId String
-  requestedBy String
+  id                String    @id @default(cuid())
+  ownerId           String
+  fiscalYearId      String
+  requestedBy       String
   closeGenerationAt DateTime?
-  approvedBy String?
-  reason String
-  status String
-  requestedAt DateTime @default(now())
-  decidedAt DateTime?
+  approvedBy        String?
+  reason            String
+  status            String
+  requestedAt       DateTime  @default(now())
+  decidedAt         DateTime?
+
   @@index([ownerId, fiscalYearId, requestedAt])
 }
 
 model FilingAmendment {
-  id String @id @default(cuid())
-  ownerId String
-  kind String
+  id               String   @id @default(cuid())
+  ownerId          String
+  kind             String
   originalObjectId String
-  requestPayload String
-  responsePayload String?
-  receiptPayload String?
-  reason String
-  status String @default("DRAFT")
-  createdBy String
-  createdAt DateTime @default(now())
+  requestPayload   String
+  responsePayload  String?
+  receiptPayload   String?
+  reason           String
+  status           String   @default("DRAFT")
+  createdBy        String
+  createdAt        DateTime @default(now())
+
   @@index([ownerId, kind, originalObjectId, createdAt])
 }
 
