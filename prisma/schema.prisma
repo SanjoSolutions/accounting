@@ -473,6 +473,7 @@ model FiscalYear {
   journalEntries      JournalEntry[]
   eBalanceSubmissions EBalanceSubmission[]
   hgbCloseRuns        HgbCloseRun[]
+  closeGenerations    FiscalCloseGeneration[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
@@ -495,10 +496,34 @@ model HgbCloseRun {
   payload           String
   createdBy         String
   createdAt         DateTime   @default(now())
+  closeGenerations  FiscalCloseGeneration[]
 
   @@unique([ownerId, fiscalPeriodId, version])
   @@unique([ownerId, checksum])
   @@index([ownerId, fiscalPeriodId, createdAt])
+}
+
+model FiscalCloseGeneration {
+  id                  String      @id @default(cuid())
+  ownerId             String
+  fiscalYearId        String
+  fiscalYear          FiscalYear  @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+  generation          Int
+  hgbCloseRunId       String
+  hgbCloseRun         HgbCloseRun @relation(fields: [hgbCloseRunId], references: [id], onDelete: Restrict)
+  hgbCloseRunChecksum String
+  snapshotHash        String
+  lockedAt            DateTime
+  createdAt           DateTime    @default(now())
+  eBalanceSubmissions EBalanceSubmission[]
+  eBalanceReports     EBalanceLifecycleReport[]
+  annualTaxCases      TaxAnnualCaseRecord[]
+  taxPreparations     TaxDatasetPreparationRecord[]
+
+  @@unique([ownerId, fiscalYearId, generation])
+  @@unique([ownerId, fiscalYearId, lockedAt])
+  @@index([ownerId, fiscalYearId, createdAt])
+  @@index([hgbCloseRunId])
 }
 
 model HgbWorkpaperRecord {
@@ -555,6 +580,8 @@ model EBalanceSubmission {
   year              Int
   fiscalYearId      String
   fiscalYear        FiscalYear @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+  closeGenerationId String?
+  closeGeneration   FiscalCloseGeneration? @relation(fields: [closeGenerationId], references: [id], onDelete: Restrict)
   kind              String
   status            String
   idempotencyKey    String
@@ -569,6 +596,7 @@ model EBalanceSubmission {
 
   @@unique([ownerId, idempotencyKey])
   @@index([ownerId, year, createdAt])
+  @@index([closeGenerationId])
 }
 
 model EBalanceTaxonomyRelease {
@@ -592,6 +620,8 @@ model EBalanceLifecycleReport {
   id                    String    @id
   ownerId               String
   fiscalYearId          String
+  closeGenerationId     String?
+  closeGeneration       FiscalCloseGeneration? @relation(fields: [closeGenerationId], references: [id], onDelete: Restrict)
   version               Int
   status                String
   taxonomyVersion       String
@@ -610,8 +640,9 @@ model EBalanceLifecycleReport {
   createdAt             DateTime  @default(now())
 
   @@unique([ownerId, fiscalYearId, version])
-  @@unique([ownerId, reportChecksum])
+  @@unique([ownerId, closeGenerationId, reportChecksum])
   @@index([ownerId, fiscalYearId, createdAt])
+  @@index([closeGenerationId])
 }
 
 model EBalanceReconciliationRecord {
@@ -920,10 +951,52 @@ model TaxDatasetPreparationRecord {
   period        String
   datasetHash   String
   sourcePayload String?
+  datasetPayload String?
+  sourceChecksum String?
+  ruleVersion    String?
+  bindingKind    String?
+  closeGenerationId String?
+  closeGeneration FiscalCloseGeneration? @relation(fields: [closeGenerationId], references: [id], onDelete: Restrict)
+  annualCaseId   String?
+  annualCase     TaxAnnualCaseRecord? @relation(fields: [annualCaseId], references: [id], onDelete: Restrict)
   createdAt     DateTime @default(now())
 
   @@unique([ownerId, datasetHash])
   @@index([ownerId, kind, period, createdAt])
+  @@index([closeGenerationId])
+  @@index([annualCaseId])
+}
+
+model TaxAnnualCaseRecord {
+  id                         String   @id @default(cuid())
+  ownerId                    String
+  year                       Int
+  closeGenerationId          String
+  closeGeneration            FiscalCloseGeneration @relation(fields: [closeGenerationId], references: [id], onDelete: Restrict)
+  status                     String   @default("PREPARED")
+  ruleVersion                String
+  legalForm                  String
+  establishments             Int
+  municipalityCode           String
+  hebesatzBasisPoints        Int
+  foreignIncome              Boolean
+  groupOrConsolidation       Boolean
+  lossCarry                  Boolean
+  specialRegime              Boolean
+  withholdingOrCredits       Boolean
+  payroll                    Boolean
+  incomeAdjustmentCents      Int
+  tradeAdjustmentCents       Int
+  previewPayload             String
+  sourceChecksum             String
+  createdBy                  String
+  createdAt                  DateTime @default(now())
+  preparations               TaxDatasetPreparationRecord[]
+  assessments                TaxAssessmentRecord[]
+
+  @@unique([ownerId, sourceChecksum])
+  @@index([ownerId, year, createdAt])
+  @@index([closeGenerationId])
 }
 
 model TaxAssessmentRecord {
@@ -934,7 +1007,16 @@ model TaxAssessmentRecord {
   assessedAmountCents     Int
   receivedAt              DateTime
   documentHash            String
+  documentId              String?
+  evidenceStorageKey      String?
+  authority               String   @default("FINANZAMT")
+  noticeId                String?
+  noticePayloadHash       String?
   declarationSubmissionId String
+  comparisonBasis         String?
+  previewRuleVersion      String?
+  annualCaseId            String?
+  annualCase              TaxAnnualCaseRecord? @relation(fields: [annualCaseId], references: [id], onDelete: Restrict)
   differenceCents         Int
   needsReview             Boolean
   createdAt               DateTime @default(now())
@@ -942,6 +1024,8 @@ model TaxAssessmentRecord {
   @@id([ownerId, id])
   @@index([ownerId, kind, period])
   @@index([ownerId, declarationSubmissionId])
+  @@unique([ownerId, noticeId])
+  @@index([annualCaseId])
 }
 
 model User {

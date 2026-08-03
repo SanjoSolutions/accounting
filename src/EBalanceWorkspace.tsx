@@ -175,6 +175,11 @@ export function EBalanceWorkspace({ year }: { year: number }) {
       if (!isCurrentEBalanceYear(requestedYear, yearRef.current)) return
       const url = URL.createObjectURL(blob)
       try { const link = document.createElement('a'); link.href = url; link.download = `e-bilanz-${year}-pruefpaket.zip`; link.click() } finally { URL.revokeObjectURL(url) }
+      if (selectedFiscalYearId) {
+        const overviewResult = await resolveJsonRequest(() => fetch(lifecycleOverviewPath(selectedFiscalYearId)), t('eBalanceLoadFailed'))
+        const parsed = overviewResult.response?.ok ? parseLifecycleOverview(overviewResult.data) : null
+        if (parsed) setLifecycle(scopeLifecycleOverview(parsed, selectedFiscalYearId))
+      }
     } catch {
       if (isCurrentEBalanceYear(requestedYear, yearRef.current)) setRequestIssues([t('exportFailed')])
     } finally { if (isCurrentEBalanceYear(requestedYear, yearRef.current)) setExportBusy(false) }

@@ -28,6 +28,7 @@ import { profilePayloadWithConfirmedAddress, validateCompanyProfile, type Compan
 import { getDocumentStorage } from './storage'
 import { persistComplianceObject } from './compliance/objectStorage'
 import { VatValidationError, type VatPostingDetail, type VatSourceSplit } from '@/core/vatEngine'
+import { createFiscalCloseGeneration, requireCurrentFiscalCloseGeneration } from './fiscalCloseGeneration'
 import {
   journalLineVatData,
   vatControlAccount,
@@ -630,7 +631,7 @@ export async function closeFiscalYear(ownerId: string, year: number) {
     // The fingerprint is recomputed through this same transaction after the
     // CLOSING claim, so UI readiness or an earlier approval cannot race a post.
     const { requireCurrentReadyHgbClose } = await import('./hgbCloseRepository')
-    await requireCurrentReadyHgbClose(transaction, ownerId, { id: fiscalYear.id, year })
+    const hgbCloseRun = await requireCurrentReadyHgbClose(transaction, ownerId, { id: fiscalYear.id, year })
     const predecessors = await transaction.fiscalYear.findMany({
       where: { ownerId, year: { lt: year } },
       select: { year: true, status: true, _count: { select: { journalEntries: true } } },
@@ -653,7 +654,8 @@ export async function closeFiscalYear(ownerId: string, year: number) {
     const entryCount = await transaction.journalEntry.count({ where: { fiscalYearId: fiscalYear.id } })
     if (entryCount === 0) issues.unshift('Das Geschäftsjahr enthält noch keine festgeschriebenen Buchungen.')
     if (issues.length) throw new AccountingValidationError(issues)
-    const snapshot = JSON.stringify({ ...statements, closedAt: new Date().toISOString() })
+    const lockedAt = new Date()
+    const snapshot = JSON.stringify({ ...statements, closedAt: lockedAt.toISOString() })
     const snapshotId = randomUUID()
     snapshotStorageKey = await persistComplianceObject({ ownerId, category: 'closing-snapshots', objectId: snapshotId, extension: 'json', content: Buffer.from(snapshot), contentType: 'application/json', fileName: `closing-snapshot-${year}-${snapshotId}.json` })
     const nextYear = year + 1
@@ -697,13 +699,14 @@ export async function closeFiscalYear(ownerId: string, year: number) {
         } })
       }
     }
+    const closeGeneration = await createFiscalCloseGeneration(transaction, ownerId, fiscalYear.id, hgbCloseRun, snapshot, lockedAt)
     await transaction.fiscalYear.update({
-      where: { id: fiscalYear.id }, data: { status: 'CLOSED', lockedAt: new Date(), closingSnapshot: snapshot },
+      where: { id: fiscalYear.id }, data: { status: 'CLOSED', lockedAt, closingSnapshot: snapshot },
     })
     const deadline = retentionDeadline('JOURNAL', fiscalYear.endsAt.toISOString().slice(0, 10))
     const existingSnapshot = await transaction.retainedArtifact.findFirst({ where: { ownerId, objectType: 'ClosingSnapshot', objectId: fiscalYear.id }, orderBy: { version: 'desc' } })
     await transaction.retainedArtifact.create({ data: { ownerId, objectType: 'ClosingSnapshot', objectId: fiscalYear.id, version: (existingSnapshot?.version ?? 0) + 1, retentionClass: 'JOURNAL', contentHash: sha256(snapshot), provenance: 'fiscal period close', storageKey: snapshotStorageKey, periodEndsAt: fiscalYear.endsAt, retainUntil: new Date(`${deadline.retainUntil}T23:59:59.999Z`) } })
-    await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'FISCAL_PERIOD_CLOSED', reason: 'Authenticated fiscal period close', objectType: 'FiscalYear', objectId: fiscalYear.id, before: { status: fiscalYear.status }, after: { status: 'CLOSED', snapshotHash: sha256(snapshot), successorId: nextFiscalYear.id } })
+    await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'FISCAL_PERIOD_CLOSED', reason: 'Authenticated fiscal period close', objectType: 'FiscalYear', objectId: fiscalYear.id, before: { status: fiscalYear.status }, after: { status: 'CLOSED', snapshotHash: sha256(snapshot), closeGenerationId: closeGeneration.id, hgbCloseRunId: hgbCloseRun.id, successorId: nextFiscalYear.id } })
     return JSON.parse(snapshot)
   }) } catch (error) {
     if (snapshotStorageKey) {
@@ -721,19 +724,30 @@ export function validateDocumentNamespace(source: string, documentNumber: string
 }
 
 export async function exportEBalance(ownerId: string, year: number, masterData: EBalanceMasterData) {
+  const fiscalYear = await prisma.fiscalYear.findUniqueOrThrow({ where: { ownerId_year: { ownerId, year } } })
+  const closeGeneration = await requireCurrentFiscalCloseGeneration(prisma, ownerId, fiscalYear)
   const { xml, officialArchive } = await prepareEBalance(ownerId, year, masterData, false)
   const archive = createEBalancePackage(xml, year, officialArchive)
-  const fiscalYear = await prisma.fiscalYear.findUniqueOrThrow({ where: { ownerId_year: { ownerId, year } } })
   const exportId = randomUUID()
   const storage = getDocumentStorage()
   const storageKey = await persistComplianceObject({ ownerId, category: 'tax-exports', objectId: exportId, extension: 'zip', content: archive, contentType: 'application/zip', fileName: `e-bilanz-${year}-${exportId}.zip` })
   try {
     await prisma.$transaction(async transaction => {
+      const currentFiscalYear = await transaction.fiscalYear.findUnique({ where: { id: fiscalYear.id } })
+      if (!currentFiscalYear) throw new AccountingValidationError(['Das Geschäftsjahr wurde während des E-Bilanz-Exports entfernt.'])
+      const currentCloseGeneration = await requireCurrentFiscalCloseGeneration(transaction, ownerId, currentFiscalYear)
+      if (currentCloseGeneration.id !== closeGeneration.id) throw new AccountingValidationError(['Die Abschlussgeneration hat sich während des E-Bilanz-Exports geändert.'])
       const deadline = retentionDeadline('TAX_RECORD', fiscalYear.endsAt.toISOString().slice(0, 10))
       const objectId = `E-BILANZ:${fiscalYear.id}`
       const latest = await transaction.retainedArtifact.findFirst({ where: { ownerId, objectType: 'TaxExport', objectId }, orderBy: { version: 'desc' } })
       const artifact = await transaction.retainedArtifact.create({ data: { ownerId, objectType: 'TaxExport', objectId, version: (latest?.version ?? 0) + 1, retentionClass: 'TAX_RECORD', contentHash: sha256(archive), provenance: 'authenticated E-Bilanz export', storageKey, periodEndsAt: fiscalYear.endsAt, retainUntil: new Date(`${deadline.retainUntil}T23:59:59.999Z`) } })
-      await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'E_BILANZ_EXPORTED', reason: 'Authenticated report export', objectType: 'TaxExport', objectId, after: { artifactId: artifact.id, contentHash: artifact.contentHash, storageKey } })
+      const reportChecksum = sha256(xml)
+      let report = await transaction.eBalanceLifecycleReport.findFirst({ where: { ownerId, fiscalYearId: fiscalYear.id, closeGenerationId: currentCloseGeneration.id, reportChecksum } })
+      if (!report) {
+        const latestReport = await transaction.eBalanceLifecycleReport.findFirst({ where: { ownerId, fiscalYearId: fiscalYear.id }, orderBy: { version: 'desc' } })
+        report = await transaction.eBalanceLifecycleReport.create({ data: { id: exportId, ownerId, fiscalYearId: fiscalYear.id, closeGenerationId: currentCloseGeneration.id, version: (latestReport?.version ?? 0) + 1, status: 'EXPORTED', taxonomyVersion: '6.9', profileSnapshot: JSON.stringify(masterData), reportPayload: JSON.stringify({ source: 'VISIBLE_E_BILANZ_EXPORT', closeGenerationId: currentCloseGeneration.id, archiveHash: artifact.contentHash }), reportXml: xml, reportChecksum, storageKey, supersedesId: latestReport?.id ?? null, createdBy: ownerId } })
+      }
+      await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'E_BILANZ_EXPORTED', reason: 'Authenticated report export', objectType: 'TaxExport', objectId, after: { artifactId: artifact.id, contentHash: artifact.contentHash, storageKey, lifecycleReportId: report.id, reportChecksum, closeGenerationId: currentCloseGeneration.id } })
     })
   } catch (error) {
     try { await storage.delete(storageKey) }
@@ -750,6 +764,7 @@ export async function processEBalanceWithEric(
   options: { send: boolean; pin?: string; confirmed?: boolean; idempotencyKey?: string },
 ) {
   const fiscalYear = await ensureLedger(ownerId, year)
+  const closeGeneration = await requireCurrentFiscalCloseGeneration(prisma, ownerId, fiscalYear)
   if (options.send && fiscalYear.status !== 'CLOSED') {
     throw new AccountingValidationError(['Eine rechtswirksame Übermittlung ist erst nach dem verbindlichen Jahresabschluss möglich.'])
   }
@@ -769,7 +784,7 @@ export async function processEBalanceWithEric(
   const payloadHash = hashEricRequest(xml)
   const existingAttempt = await prisma.eBalanceSubmission.findUnique({ where: { ownerId_idempotencyKey: { ownerId, idempotencyKey } } })
   if (existingAttempt) {
-    if (existingAttempt.year !== year || existingAttempt.payloadHash !== payloadHash) throw new AccountingValidationError(['Der Übermittlungsschlüssel gehört zu einem anderen Datensatz. Er kann nicht wiederverwendet werden.'])
+    if (existingAttempt.year !== year || existingAttempt.payloadHash !== payloadHash || existingAttempt.closeGenerationId !== closeGeneration.id) throw new AccountingValidationError(['Der Übermittlungsschlüssel gehört zu einem anderen Datensatz oder einer anderen Abschlussgeneration. Er kann nicht wiederverwendet werden.'])
     if (existingAttempt.status === 'ACCEPTED') return {
       statusCode: existingAttempt.ericCode ?? 0, statusText: existingAttempt.ericMessage ?? 'Bereits angenommen.', sent: true,
       resultXml: existingAttempt.resultXml ?? '', serverResponseXml: existingAttempt.serverResponseXml ?? '',
@@ -789,9 +804,15 @@ export async function processEBalanceWithEric(
   const requestHash = hashEricRequest(envelope)
   let attempt
   try {
-    attempt = await prisma.eBalanceSubmission.create({ data: {
-      ownerId, year, fiscalYearId: fiscalYear.id, kind, status: 'PENDING', idempotencyKey, payloadHash, requestHash, requestXml: envelope,
-    } })
+    attempt = await prisma.$transaction(async transaction => {
+      const currentFiscalYear = await transaction.fiscalYear.findUnique({ where: { id: fiscalYear.id } })
+      if (!currentFiscalYear) throw new AccountingValidationError(['Das Geschäftsjahr wurde während der E-Bilanz-Verarbeitung entfernt.'])
+      const currentCloseGeneration = await requireCurrentFiscalCloseGeneration(transaction, ownerId, currentFiscalYear)
+      if (currentCloseGeneration.id !== closeGeneration.id) throw new AccountingValidationError(['Die Abschlussgeneration hat sich während der E-Bilanz-Verarbeitung geändert.'])
+      return transaction.eBalanceSubmission.create({ data: {
+        ownerId, year, fiscalYearId: fiscalYear.id, closeGenerationId: currentCloseGeneration.id, kind, status: 'PENDING', idempotencyKey, payloadHash, requestHash, requestXml: envelope,
+      } })
+    })
   } catch (error) {
     const winner = await prisma.eBalanceSubmission.findUnique({ where: { ownerId_idempotencyKey: { ownerId, idempotencyKey } } })
     if (!winner) {
@@ -804,7 +825,7 @@ export async function processEBalanceWithEric(
         : 'Für dieses Geschäftsjahr läuft bereits eine Übermittlung oder ihr Ausgang ist unklar. Vor einem erneuten Versand ist eine manuelle Klärung erforderlich.'])
       throw error
     }
-    if (winner.year !== year || winner.payloadHash !== payloadHash) throw new AccountingValidationError(['Der Übermittlungsschlüssel gehört zu einem anderen Datensatz.'])
+    if (winner.year !== year || winner.payloadHash !== payloadHash || winner.closeGenerationId !== closeGeneration.id) throw new AccountingValidationError(['Der Übermittlungsschlüssel gehört zu einem anderen Datensatz oder einer anderen Abschlussgeneration.'])
     if (winner.status === 'ACCEPTED') return {
       statusCode: winner.ericCode ?? 0, statusText: winner.ericMessage ?? 'Bereits angenommen.', sent: true,
       resultXml: winner.resultXml ?? '', serverResponseXml: winner.serverResponseXml ?? '',

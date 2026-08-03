@@ -9,6 +9,7 @@ import { getDocumentStorage } from '@/server/storage'
 import { appendAuditEvent } from './auditPersistence'
 import { ComplianceRuntimeError } from './runtime'
 import { allowUnqualifiedEBalanceDrafts, assertEBalanceDraftReadiness, canonicalXbrlSerializer, createEBalanceLedgerFacts, createEBalanceReconciliationChecksum, deriveAuthoritativeEBalanceProfile, eBalanceLifecycleReadiness, taxonomyArchiveStorageKey, verifyTaxonomyArchive } from './eBilanzIntegration'
+import { requireCurrentFiscalCloseGeneration } from '@/server/fiscalCloseGeneration'
 
 function required(value: unknown, label: string) { if (typeof value !== 'string' || !value.trim()) throw new ComplianceRuntimeError(`${label} is required`); return value.trim() }
 function dateOnly(value: Date) { return value.toISOString().slice(0, 10) }
@@ -68,8 +69,11 @@ export async function getEBalanceLifecycleOverview(ownerId: string, fiscalYearId
 
 export async function prepareEBalanceLifecycleReport(ownerId: string, actorId: string, input: Record<string, unknown>) {
   const fiscalYearId = required(input.fiscalYearId, 'fiscalYearId')
-  const period = await prisma.fiscalYear.findFirst({ where: { id: fiscalYearId, ownerId }, select: { id: true, startsAt: true, endsAt: true, status: true } })
+  const period = await prisma.fiscalYear.findFirst({ where: { id: fiscalYearId, ownerId }, select: { id: true, year: true, startsAt: true, endsAt: true, status: true, lockedAt: true, closingSnapshot: true } })
   if (!period) throw new ComplianceRuntimeError('Fiscal period not found', 404)
+  let closeGeneration
+  try { closeGeneration = await requireCurrentFiscalCloseGeneration(prisma, ownerId, period) }
+  catch (error) { throw new ComplianceRuntimeError(error instanceof Error ? error.message : 'A current exact fiscal close generation is required', 409) }
   const profileVersion = await prisma.companyProfileVersion.findFirst({ where: { ownerId, effectiveFrom: { lte: period.endsAt }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: period.endsAt } }] }, orderBy: { effectiveFrom: 'desc' } })
   if (!profileVersion) throw new ComplianceRuntimeError('No effective authoritative company profile covers the fiscal period')
   const profile = deriveAuthoritativeEBalanceProfile(ownerId, period, JSON.parse(profileVersion.payload))
@@ -94,11 +98,17 @@ export async function prepareEBalanceLifecycleReport(ownerId: string, actorId: s
   const id = randomUUID(); const storageKey = `tax-exports/${encodeURIComponent(ownerId)}/e-bilanz-lifecycle-${id}.xml`; await getDocumentStorage().write(storageKey, Buffer.from(report.transmittedBytes), { contentType: 'application/xml', fileName: `e-bilanz-${dateOnly(period.endsAt)}-${id}.xml` })
   try {
     return await prisma.$transaction(async transaction => {
+      const currentPeriod = await transaction.fiscalYear.findFirst({ where: { id: fiscalYearId, ownerId }, select: { id: true, year: true, status: true, lockedAt: true, closingSnapshot: true } })
+      if (!currentPeriod) throw new ComplianceRuntimeError('Fiscal period not found', 404)
+      let currentCloseGeneration
+      try { currentCloseGeneration = await requireCurrentFiscalCloseGeneration(transaction, ownerId, currentPeriod) }
+      catch (error) { throw new ComplianceRuntimeError(error instanceof Error ? error.message : 'The fiscal close generation became stale', 409) }
+      if (currentCloseGeneration.id !== closeGeneration.id) throw new ComplianceRuntimeError('The fiscal close generation changed during E-Bilanz preparation', 409)
       const latest = await transaction.eBalanceLifecycleReport.findFirst({ where: { ownerId, fiscalYearId }, orderBy: { version: 'desc' } }); const version = (latest?.version ?? 0) + 1
-      const record = await transaction.eBalanceLifecycleReport.create({ data: { id, ownerId, fiscalYearId, version, status: 'PREPARED', taxonomyVersion: taxonomy.version, profileSnapshot: canonicalJson(profile), reportPayload: canonicalJson(report.payload), reportXml: report.content, reportChecksum: report.checksum, storageKey, supersedesId: latest?.id ?? null, createdBy: actorId } })
+      const record = await transaction.eBalanceLifecycleReport.create({ data: { id, ownerId, fiscalYearId, closeGenerationId: currentCloseGeneration.id, version, status: 'PREPARED', taxonomyVersion: taxonomy.version, profileSnapshot: canonicalJson(profile), reportPayload: canonicalJson(report.payload), reportXml: report.content, reportChecksum: report.checksum, storageKey, supersedesId: latest?.id ?? null, createdBy: actorId } })
       const retainUntil = new Date(period.endsAt); retainUntil.setUTCFullYear(retainUntil.getUTCFullYear() + 10)
       await transaction.retainedArtifact.create({ data: { ownerId, objectType: 'EBalanceLifecycleReport', objectId: id, version, retentionClass: 'TAX_RECORD', contentHash: report.checksum, provenance: `taxonomy:${taxonomy.version}`, storageKey, periodEndsAt: period.endsAt, retainUntil } })
-      await appendAuditEvent(transaction, { ownerId, actorId, action: 'E_BILANZ_REPORT_PREPARED', reason: required(input.reason, 'reason'), objectType: 'EBalanceLifecycleReport', objectId: id, after: { fiscalYearId, version, taxonomyVersion: taxonomy.version, reportChecksum: report.checksum, readiness } })
+      await appendAuditEvent(transaction, { ownerId, actorId, action: 'E_BILANZ_REPORT_PREPARED', reason: required(input.reason, 'reason'), objectType: 'EBalanceLifecycleReport', objectId: id, after: { fiscalYearId, closeGenerationId: currentCloseGeneration.id, hgbCloseRunId: currentCloseGeneration.hgbCloseRunId, version, taxonomyVersion: taxonomy.version, reportChecksum: report.checksum, readiness } })
       return record
     })
   } catch (error) { await getDocumentStorage().delete(storageKey).catch(() => undefined); throw error }
