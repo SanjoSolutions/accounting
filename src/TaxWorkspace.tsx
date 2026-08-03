@@ -7,6 +7,7 @@ import { FiscalYearNavigation } from './FiscalYearNavigation'
 type Workflow = { submissionId: string; kind: string; period: string; state: string; receipt?: string | null; correctsId?: string | null; updatedAt: string }
 type Applicability = { kinds: string[]; deadline: string; professionalValidationRequired: boolean }
 type PreparedDataset = { kind: string; period: string; fields: Record<string, number | string | boolean>; drilldown: Record<string, readonly string[]> }
+type GatewayStatus = { mode: 'LOCAL_LIFECYCLE_EMULATOR' | 'CONFIGURED_EXTERNAL_GATEWAY' | 'NOT_CONFIGURED' }
 
 export function parseDeclarationFields(value: string): Record<string, number | string | boolean> {
   const parsed: unknown = JSON.parse(value)
@@ -37,6 +38,7 @@ export function TaxWorkspace({ year }: { year: number }) {
   const [workflows, setWorkflows] = useState<Workflow[]>([])
   const [applicability, setApplicability] = useState<Applicability | null>(null)
   const [applicabilityUnavailable, setApplicabilityUnavailable] = useState(false)
+  const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus | null>(null)
   const [kind, setKind] = useState('USTVA')
   const [period, setPeriod] = useState(`${year}-01`)
   const [fields, setFields] = useState('{"KZ81":0,"ZAHLLAST":0}')
@@ -58,6 +60,11 @@ export function TaxWorkspace({ year }: { year: number }) {
       const annualAvailable = annualResponse.ok && Boolean(annualBody.data)
       setApplicability(annualAvailable ? annualBody.data : null); setApplicabilityUnavailable(!annualAvailable)
     } catch { setApplicability(null); setApplicabilityUnavailable(true) }
+    try {
+      const response = await fetch('/api/tax/gateway-status')
+      const body = await response.json()
+      setGatewayStatus(response.ok ? body.data : null)
+    } catch { setGatewayStatus(null) }
   }, [year])
   useEffect(() => { setMessage(''); void load().catch(() => setMessage(t('loadFailed'))) }, [load, t])
 
@@ -129,6 +136,9 @@ export function TaxWorkspace({ year }: { year: number }) {
     <FiscalYearNavigation area="tax" year={year} />
     <header className="page-heading"><div><span className="eyebrow">{t('eyebrow')}</span><h1>{t('title', { year })}</h1><p>{t('subtitle')}</p></div></header>
     {message && <p className="alert alert-danger" role="status">{message}</p>}
+    {gatewayStatus?.mode === 'LOCAL_LIFECYCLE_EMULATOR' && <p className="alert alert-warning" role="status">Local lifecycle emulator: this proves the application workflow, not ELSTER/ERiC interoperability.</p>}
+    {gatewayStatus?.mode === 'NOT_CONFIGURED' && <p className="alert alert-danger" role="status">No tax gateway is configured. Validation and binding transmission are blocked.</p>}
+    {gatewayStatus?.mode === 'CONFIGURED_EXTERNAL_GATEWAY' && <p className="alert alert-info" role="status">Official ELSTER/ERiC qualification and form-version approval remain required before production filing.</p>}
     <div className="close-grid">
       <section className="card panel"><h2>{t('applicability')}</h2>{applicability ? <><p>{t('deadline', { date: applicability.deadline })}</p><ul>{applicability.kinds.map(item => <li key={item}>{item}</li>)}</ul><p>{t('professionalReview')}</p></> : applicabilityUnavailable ? <p className="alert alert-danger">{t('annualProfileRequired')}</p> : <p>{t('loading')}</p>}</section>
       <section className="card panel"><h2>{t('prepare')}</h2><label>{t('kind')}<select className="form-select" value={kind} onChange={event => selectKind(event.target.value)}><option>USTVA</option>{applicability?.kinds.map(item => <option key={item}>{item}</option>)}</select></label><label>{t('period')}<input className="form-control" value={period} readOnly={kind !== 'USTVA'} onChange={event => datasetChanged(() => setPeriod(event.target.value))} /></label><label>{t('fields')}<textarea className="form-control" rows={5} value={fields} readOnly={Boolean(preparedDataset)} onChange={event => datasetChanged(() => setFields(event.target.value))} /></label><div className="form-check"><input id="tax-confirm" className="form-check-input" type="checkbox" disabled={!preparedDataset} checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><label className="form-check-label" htmlFor="tax-confirm">{t('confirm')}</label></div><div className="d-flex gap-2 mt-3"><button className="btn btn-outline-secondary" disabled={busy} onClick={() => void action('validate')}>{t('validate')}</button><button className="btn btn-primary" disabled={busy || !confirmed || !preparedDataset} onClick={() => void action('submit')}>{t('submit')}</button></div></section>
