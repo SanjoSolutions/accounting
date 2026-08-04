@@ -16,11 +16,16 @@ vi.mock('@/server/compliance/reportingRepository', () => ({ getReportingOverview
 import { GET, POST } from './route'
 
 describe('compliance production API', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'tenant-a' }); mocks.authorize.mockImplementation(async (actorId: string, requested?: unknown) => typeof requested === 'string' && requested ? requested : actorId); mocks.overview.mockResolvedValue({ periods: [] }) })
+  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'tenant-a', actorId: 'user-a', role: 'ADMIN' }); mocks.authorize.mockImplementation(async (ownerId: string, requested?: unknown) => typeof requested === 'string' && requested ? requested : ownerId); mocks.overview.mockResolvedValue({ periods: [] }) })
   it('requires authentication for reads and writes', async () => {
     mocks.getCurrentUser.mockResolvedValue(null)
     expect((await GET(new Request('http://localhost/api/compliance'))).status).toBe(401)
     expect((await POST(json({ action: 'period.create' }))).status).toBe(401)
+  })
+  it('Given a read-only member, when a specialist compliance mutation is attempted, then it is denied before tenant authorization or persistence', async () => {
+    mocks.getCurrentUser.mockResolvedValue({ id: 'tenant-a', actorId: 'viewer-a', role: 'READ_ONLY' })
+    const response = await POST(json({ action: 'period.create', referenceYear: 2026, reason: 'Forbidden' }))
+    expect(response.status).toBe(403); expect(mocks.authorize).not.toHaveBeenCalled(); expect(mocks.period).not.toHaveBeenCalled()
   })
   it('always scopes overview and mapping history to the authenticated tenant', async () => {
     await GET(new Request('http://localhost/api/compliance'))
@@ -35,8 +40,8 @@ describe('compliance production API', () => {
     await POST(json({ action: 'reporting.package.approve', tenantId: 'tenant-b', packageId: 'package-1', reason: 'established' }))
     await POST(json({ action: 'reporting.procedure.save', tenantId: 'tenant-b', document: {}, reason: 'versioned' }))
     expect(mocks.reportingOverview).toHaveBeenCalledWith('tenant-b')
-    expect(mocks.approvePackage).toHaveBeenCalledWith('tenant-b', 'tenant-a', 'package-1', 'established')
-    expect(mocks.saveProcedure).toHaveBeenCalledWith('tenant-b', 'tenant-a', expect.anything())
+    expect(mocks.approvePackage).toHaveBeenCalledWith('tenant-b', 'user-a', 'package-1', 'established')
+    expect(mocks.saveProcedure).toHaveBeenCalledWith('tenant-b', 'user-a', expect.anything())
   })
   it('routes every reporting workflow with a server-selected package kind', async () => {
     const actions = {
@@ -46,19 +51,19 @@ describe('compliance production API', () => {
     }
     for (const [action, kind] of Object.entries(actions)) {
       await POST(json({ action, kind: 'caller-cannot-override', payload: {}, reason: 'controlled workflow' }))
-      expect(mocks.createDomainPackage).toHaveBeenLastCalledWith('tenant-a', 'tenant-a', kind, expect.objectContaining({ action }))
+      expect(mocks.createDomainPackage).toHaveBeenLastCalledWith('tenant-a', 'user-a', kind, expect.objectContaining({ action }))
     }
     await POST(json({ action: 'reporting.disclosure.create', kind: 'caller-cannot-override', fiscalPeriodId: 'fy', deadline: '2027-12-31', reason: 'controlled workflow' }))
-    expect(mocks.createDomainPackage).toHaveBeenLastCalledWith('tenant-a', 'tenant-a', 'DISCLOSURE_PACKAGE', expect.objectContaining({ action: 'reporting.disclosure.create' }))
+    expect(mocks.createDomainPackage).toHaveBeenLastCalledWith('tenant-a', 'user-a', 'DISCLOSURE_PACKAGE', expect.objectContaining({ action: 'reporting.disclosure.create' }))
   })
   it('routes stable-period and draft workflows with the authenticated actor', async () => {
     mocks.period.mockResolvedValue({ id: 'period' }); mocks.draft.mockResolvedValue({ id: 'draft' }); mocks.post.mockResolvedValue({ id: 'entry' })
     expect((await POST(json({ action: 'period.create', referenceYear: 2026 }))).status).toBe(201)
     await POST(json({ action: 'draft.create', fiscalPeriodId: 'period' }))
     await POST(json({ action: 'draft.post', draftId: 'draft', reason: 'approved' }))
-    expect(mocks.period).toHaveBeenCalledWith('tenant-a', 'tenant-a', expect.objectContaining({ referenceYear: 2026 }))
-    expect(mocks.draft).toHaveBeenCalledWith('tenant-a', 'tenant-a', expect.anything())
-    expect(mocks.post).toHaveBeenCalledWith('tenant-a', 'tenant-a', 'draft', 'approved')
+    expect(mocks.period).toHaveBeenCalledWith('tenant-a', 'user-a', expect.objectContaining({ referenceYear: 2026 }))
+    expect(mocks.draft).toHaveBeenCalledWith('tenant-a', 'user-a', expect.anything())
+    expect(mocks.post).toHaveBeenCalledWith('tenant-a', 'user-a', 'draft', 'approved')
   })
   it('routes correction, four-eyes reopen and amended-filing actions without caller-supplied tenant ids', async () => {
     for (const body of [
@@ -67,20 +72,20 @@ describe('compliance production API', () => {
       { action: 'period.reopen.decide', requestId: 'request', approve: true, reason: 'reviewed' },
       { action: 'filing.amend', originalObjectId: 'filing', reason: 'corrected' },
     ]) expect((await POST(json({ ...body, ownerId: 'tenant-b' }))).status).toBe(201)
-    expect(mocks.correct).toHaveBeenCalledWith('tenant-a', 'tenant-a', 'entry', expect.anything())
-    expect(mocks.reopen).toHaveBeenCalledWith('tenant-a', 'tenant-a', 'period', 'adjustment')
-    expect(mocks.decide).toHaveBeenCalledWith('tenant-a', 'tenant-a', 'request', true, 'reviewed')
-    expect(mocks.amend).toHaveBeenCalledWith('tenant-a', 'tenant-a', expect.objectContaining({ ownerId: 'tenant-b' }))
+    expect(mocks.correct).toHaveBeenCalledWith('tenant-a', 'user-a', 'entry', expect.anything())
+    expect(mocks.reopen).toHaveBeenCalledWith('tenant-a', 'user-a', 'period', 'adjustment')
+    expect(mocks.decide).toHaveBeenCalledWith('tenant-a', 'user-a', 'request', true, 'reviewed')
+    expect(mocks.amend).toHaveBeenCalledWith('tenant-a', 'user-a', expect.objectContaining({ ownerId: 'tenant-b' }))
   })
   it('routes an explicit historical profile address confirmation with tenant and actor scope', async () => {
     const address = { streetAndHouseNumber: 'Old 1', zipCode: '12345', city: 'Oldtown', country: 'DE' }
     expect((await POST(json({ action: 'profile.address-confirm', profileVersionId: 'profile-v1', address, reason: 'Historical register evidence' }))).status).toBe(201)
-    expect(mocks.confirmAddress).toHaveBeenCalledWith('tenant-a', 'tenant-a', 'profile-v1', address, 'Historical register evidence')
+    expect(mocks.confirmAddress).toHaveBeenCalledWith('tenant-a', 'user-a', 'profile-v1', address, 'Historical register evidence')
   })
   it('keeps tenant scope separate from the authenticated actor for four-eyes approval', async () => {
-    mocks.getCurrentUser.mockResolvedValue({ id: 'approver-b' })
+    mocks.getCurrentUser.mockResolvedValue({ id: 'tenant-a', actorId: 'approver-b', role: 'ACCOUNTANT' })
     await POST(json({ action: 'period.reopen.decide', tenantId: 'tenant-a', requestId: 'request', approve: true, reason: 'independent review' }))
-    expect(mocks.authorize).toHaveBeenCalledWith('approver-b', 'tenant-a')
+    expect(mocks.authorize).toHaveBeenCalledWith('tenant-a', 'tenant-a')
     expect(mocks.decide).toHaveBeenCalledWith('tenant-a', 'approver-b', 'request', true, 'independent review')
   })
   it('routes retention and operator recovery actions', async () => {
@@ -91,8 +96,8 @@ describe('compliance production API', () => {
       { action: 'retention.fixity-scan', before: '2026-07-19', reason: 'nightly schedule' },
       { action: 'backup.create', region: 'DE', reason: 'schedule' }, { action: 'backup.verify-restore', backupId: 'b', measuredRestoreMinutes: 5, reason: 'exercise' },
     ]) expect((await POST(json(body))).status).toBe(201)
-    expect(mocks.backup).toHaveBeenCalledWith('tenant-a', 'tenant-a', 'DE', 'schedule')
-    expect(mocks.restore).toHaveBeenCalledWith('tenant-a', 'tenant-a', 'b', 5, 'exercise')
+    expect(mocks.backup).toHaveBeenCalledWith('tenant-a', 'user-a', 'DE', 'schedule')
+    expect(mocks.restore).toHaveBeenCalledWith('tenant-a', 'user-a', 'b', 5, 'exercise')
   })
   it('rejects unknown actions without dispatching a mutation', async () => {
     const response = await POST(json({ action: 'unknown' }))

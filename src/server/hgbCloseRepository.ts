@@ -150,6 +150,10 @@ function authoritativeReadinessInput(context: Awaited<ReturnType<typeof loadAuth
       kind: item.kind,
       conclusion: payload.conclusion,
       evidenceIds: payload.evidenceIds,
+      section5aReserveApplicable: item.kind === 'GMBH_EQUITY_AND_RESULT'
+        && payload.schedule && typeof payload.schedule === 'object' && !Array.isArray(payload.schedule)
+        ? (payload.schedule as JsonRecord).section5aReserveApplicable
+        : undefined,
       preparedBy: item.preparedBy,
       reviewedBy: item.reviewedBy,
       reviewedAt: item.reviewedAt?.toISOString(),
@@ -180,8 +184,15 @@ async function requireAuthoritativeAnnualPackage(ownerId: string, fiscalPeriodId
 
 export async function getHgbCloseRuns(ownerId: string, year: number) {
   const context = await loadAuthoritativeContext(prisma, ownerId, year)
-  const runs = await prisma.hgbCloseRun.findMany({ where: { ownerId, fiscalPeriodId: context.fiscalPeriod.id }, orderBy: { version: 'desc' } })
-  return { fiscalPeriod: { id: context.fiscalPeriod.id, year: context.fiscalPeriod.year, startsAt: dateOnly(context.fiscalPeriod.startsAt), endsAt: dateOnly(context.fiscalPeriod.endsAt) }, ledgerFingerprint: context.ledgerFingerprint, runs: runs.map(run => ({ ...run, payload: JSON.parse(run.payload) })) }
+  const [runs, approvedAnnualPackages] = await Promise.all([
+    prisma.hgbCloseRun.findMany({ where: { ownerId, fiscalPeriodId: context.fiscalPeriod.id }, orderBy: { version: 'desc' } }),
+    prisma.compliancePackage.findMany({
+      where: { ownerId, fiscalPeriodId: context.fiscalPeriod.id, kind: 'ANNUAL_ACCOUNTS', status: 'APPROVED' },
+      orderBy: { version: 'desc' },
+      select: { id: true, version: true, checksum: true, approvedAt: true },
+    }),
+  ])
+  return { fiscalPeriod: { id: context.fiscalPeriod.id, year: context.fiscalPeriod.year, startsAt: dateOnly(context.fiscalPeriod.startsAt), endsAt: dateOnly(context.fiscalPeriod.endsAt) }, ledgerFingerprint: context.ledgerFingerprint, approvedAnnualPackages, runs: runs.map(run => ({ ...run, payload: JSON.parse(run.payload) })) }
 }
 
 export async function evaluateAndPersistHgbClose(ownerId: string, actorId: string, year: number, supplied: JsonRecord) {

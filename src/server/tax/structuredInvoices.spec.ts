@@ -1,17 +1,22 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { generateUblInvoice, receiveStructuredInvoice } from '@/core/eInvoice'
 
-const mocks = vi.hoisted(() => ({ write: vi.fn(), delete: vi.fn(), transaction: vi.fn(), rendering: vi.fn(), list: vi.fn(), void: vi.fn(), account: vi.fn(), issuanceFind: vi.fn(), issuanceCreate: vi.fn(), issuanceUpdate: vi.fn() }))
+const mocks = vi.hoisted(() => ({ write: vi.fn(), delete: vi.fn(), transaction: vi.fn(), rendering: vi.fn(), list: vi.fn(), sequences: vi.fn(), void: vi.fn(), account: vi.fn(), issuanceFind: vi.fn(), issuanceCreate: vi.fn(), issuanceUpdate: vi.fn(), fiscalYears: vi.fn(), ledgerProfile: vi.fn(), ledgerAccounts: vi.fn() }))
 vi.mock('server-only', () => ({}))
 vi.mock('@/server/storage', () => ({ getDocumentStorage: () => ({ write: mocks.write, delete: mocks.delete }) }))
-vi.mock('@/server/persistence/client', () => ({ prisma: { $transaction: mocks.transaction, structuredInvoice: { findFirst: mocks.rendering, findMany: mocks.list }, invoiceNumberReservation: { updateMany: mocks.void }, invoiceIssuanceRequest: { findUnique: mocks.issuanceFind, create: mocks.issuanceCreate, updateMany: mocks.issuanceUpdate }, accountRecord: { findFirst: mocks.account } } }))
+vi.mock('@/server/persistence/client', () => ({ prisma: { $transaction: mocks.transaction, structuredInvoice: { findFirst: mocks.rendering, findMany: mocks.list }, invoiceNumberSequence: { findMany: mocks.sequences }, invoiceNumberReservation: { updateMany: mocks.void }, invoiceIssuanceRequest: { findUnique: mocks.issuanceFind, create: mocks.issuanceCreate, updateMany: mocks.issuanceUpdate }, accountRecord: { findFirst: mocks.account }, fiscalYear: { findMany: mocks.fiscalYears }, ledgerProfile: { findUnique: mocks.ledgerProfile }, ledgerAccount: { findMany: mocks.ledgerAccounts } } }))
 
-import { configureInvoiceNumberSequence, correctStructuredInvoice, getStructuredInvoiceRendering, invoiceIssuerKey, issueStructuredInvoice, listStructuredInvoices, looksLikeHybridInvoice, parseImportedInvoiceSequence, parseStructuredUpload, reconcileInvoiceNumberSequence, requireAllocatableInvoiceSequence, requireInvoiceIssuanceBody, storeStructuredInvoice, StructuredInvoiceConflictError } from './structuredInvoices'
+import { configureInvoiceNumberSequence, correctStructuredInvoice, getStructuredInvoiceRendering, invoiceIssuerKey, issueStructuredInvoice, listInvoiceNumberSequences, listStructuredInvoices, looksLikeHybridInvoice, parseImportedInvoiceSequence, parseStructuredUpload, reconcileInvoiceNumberSequence, requireAllocatableInvoiceSequence, requireInvoiceIssuanceBody, storeStructuredInvoice, StructuredInvoiceConflictError } from './structuredInvoices'
+
+function validOutgoingInput() {
+  const base = parseStructuredUpload(readFileSync(resolve('src/core/data_fixtures/eInvoice/valid-ubl.xml')), 'application/xml', 'incoming.xml')!.data
+  const { syntax: _syntax, invoiceNumber: _number, correctedInvoiceNumber: _corrected, seller: _seller, ...input } = base
+  return { ...input, kind: 'invoice' as const, buyerReference: 'KUNDENREF-2026', buyerElectronicAddress: { schemeId: '9930' as const, value: 'DE987654321' }, buyer: { ...input.buyer, countryCode: 'DE', vatId: 'DE987654321' }, paymentTerms: 'Payable within 14 days.', paymentIban: 'DE89370400440532013000' }
+}
 
 describe('structured invoice persistence boundary', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.delete.mockResolvedValue(undefined); mocks.void.mockResolvedValue({ count: 1 }); mocks.issuanceFind.mockResolvedValue(null); mocks.issuanceCreate.mockResolvedValue({ id: 'issuance-request-1' }); mocks.issuanceUpdate.mockResolvedValue({ count: 1 }); mocks.account.mockResolvedValue({ payload: JSON.stringify({ invoiceIssuer: { name: 'Seller GmbH', streetAndHouseNumber: 'Main 1', zipCode: '10115', city: 'Berlin', country: 'DE' }, companyProfile: { companyName: 'Seller GmbH', taxNumber: '12/345/67890', vatId: 'DE123456789' } }) }) })
+  beforeEach(() => { vi.clearAllMocks(); mocks.delete.mockResolvedValue(undefined); mocks.void.mockResolvedValue({ count: 1 }); mocks.issuanceFind.mockResolvedValue(null); mocks.issuanceCreate.mockResolvedValue({ id: 'issuance-request-1' }); mocks.issuanceUpdate.mockResolvedValue({ count: 1 }); mocks.fiscalYears.mockResolvedValue([{ id: 'fy-a' }]); mocks.ledgerProfile.mockResolvedValue({ chart: 'SKR03', accountLength: 4 }); mocks.ledgerAccounts.mockResolvedValue([{ number: 1400, category: 'ASSET' }, { number: 1771, category: 'LIABILITY' }, { number: 1776, category: 'LIABILITY' }, { number: 8300, category: 'REVENUE' }, { number: 8400, category: 'REVENUE' }]); mocks.account.mockResolvedValue({ payload: JSON.stringify({ invoiceIssuer: { name: 'Seller GmbH', streetAndHouseNumber: 'Main 1', zipCode: '10115', city: 'Berlin', country: 'DE', contactName: 'Accounts receivable', contactTelephone: '+49 30 123456', contactEmail: 'billing@example.de' }, companyProfile: { companyName: 'Seller GmbH', taxNumber: '12/345/67890', vatId: 'DE123456789' } }) }) })
 
   it('validates representative EN-16931 XML while preserving the exact original bytes and provenance', () => {
     const bytes = readFileSync(resolve('src/core/data_fixtures/eInvoice/valid-ubl.xml'))
@@ -68,6 +73,19 @@ describe('structured invoice persistence boundary', () => {
     expect(mocks.account).not.toHaveBeenCalled()
     expect(mocks.transaction).not.toHaveBeenCalled()
   })
+  it('Given unsupported foreign invoice facts, when issuance is requested, then accounting preflight leaves no request, number reservation, document or stored object', async () => {
+    await expect(issueStructuredInvoice('tenant-a', { ...validOutgoingInput(), buyer: { ...validOutgoingInput().buyer, countryCode: 'NL' } }, 'foreign-preflight-request')).rejects.toThrow(/domestic EUR/)
+    expect(mocks.issuanceCreate).not.toHaveBeenCalled()
+    expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(mocks.write).not.toHaveBeenCalled()
+  })
+  it('Given missing ledger prerequisites, when issuance is requested, then preflight fails before any issuance artifact is created', async () => {
+    mocks.ledgerProfile.mockResolvedValueOnce(null)
+    await expect(issueStructuredInvoice('tenant-a', validOutgoingInput(), 'missing-ledger-preflight-request')).rejects.toThrow(/SKR03 or SKR04/)
+    expect(mocks.issuanceCreate).not.toHaveBeenCalled()
+    expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(mocks.write).not.toHaveBeenCalled()
+  })
   it('initializes numbering only from an explicitly confirmed first unused number', async () => {
     const create = vi.fn().mockResolvedValue({ ownerId: 'tenant-a', year: 2026, nextValue: 42 })
     mocks.transaction.mockImplementationOnce(async callback => callback({ invoiceNumberSequence: { findUnique: vi.fn().mockResolvedValue(null), create }, invoiceNumberReservation: { count: vi.fn().mockResolvedValue(0) }, structuredInvoice: { count: vi.fn().mockResolvedValue(0) } }))
@@ -109,12 +127,14 @@ describe('structured invoice persistence boundary', () => {
     expect(createOnboarding).not.toHaveBeenCalled()
   })
   it('recovers a stale processing request by deleting orphaned storage and voiding its reservation', async () => {
-    const input = { kind: 'invoice', issueDate: 'invalid' } as never
-    await expect(issueStructuredInvoice('tenant-a', input, 'stale-issuance-request')).rejects.toThrow(/real issue date/)
+    const input = validOutgoingInput()
+    mocks.transaction.mockRejectedValueOnce(new Error('simulated failure after request claim'))
+    await expect(issueStructuredInvoice('tenant-a', input, 'stale-issuance-request')).rejects.toThrow(/simulated failure/)
     const requestHash = mocks.issuanceCreate.mock.calls[0][0].data.requestHash
     mocks.issuanceFind.mockResolvedValue({ id: 'issuance-request-1', requestHash, status: 'PROCESSING', reservationId: 'reservation-stale', storageKey: 'documents/tenant-a/orphan.xml', structuredInvoiceId: null, updatedAt: new Date(Date.now() - 6 * 60_000) })
 
-    await expect(issueStructuredInvoice('tenant-a', input, 'stale-issuance-request')).rejects.toThrow(/real issue date/)
+    mocks.transaction.mockRejectedValueOnce(new Error('simulated retry failure'))
+    await expect(issueStructuredInvoice('tenant-a', input, 'stale-issuance-request')).rejects.toThrow(/simulated retry failure/)
 
     expect(mocks.delete).toHaveBeenCalledWith('documents/tenant-a/orphan.xml')
     expect(mocks.void).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 'reservation-stale', status: 'RESERVED' }), data: expect.objectContaining({ status: 'VOID' }) }))
@@ -127,30 +147,24 @@ describe('structured invoice persistence boundary', () => {
     mocks.transaction
       .mockImplementationOnce(async callback => callback({ invoiceNumberSequence: { findUnique: vi.fn().mockResolvedValue({ nextValue: 1 }), updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUniqueOrThrow: vi.fn().mockResolvedValue({ nextValue: 2 }) }, invoiceNumberReservation: { create: vi.fn().mockResolvedValue({ id: 'reservation-1' }) }, invoiceIssuanceRequest: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) } }))
       .mockImplementationOnce(async callback => callback({ documentRecord: { create: vi.fn() }, structuredInvoice: { findFirst: vi.fn(), create: vi.fn().mockImplementation(({ data }) => { createdRaw = { ...data, createdAt: new Date('2026-01-01T00:00:00Z') }; return createdRaw }) }, invoiceNumberReservation: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) }, invoiceIssuanceRequest: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) } }))
-    const first = await issueStructuredInvoice('tenant-a', input, 'durable-issuance-request')
+    const xrechnungInput = { ...input, buyerReference: 'KUNDENREF-2026', buyerElectronicAddress: { schemeId: '9930' as const, value: 'DE987654321' }, buyer: { ...input.buyer, vatId: 'DE987654321' }, paymentTerms: 'Payable within 14 days.', paymentIban: 'DE89370400440532013000' }
+    const first = await issueStructuredInvoice('tenant-a', xrechnungInput, 'durable-issuance-request')
     const requestHash = mocks.issuanceCreate.mock.calls[0][0].data.requestHash
     mocks.issuanceFind.mockResolvedValue({ id: 'issuance-request-1', requestHash, status: 'ISSUED', structuredInvoiceId: first.id })
     mocks.rendering.mockResolvedValue(createdRaw)
+    mocks.ledgerProfile.mockResolvedValue(null)
 
-    const retry = await issueStructuredInvoice('tenant-a', input, 'durable-issuance-request')
+    const retry = await issueStructuredInvoice('tenant-a', xrechnungInput, 'durable-issuance-request')
 
     expect(retry.id).toBe(first.id)
     expect(mocks.transaction).toHaveBeenCalledTimes(2)
   })
 
-  it('validates the prospective correction link before any invoice records or objects are written', async () => {
-    const base = parseStructuredUpload(readFileSync(resolve('src/core/data_fixtures/eInvoice/valid-ubl.xml')), 'application/xml', 'incoming.xml')!.data
-    mocks.account.mockResolvedValueOnce({ payload: JSON.stringify({ invoiceIssuer: { name: base.seller.name, streetAndHouseNumber: base.seller.street, zipCode: base.seller.postalCode, city: base.seller.city, country: base.seller.countryCode }, companyProfile: { companyName: base.seller.name, taxNumber: base.seller.taxId ?? '12/345/67890', vatId: base.seller.vatId } }) })
-    const { syntax: _syntax, invoiceNumber: _number, correctedInvoiceNumber: _corrected, ...common } = base
-    const input = { ...common, seller: { ...common.seller, taxId: common.seller.taxId ?? '12/345/67890' }, kind: 'credit-note' as const }
-    const expected = receiveStructuredInvoice(generateUblInvoice({ ...input, invoiceNumber: '2026-000001', correctedInvoiceNumber: base.invoiceNumber }))
-    const target = { id: 'invoice-root', kind: 'invoice', invoiceNumber: base.invoiceNumber, structuredHash: expected.structuredOriginal.sha256, correctsId: null }
-    mocks.rendering.mockResolvedValueOnce(target); mocks.list.mockResolvedValueOnce([target])
-    mocks.transaction.mockImplementationOnce(async callback => callback({ invoiceNumberSequence: { findUnique: vi.fn().mockResolvedValue({ nextValue: 1 }), updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUniqueOrThrow: vi.fn().mockResolvedValue({ nextValue: 2 }) }, invoiceNumberReservation: { create: vi.fn().mockResolvedValue({ id: 'reservation-1' }) }, invoiceIssuanceRequest: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) } }))
-    await expect(correctStructuredInvoice('tenant-a', target.id, input, 'correction-request-key')).rejects.toThrow(/immutable and unique/)
-    expect(mocks.transaction).toHaveBeenCalledTimes(1)
+  it('Given a correction request for an unavailable original, when preflight runs, then it fails closed before claiming a number or writing an artifact', async () => {
+    await expect(correctStructuredInvoice('tenant-a', 'invoice-root', { ...validOutgoingInput(), kind: 'credit-note' }, 'correction-request-key')).rejects.toThrow(/does not belong|unavailable/)
+    expect(mocks.issuanceCreate).not.toHaveBeenCalled()
+    expect(mocks.transaction).not.toHaveBeenCalled()
     expect(mocks.write).not.toHaveBeenCalled()
-    expect(mocks.void).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'VOID' }) }))
   })
 
   it('stores the original and safe rendering under the authenticated owner without replacing the structured original', async () => {
@@ -158,7 +172,8 @@ describe('structured invoice persistence boundary', () => {
     const invoice = parseStructuredUpload(bytes, 'application/xml', 'incoming.xml')!
     const create = vi.fn().mockImplementation(({ data }) => ({ ...data, createdAt: new Date('2026-01-01T00:00:00Z') }))
     const createDocumentRecord = vi.fn()
-    mocks.transaction.mockImplementationOnce(async callback => callback({ documentRecord: { create: createDocumentRecord }, structuredInvoice: { create, findFirst: vi.fn() } }))
+    const createExtraction = vi.fn()
+    mocks.transaction.mockImplementationOnce(async callback => callback({ documentRecord: { create: createDocumentRecord }, documentExtraction: { create: createExtraction }, structuredInvoice: { create, findFirst: vi.fn() } }))
     const stored = await storeStructuredInvoice('tenant-a', invoice, 'incoming.xml')
     expect(mocks.write).toHaveBeenCalledWith(
       expect.stringMatching(/^documents\/tenant-a\/[^/]+\.xml$/),
@@ -169,6 +184,7 @@ describe('structured invoice persistence boundary', () => {
     expect(payload.fileName).toBe('incoming.xml')
     expect(mocks.write.mock.calls[0][2].fileName).toBe(`${payload.id}.xml`)
     expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({ ownerId: 'tenant-a', structuredOriginal: bytes, renderedHtml: expect.not.stringMatching(/<script|javascript:/i) }) })
+    expect(createExtraction).toHaveBeenCalledWith({ data: expect.objectContaining({ ownerId: 'tenant-a', status: 'NEEDS_REVIEW', provider: 'structured-invoice', inputHash: invoice.structuredOriginal.sha256 }) })
     expect(stored.invoiceNumber).toBe('RE-2026-0001')
   })
 
@@ -181,5 +197,10 @@ describe('structured invoice persistence boundary', () => {
     mocks.list.mockResolvedValueOnce([{ id: 'i', documentId: 'd', syntax: 'UBL', kind: 'invoice', invoiceNumber: 'N-1', issueDate: new Date('2026-01-01'), structuredHash: 'a'.repeat(64), visualHash: null, correctsId: null, createdAt: new Date('2026-01-01') }])
     expect(await listStructuredInvoices('tenant-a')).toEqual([expect.not.objectContaining({ structuredOriginal: expect.anything(), data: expect.anything(), ownerId: expect.anything() })])
     expect(mocks.list).toHaveBeenCalledWith(expect.objectContaining({ where: { ownerId: 'tenant-a' }, select: expect.not.objectContaining({ structuredOriginal: true, visualOriginal: true, data: true, renderedHtml: true }) }))
+  })
+  it('lists only the authenticated tenant invoice-number sequence status needed by the UI', async () => {
+    mocks.sequences.mockResolvedValueOnce([{ year: 2026, nextValue: 2 }])
+    await expect(listInvoiceNumberSequences('tenant-a')).resolves.toEqual([{ year: 2026, nextValue: 2 }])
+    expect(mocks.sequences).toHaveBeenCalledWith({ where: { ownerId: 'tenant-a' }, select: { year: true, nextValue: true }, orderBy: { year: 'desc' } })
   })
 })

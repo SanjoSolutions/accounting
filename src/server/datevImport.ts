@@ -149,7 +149,7 @@ export async function importDatev(ownerId: string, files: DatevFile[]) {
         }))
         sequenceNumber++
         await transaction.journalEntry.create({ data: {
-          fiscalYearId: fiscalYear.id, sequenceNumber,
+          ownerId, fiscalYearId: fiscalYear.id, sequenceNumber,
           bookingDate: new Date(`${booking.bookingDate}T12:00:00.000Z`),
           documentNumber: datevDocumentNumber(booking.documentNumber, booking.digest),
           description: booking.description, source: 'DATEV', externalKey: booking.externalKey,

@@ -3,7 +3,7 @@ const mocks = vi.hoisted(() => ({ getCurrentUser: vi.fn(), process: vi.fn() }))
 vi.mock('server-only', () => ({})); vi.mock('@/server/authentication', () => ({ getCurrentUser: mocks.getCurrentUser })); vi.mock('@/server/ledger', () => ({ processEBalanceWithEric: mocks.process }))
 import { POST } from './route'
 describe('ERiC submission API', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'owner' }) })
+  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'owner', actorId: 'user', role: 'ADMIN' }) })
   it('requires an explicit confirmation and PIN', async () => {
     expect((await POST(request(JSON.stringify({ ...validData(), pin: '123456' })), context())).status).toBe(400)
     expect((await POST(request(JSON.stringify({ ...validData(), confirmed: true })), context())).status).toBe(400)

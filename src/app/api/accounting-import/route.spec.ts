@@ -8,7 +8,7 @@ vi.mock('@/server/lexwareAuditImport', () => ({ importLexwareAudit: mocks.import
 import { POST } from './route'
 
 describe('auto-detected accounting import API', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1' }) })
+  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1', actorId: 'user-1', role: 'ADMIN' }) })
 
   it('requires authentication', async () => {
     mocks.getCurrentUser.mockResolvedValue(null)

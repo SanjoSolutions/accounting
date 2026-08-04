@@ -1,3 +1,4 @@
 import { ComplianceWorkspace } from '@/ComplianceWorkspace'
+import { requirePageUser } from '@/server/authentication'
 
-export default function CompliancePage() { return <ComplianceWorkspace /> }
+export default async function CompliancePage() { await requirePageUser(); return <ComplianceWorkspace /> }

@@ -1,5 +1,6 @@
 import 'server-only'
 import { getCurrentUser } from '@/server/authentication'
+import { forbiddenUnless } from '@/server/authorization'
 import { AccountingValidationError } from '@/core/doubleEntry'
 import { getLedgerWorkspace, postJournalEntry } from '@/server/ledger'
 
@@ -19,6 +20,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getCurrentUser(request.headers)
   if (!user) return Response.json({ success: false }, { status: 401 })
+  const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   try {
     const entry = await postJournalEntry(user.id, await request.json())
     return Response.json(entry, { status: 201 })

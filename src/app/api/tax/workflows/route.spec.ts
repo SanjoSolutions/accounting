@@ -22,35 +22,40 @@ describe('production tax workflow route', () => {
     expect((await POST(new Request('http://localhost/api/tax/workflows', { method: 'POST', body: '{}' }))).status).toBe(401)
     expect(mocks.submit).not.toHaveBeenCalled()
   })
+  it('Given a read-only member, when official tax validation or transmission is requested, then the specialist boundary denies it before parsing or gateway access', async () => {
+    mocks.user.mockResolvedValue({ id: 'tenant-a', actorId: 'viewer-a', role: 'READ_ONLY' })
+    const request = new Request('http://localhost/api/tax/workflows', { method: 'POST', body: '{not-json' })
+    expect((await POST(request)).status).toBe(403); expect(mocks.validate).not.toHaveBeenCalled(); expect(mocks.submit).not.toHaveBeenCalled()
+  })
 
   it('lists only the authenticated tenant history', async () => {
-    mocks.user.mockResolvedValue({ id: 'tenant-a' }); mocks.list.mockResolvedValue([])
+    mocks.user.mockResolvedValue({ id: 'tenant-a', actorId: 'user-a', role: 'ADMIN' }); mocks.list.mockResolvedValue([])
     expect((await GET(new Request('http://localhost/api/tax/workflows'))).status).toBe(200)
     expect(mocks.list).toHaveBeenCalledWith('tenant-a')
   })
 
   it('requires explicit approval before official submission', async () => {
-    mocks.user.mockResolvedValue({ id: 'tenant-a' })
+    mocks.user.mockResolvedValue({ id: 'tenant-a', actorId: 'user-a', role: 'ADMIN' })
     const response = await POST(jsonRequest({ action: 'submit', requestKey: 'request-key-00001', dataset }))
     expect(response.status).toBe(400)
     expect(mocks.submit).not.toHaveBeenCalled()
   })
 
   it('returns 400 for valid JSON that is not a request object', async () => {
-    mocks.user.mockResolvedValue({ id: 'tenant-a' })
+    mocks.user.mockResolvedValue({ id: 'tenant-a', actorId: 'user-a', role: 'ADMIN' })
     expect((await POST(jsonRequest(null))).status).toBe(400)
     expect(mocks.submit).not.toHaveBeenCalled()
   })
 
   it('binds an approved idempotent submission to the authenticated owner and actor', async () => {
-    mocks.user.mockResolvedValue({ id: 'tenant-a' }); mocks.submit.mockResolvedValue({ submissionId: 'submission-1', state: 'accepted' })
+    mocks.user.mockResolvedValue({ id: 'tenant-a', actorId: 'user-a', role: 'ADMIN' }); mocks.submit.mockResolvedValue({ submissionId: 'submission-1', state: 'accepted' })
     const response = await POST(jsonRequest({ action: 'submit', confirmed: true, requestKey: 'request-key-00001', dataset: { ...dataset, taxpayerId: 'tenant-b' } }))
     expect(response.status).toBe(201)
-    expect(mocks.submit).toHaveBeenCalledWith('tenant-a', 'tenant-a', 'request-key-00001', dataset)
+    expect(mocks.submit).toHaveBeenCalledWith('tenant-a', 'user-a', 'request-key-00001', dataset)
   })
 
   it('surfaces official validation errors without transmitting', async () => {
-    mocks.user.mockResolvedValue({ id: 'tenant-a' }); mocks.validate.mockRejectedValue(new TaxDeclarationError(['official schema failed']))
+    mocks.user.mockResolvedValue({ id: 'tenant-a', actorId: 'user-a', role: 'ADMIN' }); mocks.validate.mockRejectedValue(new TaxDeclarationError(['official schema failed']))
     const response = await POST(jsonRequest({ action: 'validate', dataset }))
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ issues: ['official schema failed'] })

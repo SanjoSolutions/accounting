@@ -27,7 +27,13 @@ export default defineConfig({
     {
       command: 'node e2e/local-tax-gateway-emulator.mjs',
       url: 'http://127.0.0.1:3199/health',
-      reuseExistingServer: false,
+      reuseExistingServer: process.env.PLAYWRIGHT_REUSE_TAX_GATEWAY === 'true',
+      timeout: 30_000,
+    },
+    {
+      command: 'node e2e/local-email-gateway-emulator.mjs',
+      url: 'http://127.0.0.1:3200/health',
+      reuseExistingServer: process.env.PLAYWRIGHT_REUSE_EMAIL_GATEWAY === 'true',
       timeout: 30_000,
     },
     {
@@ -48,6 +54,10 @@ export default defineConfig({
         TAX_GATEWAY_URL: 'http://127.0.0.1:3199',
         TAX_GATEWAY_CREDENTIAL: 'playwright-only-tax-gateway-credential',
         TAX_WORKFLOW_INTEGRITY_MATERIAL: 'playwright-only-tax-workflow-integrity-material',
+        REMINDER_EMAIL_GATEWAY_URL: 'http://127.0.0.1:3200/messages',
+        REMINDER_EMAIL_GATEWAY_CREDENTIAL: 'playwright-reminder-email-gateway-credential',
+        COMPLIANCE_E2E_REFERENCE_DATE: '2027-01-02',
+        COMPLIANCE_BACKUP_KEYS_BASE64: '{"e2e-backup-key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}',
       },
     },
   ],

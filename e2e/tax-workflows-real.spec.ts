@@ -76,4 +76,24 @@ test.describe('real 2026 VAT filing workflows', () => {
       await tenant.context.close()
     }
   })
+
+  for (const [kind, expected] of [
+    ['USTVA', /VAT sources changed after preparation/],
+    ['UST_ANNUAL', /annual VAT sources changed after preparation/],
+  ] as const) test(`blocks a prepared ${kind} when a visible source posting changes`, async ({ browser }, testInfo) => {
+    const tenant = await preparedTenant(browser, testInfo.project.use.baseURL as string, `${kind.toLowerCase()}-stale`)
+    try {
+      await tenant.tax.prepare(kind)
+      const postingPage = await tenant.context.newPage()
+      await new TaxWorkflowPage(postingPage).postStandardRatedSale(invoicePdf, {
+        fileName: `${kind.toLowerCase()}-changed-source.pdf`,
+        postingDate: '2026-01-20',
+        postingText: `${kind} source mutation`,
+      })
+      await postingPage.close()
+      await tenant.tax.expectPreparedSourceChangeBlocked(expected)
+    } finally {
+      await tenant.context.close()
+    }
+  })
 })

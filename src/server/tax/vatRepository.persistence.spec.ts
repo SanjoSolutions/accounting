@@ -18,11 +18,13 @@ beforeAll(async () => {
   await prisma.companyProfileVersion.create({ data: { id: 'profile-a', ownerId: 'tenant-a', effectiveFrom: new Date('2026-01-01'), effectiveTo: new Date('2026-12-31'), payload: JSON.stringify({ companyName: 'Tenant GmbH', legalForm: 'GMBH', taxNumber: '12/345/67890', taxOffice: 'Berlin', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: 'Software', sizeClass: 'SMALL', chart: 'SKR03', elections: [] }), createdBy: 'tester', reason: 'test' } })
   const fiscalYear = await prisma.fiscalYear.create({ data: { id: 'fy-a', ownerId: 'tenant-a', year: 2026, startsAt: new Date('2026-01-01'), endsAt: new Date('2026-12-31') } })
   const account = await prisma.ledgerAccount.create({ data: { id: 'vat-output', ownerId: 'tenant-a', number: 1776, name: 'Umsatzsteuer 19%', category: 'LIABILITY', eBilanzPosition: 'bs.eqLiab.liab.other.theroffTax.vat' } })
+  await prisma.ledgerAccount.create({ data: { id: 'vat-output-reduced', ownerId: 'tenant-a', number: 1771, name: 'Umsatzsteuer 7%', category: 'LIABILITY', eBilanzPosition: 'bs.eqLiab.liab.other.theroffTax.vat' } })
+  await prisma.ledgerAccount.create({ data: { id: 'vat-input-reduced', ownerId: 'tenant-a', number: 1571, name: 'Vorsteuer 7%', category: 'ASSET', eBilanzPosition: 'bs.ass.currAss.receiv.other.vat' } })
   await prisma.ledgerAccount.create({ data: { id: 'vat-input', ownerId: 'tenant-a', number: 1576, name: 'Vorsteuer 19%', category: 'ASSET', eBilanzPosition: 'bs.ass.currAss.receiv.other.vat' } })
   const baseAccount = await prisma.ledgerAccount.create({ data: { id: 'base-account', ownerId: 'tenant-a', number: 8400, name: 'Revenue', category: 'REVENUE' } })
-  await prisma.journalEntry.create({ data: { id: 'entry-a', sequenceNumber: 1, bookingDate: new Date('2026-01-02'), documentNumber: 'INV-1', description: 'VAT', fiscalYearId: fiscalYear.id, state: 'DRAFT', lines: { create: [{ id: 'line-a', accountId: baseAccount.id, creditCents: 10000 }, { id: 'line-control', accountId: account.id, creditCents: 1900 }] } } })
+  await prisma.journalEntry.create({ data: { id: 'entry-a', ownerId: 'tenant-a', sequenceNumber: 1, bookingDate: new Date('2026-01-02'), documentNumber: 'INV-1', description: 'VAT', fiscalYearId: fiscalYear.id, state: 'DRAFT', lines: { create: [{ id: 'line-a', accountId: baseAccount.id, creditCents: 10000 }, { id: 'line-control', accountId: account.id, creditCents: 1900 }] } } })
   await prisma.journalLine.create({ data: { id: 'line-b', journalEntryId: 'entry-a', accountId: baseAccount.id, creditCents: 10000 } })
-  await prisma.journalEntry.create({ data: { id: 'entry-posted', sequenceNumber: 2, bookingDate: new Date('2026-01-03'), documentNumber: 'INV-2', description: 'Posted', fiscalYearId: fiscalYear.id, lines: { create: { id: 'line-posted', accountId: baseAccount.id, creditCents: 10000 } } } })
+  await prisma.journalEntry.create({ data: { id: 'entry-posted', ownerId: 'tenant-a', sequenceNumber: 2, bookingDate: new Date('2026-01-03'), documentNumber: 'INV-2', description: 'Posted', fiscalYearId: fiscalYear.id, lines: { create: { id: 'line-posted', accountId: baseAccount.id, creditCents: 10000 } } } })
   await prisma.documentRecord.create({ data: { id: 'document-a', ownerId: 'tenant-a', payload: '{}' } })
 })
 afterAll(async () => { await prisma.$disconnect(); delete process.env.DATABASE_URL; rmSync(directory, { recursive: true, force: true }) })
@@ -110,19 +112,20 @@ describe('persistent VAT detail and reconciliation integration', () => {
     lookup.mockRestore()
   })
   it('atomically rolls back if a linked line becomes posted before the conditional update', async () => {
-    await prisma.journalEntry.update({ where: { id: 'entry-a' }, data: { state: 'DRAFT' } })
+    await prisma.journalEntry.create({ data: {
+      id: 'entry-race', ownerId: 'tenant-a', sequenceNumber: 3, bookingDate: new Date('2026-01-04'), documentNumber: 'INV-RACE', description: 'Concurrent finalization', fiscalYearId: 'fy-a', state: 'DRAFT',
+      lines: { create: { id: 'line-race', accountId: 'base-account', creditCents: 10_000 } },
+    } })
     const transaction = prisma.$transaction.bind(prisma)
     const race = vi.spyOn(prisma, '$transaction').mockImplementationOnce(async callback => {
-      await prisma.journalEntry.update({ where: { id: 'entry-a' }, data: { state: 'POSTED' } })
+      await prisma.journalEntry.update({ where: { id: 'entry-race' }, data: { state: 'POSTED' } })
       return transaction(callback)
     })
-    await expect(api.persistVatPosting('tenant-a', { sourceId: 'source-race', amountCents: 10000, mode: 'net', taxPoint: '2026-01-04', ruleId: 'DE_STANDARD', direction: 'sale', journalLineId: 'line-b' })).rejects.toThrow(/became posted or changed/)
+    await expect(api.persistVatPosting('tenant-a', { sourceId: 'source-race', amountCents: 10000, mode: 'net', taxPoint: '2026-01-04', ruleId: 'DE_STANDARD', direction: 'sale', journalLineId: 'line-race' })).rejects.toThrow(/became posted or changed/)
     expect(await prisma.vatPostingRecord.findUnique({ where: { ownerId_sourceId: { ownerId: 'tenant-a', sourceId: 'source-race' } } })).toBeNull()
     race.mockRestore()
-    await prisma.journalEntry.update({ where: { id: 'entry-a' }, data: { state: 'DRAFT' } })
   })
   it('returns an immutable idempotent result after its linked entry is posted', async () => {
-    await prisma.journalEntry.update({ where: { id: 'entry-a' }, data: { state: 'POSTED' } })
     await expect(api.persistVatPosting('tenant-a', { sourceId: 'source-a', amountCents: 10000, mode: 'net', taxPoint: '2026-01-02', ruleId: 'DE_STANDARD', direction: 'sale', journalLineId: 'line-a', documentId: 'document-a' })).resolves.toMatchObject({ taxCents: 1900 })
   })
   it('reloads the immutable winner after a cross-instance source uniqueness race', async () => {

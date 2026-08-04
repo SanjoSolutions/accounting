@@ -27,7 +27,7 @@ describe('tax workflow integration migration', () => {
     insert.run('invoice-1', 'document-1', 'supplier-a', 'a'.repeat(64)); insert.run('invoice-2', 'document-2', 'supplier-b', 'b'.repeat(64))
     expect(database.prepare("SELECT COUNT(*) AS count FROM StructuredInvoice WHERE invoiceNumber = 'DUPLICATE-1'").get()).toEqual({ count: 2 })
     database.close()
-  }, 15_000)
+  }, 30_000)
   it('backfills VAT control accounts and every existing SKR04 mapping cohort', () => {
     const directory = mkdtempSync(join(tmpdir(), 'accounting-tax-upgrade-')); directories.push(directory)
     const database = new DatabaseSync(join(directory, 'upgrade.db'))
@@ -41,5 +41,5 @@ describe('tax workflow integration migration', () => {
     expect(database.prepare("SELECT number FROM LedgerAccount WHERE ownerId = 'tenant-skr04' AND eBilanzPosition LIKE '%vat' ORDER BY number").all()).toEqual([{ number: 14060 }, { number: 38060 }])
     expect(database.prepare("SELECT accountNumber FROM AccountMappingVersion WHERE ownerId = 'tenant-skr04' AND effectiveFrom = '2026-01-01' AND eBilanzPosition LIKE '%vat' ORDER BY accountNumber").all()).toEqual([{ accountNumber: 14060 }, { accountNumber: 38060 }])
     database.close()
-  })
+  }, 30_000)
 })

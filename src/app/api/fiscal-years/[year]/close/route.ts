@@ -1,11 +1,13 @@
 import 'server-only'
 import { AccountingValidationError } from '@/core/doubleEntry'
 import { getCurrentUser } from '@/server/authentication'
+import { forbiddenUnless } from '@/server/authorization'
 import { closeFiscalYear } from '@/server/ledger'
 
 export async function POST(request: Request, { params }: { params: Promise<{ year: string }> }) {
   const user = await getCurrentUser(request.headers)
   if (!user) return Response.json({ success: false }, { status: 401 })
+  const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   const year = Number((await params).year)
   try {
     return Response.json(await closeFiscalYear(user.id, year))

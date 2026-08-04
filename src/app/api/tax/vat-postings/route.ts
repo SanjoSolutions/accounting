@@ -1,6 +1,7 @@
 import 'server-only'
 import { VatValidationError } from '@/core/vatEngine'
 import { getCurrentUser } from '@/server/authentication'
+import { forbiddenUnless } from '@/server/authorization'
 import { listVatPostings, parsePersistentVatInput, persistVatPosting } from '@/server/tax/vatRepository'
 
 export async function GET(request: Request) {
@@ -11,6 +12,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getCurrentUser(request.headers)
   if (!user) return Response.json({ success: false }, { status: 401 })
+  const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   try { return Response.json({ success: true, data: await persistVatPosting(user.id, parsePersistentVatInput(await request.json())) }, { status: 201 }) }
   catch (error) { if (error instanceof VatValidationError || error instanceof SyntaxError) return Response.json({ success: false, issues: error instanceof VatValidationError ? error.issues : ['Invalid JSON body.'] }, { status: 400 }); throw error }
 }

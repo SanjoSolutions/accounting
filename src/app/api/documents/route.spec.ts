@@ -44,7 +44,7 @@ describe('document upload API', () => {
   })
 
   it('lists only the authenticated owner documents', async () => {
-    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1' })
+    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1', actorId: 'user-1', role: 'ADMIN' })
     mocks.listDocuments.mockResolvedValueOnce([{ id: 'document-1', fileName: 'invoice.pdf' }])
 
     const response = await GET(new Request('http://localhost/api/documents'))
@@ -55,7 +55,7 @@ describe('document upload API', () => {
   })
 
   it('streams the document to the authenticated owner', async () => {
-    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1' })
+    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1', actorId: 'user-1', role: 'ADMIN' })
     mocks.createDocument.mockResolvedValueOnce({ id: 'document-1' })
 
     const response = await POST(createUploadRequest('%PDF-test', 'invoice 1.pdf'))
@@ -69,9 +69,10 @@ describe('document upload API', () => {
   })
 
   it('preserves a validated structured original for the authenticated tenant', async () => {
-    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1' })
+    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1', actorId: 'user-1', role: 'ADMIN' })
     mocks.parseStructuredUpload.mockReturnValueOnce({ data: { invoiceNumber: 'INV-1' } })
     mocks.storeStructuredInvoice.mockResolvedValueOnce({ id: 'structured-1', documentId: 'document-1' })
+    mocks.listDocuments.mockResolvedValueOnce([{ id: 'document-1', url: '/api/documents/document-1/file', fileName: 'invoice.xml' }])
     const request = new Request('http://localhost/api/documents', { method: 'POST', headers: { 'content-type': 'application/xml', 'x-document-file-name': 'invoice.xml' }, body: '<Invoice />' })
 
     const response = await POST(request)
@@ -79,10 +80,11 @@ describe('document upload API', () => {
     expect(response.status).toBe(201)
     expect(mocks.storeStructuredInvoice).toHaveBeenCalledWith('user-1', expect.anything(), 'invoice.xml')
     expect(mocks.createDocument).not.toHaveBeenCalled()
+    expect(await response.json()).toMatchObject({ data: { id: 'document-1', fileName: 'invoice.xml', structuredInvoice: { id: 'structured-1' } } })
   })
 
   it('keeps an unrecognized XML document on the generic document path', async () => {
-    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1' })
+    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1', actorId: 'user-1', role: 'ADMIN' })
     mocks.createDocument.mockResolvedValueOnce({ id: 'document-xml' })
     const request = new Request('http://localhost/api/documents', { method: 'POST', headers: { 'content-type': 'application/xml', 'x-document-file-name': 'report.xml' }, body: '<Report />' })
 
@@ -94,7 +96,7 @@ describe('document upload API', () => {
   })
 
   it('returns a deterministic conflict when the structured invoice already exists', async () => {
-    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1' })
+    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1', actorId: 'user-1', role: 'ADMIN' })
     mocks.parseStructuredUpload.mockReturnValueOnce({ data: { invoiceNumber: 'INV-1' } })
     mocks.storeStructuredInvoice.mockRejectedValueOnce(new mocks.conflict('duplicate'))
     const request = new Request('http://localhost/api/documents', { method: 'POST', headers: { 'content-type': 'application/xml', 'x-document-file-name': 'invoice.xml' }, body: '<Invoice />' })
@@ -107,7 +109,7 @@ describe('document upload API', () => {
   })
 
   it('stops reading a body that exceeds the configured limit', async () => {
-    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1' })
+    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'user-1', actorId: 'user-1', role: 'ADMIN' })
     mocks.getMaxDocumentUploadBytes.mockReturnValueOnce(5)
 
     const response = await POST(createUploadRequest('%PDF-test'))

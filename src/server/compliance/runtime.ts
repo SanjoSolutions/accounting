@@ -12,7 +12,8 @@ import { matchesCloseGeneration, validateFiscalPeriods, validateReferenceYearOrd
 import { assertRecoveryObjectives, backupMatchesManifest, createBackup, resolveBackupKey, restoreBackup, retentionDeadline, sha256, type EncryptedBackup, type RetentionClass } from './retention'
 import { validateMappings, type AccountMapping } from './chartLifecycle'
 import { persistComplianceObject } from './objectStorage'
-import { excludeBackupPayloadLocators, exerciseIsolatedObjectRestore, snapshotStorageReferences, verifyRestoredStorageObjects, verifySnapshotInIsolatedDatabase, type TenantBackupSnapshot } from './restoreVerification'
+import { exerciseIsolatedObjectRestore, snapshotStorageReferences, verifyRestoredStorageObjects, verifySnapshotInIsolatedDatabase, type TenantBackupSnapshot } from './restoreVerification'
+import { captureRegisteredTenantSnapshot } from './tenantBackupRegistry'
 
 export class ComplianceRuntimeError extends Error {
   constructor(message: string, readonly status = 400) { super(message) }
@@ -525,29 +526,9 @@ export async function createTenantBackup(ownerId: string, actorId: string, regio
   await requireOperator(ownerId, actorId)
   const reason = requireReason(reasonValue)
   await reconcileDocumentArtifacts(ownerId, actorId, 'Pre-backup retained-artifact reconciliation')
-  const snapshot = await prisma.$transaction(async transaction => {
+  const snapshot: TenantBackupSnapshot = await prisma.$transaction(async transaction => {
     const recoveryPointAt = new Date().toISOString()
-    const settings = await transaction.accountRecord.findMany({ where: { ownerId } })
-    const profiles = await transaction.companyProfileVersion.findMany({ where: { ownerId } })
-    const profileAddressConfirmations = await transaction.companyProfileAddressConfirmation.findMany({ where: { ownerId } })
-    const periods = await transaction.fiscalYear.findMany({ where: { ownerId } })
-    const ledgerProfile = await transaction.ledgerProfile.findUnique({ where: { ownerId } })
-    const accounts = await transaction.ledgerAccount.findMany({ where: { ownerId } })
-    const mappings = await transaction.accountMappingVersion.findMany({ where: { ownerId } })
-    const entries = await transaction.journalEntry.findMany({ where: { fiscalYear: { ownerId } }, include: { lines: true, documents: true } })
-    const documents = await transaction.documentRecord.findMany({ where: { ownerId } })
-    const storageClaims = await transaction.documentStorageClaim.findMany({ where: { ownerId } })
-    const artifacts = await transaction.retainedArtifact.findMany({ where: { ownerId } })
-    const fixityChecks = await transaction.fixityCheck.findMany({ where: { ownerId, artifactId: { in: artifacts.map(artifact => artifact.id) } } })
-    const audit = await transaction.auditEvent.findMany({ where: { ownerId }, orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }] })
-    const auditHead = await transaction.auditHead.findUnique({ where: { ownerId } })
-    const drafts = await transaction.journalDraft.findMany({ where: { ownerId } })
-    const reopenRequests = await transaction.periodReopenRequest.findMany({ where: { ownerId } })
-    const amendments = await transaction.filingAmendment.findMany({ where: { ownerId } })
-    const eBalanceSubmissions = await transaction.eBalanceSubmission.findMany({ where: { ownerId } })
-    const backupManifests = excludeBackupPayloadLocators(await transaction.backupManifest.findMany({ where: { ownerId } }))
-    const policySnapshot = await transaction.compliancePolicy.findUnique({ where: { ownerId } })
-    return { schemaVersion: 1, recoveryPointAt, ownerId, settings, profiles, profileAddressConfirmations, periods, ledgerProfile, accounts, mappings, entries, documents, storageClaims, artifacts, fixityChecks, audit, auditHead, drafts, reopenRequests, amendments, eBalanceSubmissions, backupManifests, policy: policySnapshot }
+    return { schemaVersion: 4, recoveryPointAt, ownerId, ...await captureRegisteredTenantSnapshot(transaction as any, ownerId) } as unknown as TenantBackupSnapshot
   })
   if (!snapshot.policy || !(JSON.parse(snapshot.policy.operatorIds) as unknown[]).includes(actorId)) throw new ComplianceRuntimeError('Compliance operator authorization changed during backup capture', 403)
   const allowedRegions = JSON.parse(snapshot.policy.allowedStorageRegions) as string[]
@@ -592,7 +573,7 @@ export async function verifyTenantRestore(ownerId: string, actorId: string, back
   const encrypted = JSON.parse(encryptedPayload.toString()) as EncryptedBackup
   if (!backupMatchesManifest(encrypted, stored)) throw new ComplianceRuntimeError('Backup payload does not match its selected manifest', 409)
   const manifest = JSON.parse(stored.manifest) as { schemaVersion?: unknown; backupId?: unknown; ownerId?: unknown; objectCount?: unknown }
-  if (manifest.schemaVersion !== 1 || manifest.backupId !== stored.id || manifest.ownerId !== stored.ownerId) throw new ComplianceRuntimeError('Backup manifest identity is invalid', 409)
+  if (![1, 2, 3, 4].includes(Number(manifest.schemaVersion)) || manifest.backupId !== stored.id || manifest.ownerId !== stored.ownerId) throw new ComplianceRuntimeError('Backup manifest identity is invalid', 409)
   const restored = restoreBackup(encrypted, backupKey(stored.encryptionKeyId))
   if (manifest.objectCount !== Object.keys(restored.objects).length) throw new ComplianceRuntimeError('Backup object count does not match its manifest', 409)
   const snapshot = JSON.parse(restored.database.toString()) as TenantBackupSnapshot
@@ -623,6 +604,33 @@ export async function verifyTenantRestore(ownerId: string, actorId: string, back
     await appendAuditEvent(transaction, { ownerId, actorId, action: 'RESTORE_VERIFIED', reason, objectType: 'BackupManifest', objectId: backupId, after: { verifiedAt: verifiedAt.toISOString(), reportedRestoreMinutes: measuredRestoreMinutes, observedRestoreMinutes, certifiedRestoreMinutes: restoreMinutes, objectCount: isolatedObjects.objectCount, databaseCounts: isolatedDatabase } })
     return { ...verified, isolatedRestore: true, isolatedDatabase, isolatedObjects }
   })
+}
+
+export async function downloadTenantBackupPayload(ownerId: string, actorId: string, backupId: string) {
+  await requireOperator(ownerId, actorId)
+  const stored = await prisma.backupManifest.findFirst({ where: { id: backupId, ownerId } })
+  if (!stored?.payloadStorageKey) throw new ComplianceRuntimeError('Backup payload is not available in independent storage', stored ? 409 : 404)
+  try { return { content: await getDocumentStorage().read(stored.payloadStorageKey), fileName: `${stored.id}.tenant-backup.json` } }
+  catch { throw new ComplianceRuntimeError('Backup payload cannot be read from independent storage', 409) }
+}
+
+export async function verifyTenantBackupPayload(ownerId: string, actorId: string, backupId: string, content: Uint8Array) {
+  await requireOperator(ownerId, actorId)
+  const stored = await prisma.backupManifest.findFirst({ where: { id: backupId, ownerId } })
+  if (!stored) throw new ComplianceRuntimeError('Backup manifest not found', 404)
+  let encrypted: EncryptedBackup
+  try { encrypted = JSON.parse(Buffer.from(content).toString()) as EncryptedBackup }
+  catch { throw new ComplianceRuntimeError('Uploaded backup is not valid JSON', 400) }
+  if (!backupMatchesManifest(encrypted, stored)) throw new ComplianceRuntimeError('Uploaded backup does not match its selected manifest', 409)
+  try {
+    const restored = restoreBackup(encrypted, backupKey(stored.encryptionKeyId))
+    const snapshot = JSON.parse(restored.database.toString()) as TenantBackupSnapshot
+    if (snapshot.ownerId !== ownerId) throw new Error('Restored snapshot belongs to a different tenant')
+    verifyRestoredStorageObjects(snapshot.artifacts, restored.objects, snapshotStorageReferences(snapshot))
+    const isolatedDatabase = verifySnapshotInIsolatedDatabase(snapshot)
+    const isolatedObjects = await exerciseIsolatedObjectRestore(ownerId, backupId, restored.objects)
+    return { isolatedRestore: true, databaseHash: stored.databaseHash, objectStoreHash: stored.objectStoreHash, isolatedDatabase, isolatedObjects }
+  } catch (error) { throw new ComplianceRuntimeError(`Uploaded backup verification failed: ${error instanceof Error ? error.message : 'unknown failure'}`, 409) }
 }
 
 function toMapping(row: { accountNumber: number; accountName: string; accountType: string; normalBalance: string; hgbPosition: string; eBilanzPosition: string; vatCode: string | null; active: boolean }): AccountMapping {

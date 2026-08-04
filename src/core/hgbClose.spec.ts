@@ -8,7 +8,7 @@ const profile = (patch: Partial<HgbCloseProfile> = {}): HgbCloseProfile => ({
   formedOrConvertedInCurrentPeriod: false, currentSizeFacts: facts(40_000_000, 80_000_000, 8), priorSizeFacts: facts(40_000_000, 80_000_000, 8), priorEstablishedSize: 'MICRO', hasInventory: false, hasFixedAssets: false, section5aApplies: false,
   microNotesOmission: { requiredSection268Paragraph7DisclosuresIncludedBelowBalanceSheet: true, advancesAndLoansToManagementDisclosedBelowBalanceSheet: true, requiredAdditionalTrueAndFairDisclosuresIncludedBelowBalanceSheet: true }, ...patch,
 })
-const reviewed = (kind: typeof HGB_WORKPAPER_KINDS[number]): HgbWorkpaperEvidence => ({ kind, conclusion: 'COMPLETE', evidenceIds: [`evidence:${kind}`], preparedBy: 'preparer', reviewedBy: 'reviewer', reviewedAt: '2027-03-01T10:00:00Z' })
+const reviewed = (kind: typeof HGB_WORKPAPER_KINDS[number]): HgbWorkpaperEvidence => ({ kind, conclusion: 'COMPLETE', evidenceIds: [`evidence:${kind}`], preparedBy: 'preparer', reviewedBy: 'reviewer', reviewedAt: '2027-03-01T10:00:00Z', ...(kind === 'GMBH_EQUITY_AND_RESULT' ? { section5aReserveApplicable: false } : {}) })
 const readyInput = (): HgbCloseReadinessInput => ({ profile: profile(), workpapers: HGB_WORKPAPER_KINDS.filter(kind => !['INVENTORY_COUNT_AND_VALUATION', 'FIXED_ASSETS_AND_DEPRECIATION', 'NOTES'].includes(kind)).map(reviewed), annualAccountsPackageId: 'annual-1', annualAccountsChecksum: 'a'.repeat(64), ledgerFingerprint: 'b'.repeat(64), legalRepresentativeIds: ['director-1'], managingDirectorSignatures: [{ representativeId: 'director-1', signedAt: '2027-03-02T10:00:00Z', signatureEvidenceId: 'signature-1' }], shareholderResolutionId: 'resolution-1' })
 
 describe('HGB size classification', () => {
@@ -55,5 +55,13 @@ describe('HGB close readiness', () => {
   it('requires dated signatures from every recorded legal representative', () => {
     const input = readyInput(); input.legalRepresentativeIds = ['director-1', 'director-2']
     expect(evaluateHgbClose(input).blockers).toContainEqual(expect.objectContaining({ code: 'MANAGEMENT_SIGNATURES_MISSING' }))
+  })
+  it('fails closed when the reviewed equity workpaper contradicts the UG section 5a profile', () => {
+    const input = readyInput(); input.profile = profile({ legalForm: 'UG', section5aApplies: true })
+    expect(evaluateHgbClose(input).blockers).toContainEqual(expect.objectContaining({ code: 'SECTION_5A_APPLICABILITY_MISMATCH' }))
+  })
+  it('fails closed when the reviewed equity workpaper omits its section 5a conclusion', () => {
+    const input = readyInput(); input.workpapers = input.workpapers.map(workpaper => workpaper.kind === 'GMBH_EQUITY_AND_RESULT' ? { ...workpaper, section5aReserveApplicable: undefined } : workpaper)
+    expect(evaluateHgbClose(input).blockers).toContainEqual(expect.objectContaining({ code: 'SECTION_5A_APPLICABILITY_MISMATCH' }))
   })
 })

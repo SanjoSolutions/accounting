@@ -2,6 +2,7 @@ import 'server-only'
 import type { Assessment } from '@/core/annualTax'
 import { TaxDeclarationError } from '@/core/taxDeclarations'
 import { getCurrentUser } from '@/server/authentication'
+import { forbiddenUnless } from '@/server/authorization'
 import { requireTaxJsonObject, taxError } from '@/server/tax/http'
 import { listTaxAssessments, recordTaxAssessment } from '@/server/tax/workflows'
 
@@ -13,6 +14,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getCurrentUser(request.headers)
   if (!user) return Response.json({ success: false }, { status: 401 })
+  const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   try {
     const body = requireTaxJsonObject(await request.json(), 'Tax assessment') as unknown as Partial<Assessment>
     const extra = body as Partial<Assessment> & { noticeId?: string; documentId?: string; authority?: string }

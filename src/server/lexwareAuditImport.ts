@@ -262,6 +262,7 @@ export async function importLexwareAudit(ownerId: string, files: LexwareAuditFil
           sequenceNumber++
           const attachedDocumentId = booking.documentName ? documentIds.get(booking.documentName.toLowerCase()) : undefined
           await transaction.journalEntry.create({ data: {
+            ownerId,
             fiscalYearId: fiscalYear.id,
             sequenceNumber,
             bookingDate: new Date(`${booking.bookingDate}T12:00:00.000Z`),

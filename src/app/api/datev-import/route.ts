@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { getCurrentUser } from '@/server/authentication'
+import { forbiddenUnless } from '@/server/authorization'
 import { importDatev } from '@/server/datevImport'
 import { AccountingValidationError } from '@/core/doubleEntry'
 import { readLimitedBody } from '@/server/importUpload'
@@ -14,6 +15,7 @@ const MAX_REQUEST_BYTES = MAX_TOTAL_BYTES + 1024 * 1024
 export async function POST(request: Request) {
   const user = await getCurrentUser(request.headers)
   if (!user) return Response.json({ success: false }, { status: 401 })
+  const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   try {
     const contentLength = Number(request.headers.get('content-length') ?? 0)
     if (contentLength > MAX_REQUEST_BYTES) throw new AccountingValidationError(['Der DATEV-Upload ist zu groß.'])

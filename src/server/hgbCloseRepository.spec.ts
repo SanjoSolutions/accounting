@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => {
   const documentRecord = { findMany: vi.fn() }
   const hgbWorkpaperRecord = { findMany: vi.fn() }
   const hgbAdjustmentRecord = { findMany: vi.fn() }
-  const compliancePackage = { findFirst: vi.fn() }
+  const compliancePackage = { findFirst: vi.fn(), findMany: vi.fn() }
   const transaction = {
     hgbCloseRun: { findFirst: vi.fn(), create: vi.fn() },
     fiscalYear, companyProfileVersion, accountMappingVersion, retainedArtifact, documentRecord, compliancePackage, hgbWorkpaperRecord, hgbAdjustmentRecord,
@@ -66,7 +66,7 @@ function reviewedWorkpapers() {
   const excluded = new Set(['FIXED_ASSETS_AND_DEPRECIATION', 'INVENTORY_COUNT_AND_VALUATION', 'NOTES'])
   return HGB_WORKPAPER_KINDS.filter(kind => !excluded.has(kind)).map(kind => ({
     id: `workpaper-${kind}`, ownerId: 'tenant-a', fiscalPeriodId: 'fy-2026', kind, version: 1, status: 'REVIEWED', ruleSetVersion: 'HGB-DE-2024.1',
-    payload: JSON.stringify({ kind, conclusion: 'COMPLETE', evidenceIds: [`evidence-${kind}`], ...(kind === 'SIZE_AND_APPLICABILITY' ? { schedule: { closeProfile: requestProfile() } } : {}) }), checksum: 'trusted-checksum',
+    payload: JSON.stringify({ kind, conclusion: 'COMPLETE', evidenceIds: [`evidence-${kind}`], ...(kind === 'SIZE_AND_APPLICABILITY' ? { schedule: { closeProfile: requestProfile() } } : {}), ...(kind === 'GMBH_EQUITY_AND_RESULT' ? { schedule: { section5aReserveApplicable: false } } : {}) }), checksum: 'trusted-checksum',
     preparedBy: 'preparer', reviewedBy: 'reviewer', reviewedAt: new Date('2027-01-15T10:00:00.000Z'), reviewReason: null,
   }))
 }
@@ -82,6 +82,7 @@ describe('HGB close run repository', () => {
     mocks.prisma.retainedArtifact.findMany.mockResolvedValue([])
     mocks.prisma.documentRecord.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.map(id => ({ id, payload: JSON.stringify({ evidence: id }) })))
     mocks.prisma.compliancePackage.findFirst.mockResolvedValue(null)
+    mocks.prisma.compliancePackage.findMany.mockResolvedValue([])
     mocks.prisma.hgbCloseRun.findUnique.mockResolvedValue(null)
     mocks.transaction.hgbCloseRun.findFirst.mockResolvedValue(null)
     mocks.transaction.hgbCloseRun.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...data, createdAt: new Date('2027-01-15T12:00:00.000Z') }))
@@ -92,6 +93,12 @@ describe('HGB close run repository', () => {
     const first = hgbCloseFingerprint(input)
     expect(hgbCloseFingerprint({ ...input, entries: [{ ...period.journalEntries[0], lines: [...period.journalEntries[0].lines].reverse() }] })).toBe(first)
     expect(hgbCloseFingerprint({ ...input, entries: [{ ...period.journalEntries[0], lines: [{ ...period.journalEntries[0].lines[0], debitCents: 101 }] }] })).not.toBe(first)
+  })
+
+  it('makes a new authoritative profile cohort stale even when ledger entries are unchanged', () => {
+    const input = { fiscalPeriod: period, profileVersion, mappings, entries: period.journalEntries }
+    const changedProfile = { ...profileVersion, id: 'profile-2', effectiveFrom: new Date('2026-08-04T00:00:00Z'), payload: JSON.stringify({ ...JSON.parse(profileVersion.payload), registeredAddress: { streetAndHouseNumber: 'Test 1', zipCode: '10115', city: 'Berlin-Mitte', country: 'DE' } }) }
+    expect(hgbCloseFingerprint({ ...input, profileVersion: changedProfile })).not.toBe(hgbCloseFingerprint(input))
   })
 
   it('overwrites caller legal-form and period claims with authoritative records and persists a ready immutable run', async () => {
@@ -114,11 +121,27 @@ describe('HGB close run repository', () => {
     expect(mocks.prisma.compliancePackage.findFirst).toHaveBeenCalledWith({ where: expect.objectContaining({ ownerId: 'tenant-a', fiscalPeriodId: 'fy-2026', status: 'APPROVED' }) })
   })
 
+  it('persists a blocked run when the reviewed equity workpaper contradicts the authoritative UG section 5a profile', async () => {
+    mocks.prisma.companyProfileVersion.findFirst.mockResolvedValue({ ...profileVersion, payload: JSON.stringify({ legalForm: 'UG', chart: 'SKR03', registeredAddress: { country: 'DE' } }) })
+    mocks.prisma.compliancePackage.findFirst.mockResolvedValue({ id: 'annual-1' })
+    mocks.prisma.hgbWorkpaperRecord.findMany.mockResolvedValue(reviewedWorkpapers().map(workpaper => workpaper.kind === 'SIZE_AND_APPLICABILITY'
+      ? { ...workpaper, payload: JSON.stringify({ kind: workpaper.kind, conclusion: 'COMPLETE', evidenceIds: [`evidence-${workpaper.kind}`], schedule: { closeProfile: { ...requestProfile(), section5aApplies: true } } }) }
+      : workpaper))
+
+    const result = await evaluateAndPersistHgbClose('tenant-a', 'actor-a', 2026, readyRequest())
+
+    expect(result.status).toBe('BLOCKED')
+    expect((result.payload as { readiness: { blockers: unknown[] } }).readiness.blockers).toContainEqual(expect.objectContaining({ code: 'SECTION_5A_APPLICABILITY_MISMATCH' }))
+  })
+
   it('tenant-scopes run history to the resolved authoritative fiscal period', async () => {
     mocks.prisma.hgbCloseRun.findMany.mockResolvedValue([])
+    mocks.prisma.compliancePackage.findMany.mockResolvedValue([{ id: 'annual-1', version: 2, checksum: 'a'.repeat(64), approvedAt: new Date('2027-01-15T11:00:00.000Z') }])
     const result = await getHgbCloseRuns('tenant-a', 2026)
     expect(result.fiscalPeriod.id).toBe('fy-2026')
+    expect(result.approvedAnnualPackages).toEqual([expect.objectContaining({ id: 'annual-1', version: 2 })])
     expect(mocks.prisma.hgbCloseRun.findMany).toHaveBeenCalledWith({ where: { ownerId: 'tenant-a', fiscalPeriodId: 'fy-2026' }, orderBy: { version: 'desc' } })
+    expect(mocks.prisma.compliancePackage.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ownerId: 'tenant-a', fiscalPeriodId: 'fy-2026', kind: 'ANNUAL_ACCOUNTS', status: 'APPROVED' } }))
   })
 
   it('recomputes the authoritative fingerprint inside the lock transaction and rejects stale runs', async () => {

@@ -1,0 +1,57 @@
+name: Quality
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm audit:security
+      - run: pnpm coverage:ci
+      - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - run: pnpm test:e2e:local-solo
+
+  xrechnung-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: pnpm install --frozen-lockfile
+      - name: Download pinned official KoSIT validator and XRechnung 3.0.2 rules
+        run: |
+          curl --fail --location --output validator.jar https://github.com/itplr-kosit/validator/releases/download/v1.6.2/validator-1.6.2-standalone.jar
+          curl --fail --location --output xrechnung.zip https://github.com/itplr-kosit/validator-configuration-xrechnung/releases/download/v2026-01-31/xrechnung-3.0.2-validator-configuration-2026-01-31.zip
+          mkdir xrechnung-config
+          unzip -q xrechnung.zip -d xrechnung-config
+      - name: Validate generated XRechnung through official KoSIT rules
+        env:
+          KOSIT_VALIDATOR_JAR: ${{ github.workspace }}/validator.jar
+          KOSIT_XRECHNUNG_SCENARIOS: ${{ github.workspace }}/xrechnung-config/scenarios.xml
+          KOSIT_REPORT_DIR: ${{ github.workspace }}/xrechnung-reports
+        run: pnpm vitest run src/core/xrechnung.contract.spec.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xrechnung-kosit-validation-report
+          path: xrechnung-reports

@@ -64,7 +64,31 @@ export async function getEBalanceLifecycleOverview(ownerId: string, fiscalYearId
     prisma.eBalanceLifecycleReport.findMany({ where: { ownerId, ...(fiscalYearId ? { fiscalYearId } : {}) }, orderBy: { createdAt: 'desc' } }),
     prisma.eBalanceReconciliationRecord.findMany({ where: { ownerId, ...(fiscalYearId ? { fiscalYearId } : {}) }, orderBy: { createdAt: 'asc' } }),
   ])
-  return { taxonomies: taxonomies.map(taxonomyFromRecord), reports, reconciliations }
+  if (!fiscalYearId) return { taxonomies: taxonomies.map(taxonomyFromRecord), reports, reconciliations, closeEvidence: null }
+  const fiscalYear = await prisma.fiscalYear.findFirst({ where: { id: fiscalYearId, ownerId }, select: { id: true, year: true, status: true, lockedAt: true, closingSnapshot: true } })
+  if (!fiscalYear) return { taxonomies: taxonomies.map(taxonomyFromRecord), reports: [], reconciliations: [], closeEvidence: null }
+  let currentCloseGenerationId: string | null = null
+  let sourceStatus: 'CURRENT' | 'STALE' | 'NOT_LOCKED' = fiscalYear.status === 'CLOSED' ? 'STALE' : 'NOT_LOCKED'
+  let issue: string | null = fiscalYear.status === 'CLOSED' ? 'The exact locked HGB close could not be verified.' : 'The fiscal year is not locked.'
+  if (fiscalYear.status === 'CLOSED') {
+    try {
+      const generation = await requireCurrentFiscalCloseGeneration(prisma, ownerId, fiscalYear)
+      currentCloseGenerationId = generation.id; sourceStatus = 'CURRENT'; issue = null
+    } catch (error) { issue = error instanceof Error ? error.message : issue }
+  }
+  const currentReportId = sourceStatus === 'CURRENT'
+    ? reports.find(report => report.closeGenerationId === currentCloseGenerationId)?.id ?? null
+    : null
+  return {
+    taxonomies: taxonomies.map(taxonomyFromRecord),
+    // A report version is current only while it is both bound to the exact
+    // authoritative close generation and is that generation's newest report.
+    // Earlier versions remain immutable evidence, but are superseded and must
+    // never be mistaken for the dataset that should be revalidated/submitted.
+    reports: reports.map(report => ({ ...report, sourceStatus: report.id === currentReportId ? 'CURRENT' : 'STALE' })),
+    reconciliations,
+    closeEvidence: { fiscalYearId, currentCloseGenerationId, sourceStatus, issue },
+  }
 }
 
 export async function prepareEBalanceLifecycleReport(ownerId: string, actorId: string, input: Record<string, unknown>) {

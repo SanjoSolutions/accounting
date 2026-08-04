@@ -13,9 +13,17 @@ export const complianceHref = '/compliance'
 export const reportsHref = '/reports'
 export const bookingHref = '/bookings'
 export const journalHref = '/journal'
+export const receivablesHref = '/receivables'
+export const invoicesHref = '/invoices'
+export const bankingHref = '/banking'
+export const fixedAssetsHref = '/fixed-assets'
 export const accountingNavigation = [
   { href: bookingHref, label: 'Bookings' },
   { href: journalHref, label: 'Journal' },
+  { href: receivablesHref, label: 'Receivables' },
+  { href: invoicesHref, label: 'Invoices' },
+  { href: bankingHref, label: 'Banking' },
+  { href: fixedAssetsHref, label: 'Fixed assets' },
 ] as const
 
 export function Navbar({
@@ -84,6 +92,9 @@ export function Navbar({
             <li className="nav-item">
               <Link href="/settings" className={navClassName('/settings')}>{ t('Settings') }</Link>
             </li>
+            {authMode === 'credentials' && <li className="nav-item">
+              <Link href="/access" className={navClassName('/access')}>Users</Link>
+            </li>}
           </ul>}
           {authMode === 'credentials' && (
             user ? (

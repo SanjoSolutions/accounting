@@ -7,7 +7,7 @@ vi.mock('@/server/tax/vatRepository', () => ({ listVatPostings: mocks.list, pars
 import { GET, POST } from './route'
 
 describe('structured VAT posting route', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.user.mockResolvedValue({ id: 'tenant-a' }) })
+  beforeEach(() => { vi.clearAllMocks(); mocks.user.mockResolvedValue({ id: 'tenant-a', actorId: 'user-a', role: 'ADMIN' }) })
   it('persists the complete source split under the authenticated tenant', async () => {
     const input = { sourceId: 'line-1', amountCents: 11900, mode: 'gross', taxPoint: '2026-01-02', ruleId: 'DE_STANDARD', direction: 'sale', journalLineId: 'journal-line-1', documentId: 'document-1' }
     mocks.persist.mockResolvedValue({ netBaseCents: 10000, taxCents: 1900 })

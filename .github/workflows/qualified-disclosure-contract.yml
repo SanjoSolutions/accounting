@@ -1,0 +1,48 @@
+name: Qualified Unternehmensregister disclosure contract
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorization:
+        description: Confirm the submitter and gateway are authorized for non-binding TEST/STAGING submissions
+        required: true
+        type: choice
+        options:
+          - DO_NOT_RUN
+          - AUTHORIZED_TEST_OR_STAGING
+
+jobs:
+  qualified-contract:
+    if: inputs.authorization == 'AUTHORIZED_TEST_OR_STAGING'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: disclosure-qualification
+    env:
+      QUALIFIED_DISCLOSURE_CONTRACT_ENABLED: 'true'
+      QUALIFIED_DISCLOSURE_CONTRACT_URL: ${{ secrets.QUALIFIED_DISCLOSURE_CONTRACT_URL }}
+      QUALIFIED_DISCLOSURE_CONTRACT_CREDENTIAL: ${{ secrets.QUALIFIED_DISCLOSURE_CONTRACT_CREDENTIAL }}
+      QUALIFIED_DISCLOSURE_CONTRACT_SUBMITTER_ID: ${{ secrets.QUALIFIED_DISCLOSURE_CONTRACT_SUBMITTER_ID }}
+      QUALIFIED_DISCLOSURE_CONTRACT_GATEWAY_ID: ${{ vars.QUALIFIED_DISCLOSURE_CONTRACT_GATEWAY_ID }}
+      QUALIFIED_DISCLOSURE_CONTRACT_QUALIFICATION_ID: ${{ vars.QUALIFIED_DISCLOSURE_CONTRACT_QUALIFICATION_ID }}
+      QUALIFIED_DISCLOSURE_CONTRACT_SCHEMA_VERSION: ${{ vars.QUALIFIED_DISCLOSURE_CONTRACT_SCHEMA_VERSION }}
+      QUALIFIED_DISCLOSURE_CONTRACT_CASES: MICRO-HINTERLEGUNG,SMALL-OFFENLEGUNG
+      QUALIFIED_DISCLOSURE_CONTRACT_ALLOW_SUBMISSION: 'true'
+      QUALIFIED_DISCLOSURE_CONTRACT_PROTOCOL_DIR: ${{ runner.temp }}/qualified-disclosure-protocols
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Execute authorized TEST/STAGING validation, rejection, and acceptance contracts
+        run: pnpm test:contract:qualified-disclosure
+      - name: Retain redacted machine-readable protocols
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualified-disclosure-protocols-${{ github.run_id }}
+          path: ${{ runner.temp }}/qualified-disclosure-protocols
+          if-no-files-found: warn
+          retention-days: 90

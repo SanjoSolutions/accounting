@@ -8,6 +8,7 @@ describe('annual close assistant', () => {
     expect(canCloseYear(data, [], true, false)).toBe(false)
     expect(canCloseYear(data, [], false, false)).toBe(false)
     expect(canCloseYear(data, [], false, false, 2026, true)).toBe(true)
+    expect(canCloseYear({ ...data, fiscalYear: { ...data.fiscalYear, status: 'REOPENED' } }, [], false, false, 2026, true)).toBe(true)
     expect(canCloseYear(data, [], false, false, 2025)).toBe(false)
     expect(canCloseYear({ ...data, fiscalYear: { ...data.fiscalYear, status: 'CLOSED' } }, [], false, false)).toBe(false)
   })

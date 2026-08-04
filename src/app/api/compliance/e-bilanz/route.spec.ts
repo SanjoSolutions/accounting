@@ -8,11 +8,11 @@ vi.mock('@/server/compliance/eBilanzRepository', () => ({ getEBalanceLifecycleOv
 import { GET, POST } from './route'
 
 describe('authenticated E-Bilanz lifecycle API', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.user.mockResolvedValue({ id: 'user-1' }); mocks.authorize.mockResolvedValue('tenant-1') })
+  beforeEach(() => { vi.clearAllMocks(); mocks.user.mockResolvedValue({ id: 'tenant-1', actorId: 'user-1', role: 'ADMIN' }); mocks.authorize.mockResolvedValue('tenant-1') })
   it('keeps lifecycle reads tenant-scoped', async () => {
     mocks.overview.mockResolvedValue({ reports: [] })
     expect((await GET(new Request('http://local/api/compliance/e-bilanz?tenantId=tenant-1&fiscalYearId=fy-1'))).status).toBe(200)
-    expect(mocks.authorize).toHaveBeenCalledWith('user-1', 'tenant-1'); expect(mocks.overview).toHaveBeenCalledWith('tenant-1', 'fy-1')
+    expect(mocks.authorize).toHaveBeenCalledWith('tenant-1', 'tenant-1'); expect(mocks.overview).toHaveBeenCalledWith('tenant-1', 'fy-1')
   })
   it('routes only explicit registry, reconciliation and report actions', async () => {
     for (const [action, mock] of [['taxonomy.register', mocks.register], ['reconciliation.record', mocks.reconcile], ['report.prepare', mocks.prepare]] as const) {

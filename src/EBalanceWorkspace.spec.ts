@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canRunEBalanceAction, canSubmitEBalance, filterEBalanceLedgerIssues, invalidateReportApproval, isActiveSubmissionStatus, isCurrentEBalanceYear, isDefinitiveUnsentResult, isEBalanceMasterDataLocked, lifecycleOverviewPath, parseEricStatus, parseLifecycleOverview, readJsonResponse, resetSubmissionForYear, resolveJsonRequest, responseIssues, scopeLifecycleOverview } from './EBalanceWorkspace'
+import { canRegenerateAgainstCloseEvidence, canRunEBalanceAction, canSubmitEBalance, combinedLoadState, filterEBalanceLedgerIssues, invalidateReportApproval, isActiveSubmissionStatus, isCurrentEBalanceYear, isDefinitiveUnsentResult, isEBalanceMasterDataLocked, lifecycleOverviewPath, parseEricStatus, parseLifecycleOverview, readJsonResponse, reportLifecycleView, resetSubmissionForYear, resolveJsonRequest, responseIssues, scopeLifecycleOverview } from './EBalanceWorkspace'
 
 describe('E-Bilanz submission guard', () => {
   it('allows a binding submission only with ready ERiC, closed year, confirmation, and PIN', () => {
@@ -20,6 +20,12 @@ describe('E-Bilanz submission guard', () => {
     expect(canRunEBalanceAction('ready', [])).toBe(true)
   })
 
+  it('waits for both ledger evidence and authoritative master data before enabling report actions', () => {
+    expect(combinedLoadState('ready', 'loading')).toBe('loading')
+    expect(combinedLoadState('ready', 'failed')).toBe('failed')
+    expect(combinedLoadState('ready', 'ready')).toBe('ready')
+  })
+
   it('blocks repeat submission while an earlier submission is active or accepted', () => {
     expect(['PENDING', 'UNKNOWN', 'ACCEPTED'].every(isActiveSubmissionStatus)).toBe(true)
     expect(isActiveSubmissionStatus('REJECTED')).toBe(false)
@@ -33,6 +39,19 @@ describe('E-Bilanz submission guard', () => {
 
   it('invalidates consent and validation feedback after report data changes', () => {
     expect(invalidateReportApproval()).toEqual({ confirmed: false, message: '' })
+  })
+
+  it('fails the visible report state closed after source edits until a new exact-generation report exists', () => {
+    const lifecycle = parseLifecycleOverview({ data: { taxonomies: [], reports: [{ id: 'report-1', fiscalYearId: 'fy-1', closeGenerationId: 'generation-1', version: 1, status: 'EXPORTED', sourceStatus: 'CURRENT', taxonomyVersion: '6.9', reportChecksum: 'abc', createdAt: '2026-12-31' }], reconciliations: [], closeEvidence: { fiscalYearId: 'fy-1', currentCloseGenerationId: 'generation-1', sourceStatus: 'CURRENT', issue: null } } })!
+    expect(reportLifecycleView(lifecycle, false)).toEqual({ regenerationRequired: false, hasCurrentReport: true })
+    expect(reportLifecycleView(lifecycle, true)).toEqual({ regenerationRequired: true, hasCurrentReport: false })
+    expect(reportLifecycleView({ ...lifecycle, reports: lifecycle.reports.map(report => ({ ...report, sourceStatus: 'STALE' })) }, false)).toEqual({ regenerationRequired: true, hasCurrentReport: false })
+  })
+
+  it('blocks regeneration while the authoritative locked-close generation is stale or reopened', () => {
+    expect(canRegenerateAgainstCloseEvidence({ fiscalYearId: 'fy', currentCloseGenerationId: null, sourceStatus: 'STALE', issue: 'Profile changed' })).toBe(false)
+    expect(canRegenerateAgainstCloseEvidence({ fiscalYearId: 'fy', currentCloseGenerationId: null, sourceStatus: 'NOT_LOCKED', issue: 'Reopened' })).toBe(false)
+    expect(canRegenerateAgainstCloseEvidence({ fiscalYearId: 'fy', currentCloseGenerationId: 'generation-2', sourceStatus: 'CURRENT', issue: null })).toBe(true)
   })
 
   it('rotates retry identity only after an explicit unsent response', () => {
@@ -65,17 +84,17 @@ describe('E-Bilanz submission guard', () => {
 
 describe('E-Bilanz API error handling', () => {
   it('accepts only complete lifecycle registry and immutable-version payloads', () => {
-    const overview = { data: { taxonomies: [{ version: '6.10', validForFiscalPeriodsStartingFrom: '2026-01-01', validForFiscalPeriodsStartingThrough: '2026-12-31' }], reports: [{ id: 'report-1', fiscalYearId: 'fy-1', version: 1, status: 'PREPARED', taxonomyVersion: '6.10', reportChecksum: 'abc', createdAt: '2026-12-31T12:00:00Z' }], reconciliations: [{ id: 'adjustment-1', fiscalYearId: 'fy-1', kind: 'ADJUSTMENT' }] } }
+    const overview = { data: { taxonomies: [{ version: '6.10', validForFiscalPeriodsStartingFrom: '2026-01-01', validForFiscalPeriodsStartingThrough: '2026-12-31' }], reports: [{ id: 'report-1', fiscalYearId: 'fy-1', closeGenerationId: 'generation-1', version: 1, status: 'PREPARED', sourceStatus: 'CURRENT', taxonomyVersion: '6.10', reportChecksum: 'abc', createdAt: '2026-12-31T12:00:00Z' }], reconciliations: [{ id: 'adjustment-1', fiscalYearId: 'fy-1', kind: 'ADJUSTMENT' }], closeEvidence: { fiscalYearId: 'fy-1', currentCloseGenerationId: 'generation-1', sourceStatus: 'CURRENT', issue: null } } }
     expect(parseLifecycleOverview(overview)?.reports[0].taxonomyVersion).toBe('6.10')
     expect(parseLifecycleOverview({ data: { ...overview.data, reports: [{ id: 'incomplete' }] } })).toBeNull()
   })
   it('requests and retains lifecycle evidence only for the selected fiscal period', () => {
     expect(lifecycleOverviewPath('period/2026')).toBe('/api/compliance/e-bilanz?fiscalYearId=period%2F2026')
     const overview = parseLifecycleOverview({ data: { taxonomies: [], reports: [
-      { id: '2025-report', fiscalYearId: 'fy-2025', version: 1, status: 'PREPARED', taxonomyVersion: '6.9', reportChecksum: 'old', createdAt: '2025-12-31' },
-      { id: '2026-report', fiscalYearId: 'fy-2026', version: 1, status: 'PREPARED', taxonomyVersion: '6.10', reportChecksum: 'current', createdAt: '2026-12-31' },
-    ], reconciliations: [{ id: 'old', fiscalYearId: 'fy-2025', kind: 'ADJUSTMENT' }, { id: 'current', fiscalYearId: 'fy-2026', kind: 'ADJUSTMENT' }] } })!
-    expect(scopeLifecycleOverview(overview, 'fy-2026')).toMatchObject({ reports: [{ id: '2026-report' }], reconciliations: [{ id: 'current' }] })
+      { id: '2025-report', fiscalYearId: 'fy-2025', closeGenerationId: 'generation-2025', version: 1, status: 'PREPARED', sourceStatus: 'STALE', taxonomyVersion: '6.9', reportChecksum: 'old', createdAt: '2025-12-31' },
+      { id: '2026-report', fiscalYearId: 'fy-2026', closeGenerationId: 'generation-2026', version: 1, status: 'PREPARED', sourceStatus: 'CURRENT', taxonomyVersion: '6.10', reportChecksum: 'current', createdAt: '2026-12-31' },
+    ], reconciliations: [{ id: 'old', fiscalYearId: 'fy-2025', kind: 'ADJUSTMENT' }, { id: 'current', fiscalYearId: 'fy-2026', kind: 'ADJUSTMENT' }], closeEvidence: { fiscalYearId: 'fy-2026', currentCloseGenerationId: 'generation-2026', sourceStatus: 'CURRENT', issue: null } } })!
+    expect(scopeLifecycleOverview(overview, 'fy-2026')).toMatchObject({ reports: [{ id: '2026-report', sourceStatus: 'CURRENT' }], reconciliations: [{ id: 'current' }], closeEvidence: { sourceStatus: 'CURRENT' } })
   })
   it('rejects malformed nested ERiC status payloads', () => {
     expect(parseEricStatus({ readiness: {}, fiscalYearStatus: 'CLOSED', history: [] })).toBeNull()

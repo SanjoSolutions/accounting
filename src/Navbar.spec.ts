@@ -1,13 +1,17 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { accountingRouteViews } from './accountingRoutes'
-import { accountingNavigation, bookingHref, complianceHref, exportImportHref, journalHref, reportsHref } from './Navbar'
+import { accountingNavigation, bankingHref, bookingHref, complianceHref, exportImportHref, fixedAssetsHref, invoicesHref, journalHref, receivablesHref, reportsHref } from './Navbar'
 
 describe('main navigation', () => {
-  it('places the journal on a dedicated route alongside booking', () => {
+  it('places journal and commercial open items on dedicated routes alongside booking', () => {
     expect(bookingHref).toBe('/bookings')
     expect(journalHref).toBe('/journal')
-    expect(accountingNavigation.map(item => item.href)).toEqual(['/bookings', '/journal'])
+    expect(receivablesHref).toBe('/receivables')
+    expect(invoicesHref).toBe('/invoices')
+    expect(bankingHref).toBe('/banking')
+    expect(fixedAssetsHref).toBe('/fixed-assets')
+    expect(accountingNavigation.map(item => item.href)).toEqual(['/bookings', '/journal', '/receivables', '/invoices', '/banking', '/fixed-assets'])
   })
   it('uses the home page for metrics and keeps booking and journal content separate', () => {
     expect(accountingRouteViews).toEqual({ '/': 'dashboard', '/bookings': 'booking', '/journal': 'journal' })

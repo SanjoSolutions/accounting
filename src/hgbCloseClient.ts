@@ -30,6 +30,7 @@ export interface HgbCloseRunView {
 
 export interface HgbCloseOverview {
   ledgerFingerprint?: string
+  approvedAnnualPackages: Array<{ id: string; version: number; checksum: string; approvedAt?: string | null }>
   runs: HgbCloseRunView[]
 }
 

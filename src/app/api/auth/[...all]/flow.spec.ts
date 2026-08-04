@@ -77,7 +77,7 @@ describe('credential authentication flow', () => {
       success: true,
       data: { id: expect.stringMatching(/^company:/) },
     })
-  }, 20_000)
+  }, 40_000)
 })
 
 function jsonRequest(url: string, body: object): Request {

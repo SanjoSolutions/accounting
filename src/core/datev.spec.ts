@@ -117,8 +117,9 @@ describe('DATEV EXTF parser', () => {
     expect(parsed.bookings[0].taxCode).toBe('9')
     expect(parsed.bookings[0].automaticTax).toEqual({ kind: 'INPUT', rate: 19, accountNumber: 1576, splitSide: 'ACCOUNT' })
     expect(parsed.accounts).toContainEqual({ number: 1576, name: 'DATEV Vorsteuer 19 %', category: 'ASSET' })
-    const unsupported = datevFile('tax-unknown.csv', 'Buchungsstapel', bookingHeaders, [['1,00', 'S', '1200', '8400', '40', '1707', '1', 'x', '']])
-    expect(() => parseDatevFiles([unsupported])).toThrow(/Automatik-Steuerschlüssel 40 wird nicht unterstützt/)
+    const suppressed = parseDatevFiles([datevFile('tax-suppressed.csv', 'Buchungsstapel', bookingHeaders, [['1,00', 'S', '1200', '8400', '0040', '1707', '1', 'x', '']])]).bookings[0]
+    expect(suppressed.taxCode).toBe('40')
+    expect(suppressed.automaticTax).toBeUndefined()
     const exempt = datevFile('tax-exempt.csv', 'Buchungsstapel', bookingHeaders, [['1,00', 'S', '8000', '1200', '0001', '1707', '2', 'tax exempt', '']])
     const exemptBooking = parseDatevFiles([exempt]).bookings[0]
     expect(exemptBooking.taxCode).toBe('1')

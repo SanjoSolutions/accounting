@@ -17,12 +17,12 @@ const params = Promise.resolve({ year: '2026' })
 const request = (url: string, body?: object) => new Request(url, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : undefined)
 
 describe('HGB workpaper API', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'operator' }); mocks.authorizeComplianceTenant.mockResolvedValue('tenant-a') })
+  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'tenant-a', actorId: 'operator', role: 'ADMIN' }); mocks.authorizeComplianceTenant.mockResolvedValue('tenant-a') })
 
   it('tenant-authorizes list and typed save operations', async () => {
     mocks.list.mockResolvedValue({ workpapers: [] }); mocks.save.mockResolvedValue({ id: 'wp-1' })
     expect((await GET(request('http://localhost/api?tenantId=tenant-a'), { params })).status).toBe(200)
-    expect(mocks.authorizeComplianceTenant).toHaveBeenCalledWith('operator', 'tenant-a'); expect(mocks.list).toHaveBeenCalledWith('tenant-a', 2026)
+    expect(mocks.authorizeComplianceTenant).toHaveBeenCalledWith('tenant-a', 'tenant-a'); expect(mocks.list).toHaveBeenCalledWith('tenant-a', 2026)
     const response = await PUT(request('http://localhost/api', { tenantId: 'tenant-a', workpaper: { kind: 'GOING_CONCERN' }, expectedChecksum: 'old' }), { params })
     expect(response.status).toBe(200); expect(mocks.save).toHaveBeenCalledWith('tenant-a', 'operator', 2026, { kind: 'GOING_CONCERN' }, 'old')
   })

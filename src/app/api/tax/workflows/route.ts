@@ -1,6 +1,7 @@
 import 'server-only'
 import { TaxDeclarationError } from '@/core/taxDeclarations'
 import { getCurrentUser } from '@/server/authentication'
+import { forbiddenUnless } from '@/server/authorization'
 import { listTaxWorkflows, submitTaxDataset, validateTaxDataset, type DatasetInput } from '@/server/tax/workflows'
 import { requireTaxJsonObject, taxError } from '@/server/tax/http'
 
@@ -13,6 +14,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getCurrentUser(request.headers)
   if (!user) return Response.json({ success: false }, { status: 401 })
+  const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   try {
     const body = requireTaxJsonObject(await request.json(), 'Tax workflow request') as { action?: 'validate' | 'submit'; confirmed?: boolean; requestKey?: string; dataset?: DatasetInput }
     if (!body.dataset) throw new TaxDeclarationError(['A declaration dataset is required.'])
@@ -20,6 +22,6 @@ export async function POST(request: Request) {
     if (body.action === 'validate') return Response.json({ success: true, data: await validateTaxDataset(user.id, dataset) })
     if (body.action !== 'submit' || body.confirmed !== true) throw new TaxDeclarationError(['Explicit approval is required before a binding transmission.'])
     if (typeof body.requestKey !== 'string') throw new TaxDeclarationError(['A request key is required.'])
-    return Response.json({ success: true, data: await submitTaxDataset(user.id, user.id, body.requestKey, dataset) }, { status: 201 })
+    return Response.json({ success: true, data: await submitTaxDataset(user.id, user.actorId, body.requestKey, dataset) }, { status: 201 })
   } catch (error) { return taxError(error) }
 }

@@ -87,7 +87,7 @@ export function mergeDefinedFields<T extends object>(target: T, patch: unknown):
   for (const [key, value] of Object.entries(patch)) if (value !== undefined) (target as Record<string, unknown>)[key] = value
   return target
 }
-const invoiceIssuerFields = ['name', 'streetAndHouseNumber', 'zipCode', 'city', 'country'] as const
+const invoiceIssuerFields = ['name', 'streetAndHouseNumber', 'zipCode', 'city', 'country', 'contactName', 'contactTelephone', 'contactEmail'] as const
 type InvoiceIssuerField = typeof invoiceIssuerFields[number]
 export function mergeInvoiceIssuerFields<T extends Record<InvoiceIssuerField, string>>(target: T, patch: unknown): T {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new CompanyProfileValidationError('Settings section must be an object')

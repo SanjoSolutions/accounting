@@ -54,6 +54,7 @@ export function newHgbWorkpaper(kind: HgbWorkpaperKind, year = new Date().getFul
 }
 
 const itemTemplates: Record<string, Record<string, unknown>> = {
+  approvedComparativeLeaves: { lineId: '', amountCents: 0 },
   valuationInputs_FIXED_ASSET_VALUATION: { id: '', description: '', costBasisKind: 'ACQUISITION', costComponents: [], acquisitionDate: '', availableForUseDate: '', usefulLifeMonths: 0, depreciationConvention: 'FULL_MONTH', residualValueCents: 0, fiscalPeriod: { start: '', end: '' }, priorCumulativeImpairmentCents: 0, glCarryingAmountCents: 0, accounts: { assetAccount: '', expenseAccount: '', incomeAccount: '' }, evidenceIds: [] },
   valuationInputs_INVENTORY_VALUATION: { id: '', formula: 'FIFO', layers: [], issuedQuantity: 0, expectedQuantity: 0, countedQuantity: 0, countEvidenceIds: [], replacementCostPerUnitCents: 0, netRealizableValuePerUnitCents: 0, priorWriteDownCents: 0, glAmountCents: 0, accounts: { assetAccount: '', expenseAccount: '', incomeAccount: '' } },
   costComponents: { id: '', type: 'PURCHASE_PRICE', amountCents: 0, evidenceIds: [] }, layers: { id: '', date: '', quantity: 0, unitCostCents: 0, evidenceIds: [] },
@@ -68,6 +69,10 @@ const itemTemplates: Record<string, Record<string, unknown>> = {
   lines_root: { accountId: '', debitCents: 0, creditCents: 0, memo: '' },
 }
 
+export function structuredItemTemplate(key: string, typeOrContext: string): Record<string, unknown> | undefined {
+  return itemTemplates[`${key}_${typeOrContext}`] ?? itemTemplates[key] ?? itemTemplates[`${key}_root`]
+}
+
 const labels: Record<string, string> = { rationale: 'Begründung', applicability: 'Anwendbarkeit', evidenceIds: 'Nachweise', conclusion: 'Schlussfolgerung', title: 'Bezeichnung', adjustments: 'Buchungsvorschläge', lines: 'Buchungszeilen', debitCents: 'Soll (Cent)', creditCents: 'Haben (Cent)', accountId: 'Konto-ID', bookingDate: 'Buchungsdatum', description: 'Beschreibung', id: 'ID', items: 'Prüfpositionen', events: 'Ereignisse', questions: 'Anhangfragen', elections: 'Wahlrechte' }
 const enumOptions: Record<string, string[]> = { applicability: ['APPLICABLE', 'NOT_APPLICABLE', 'UNSUPPORTED'], conclusion: ['COMPLETE', 'NOT_APPLICABLE', 'UNSUPPORTED_COMPLEX_FACTS'], recognition: ['RECOGNIZE', 'DO_NOT_RECOGNIZE'], category: ['PREPAID_EXPENSE', 'DEFERRED_INCOME', 'ACCRUED_EXPENSE', 'ACCRUED_INCOME'], classification: ['PROVISION', 'CONTINGENT_LIABILITY', 'NONE'], treatment: ['ADJUSTING', 'NON_ADJUSTING', 'NO_EFFECT'], answer: ['YES', 'NO', 'NOT_APPLICABLE'], policy: ['COST_METHOD', 'TOTAL_COST_PNL', 'FUNCTION_OF_EXPENSE_PNL', 'FIFO', 'LIFO', 'WEIGHTED_AVERAGE'], legalForm: ['GMBH', 'UG'], establishedSize: ['MICRO', 'SMALL'], costBasisKind: ['ACQUISITION', 'PRODUCTION'], depreciationConvention: ['FULL_MONTH'], formula: ['FIFO', 'WEIGHTED_AVERAGE', 'LIFO'], type: ['PURCHASE_PRICE', 'PURCHASE_PRICE_REDUCTION', 'ACQUISITION_INCIDENTAL', 'SUBSEQUENT_ACQUISITION', 'DIRECT_MATERIAL', 'DIRECT_LABOUR', 'SPECIAL_PRODUCTION', 'MATERIAL_OVERHEAD', 'PRODUCTION_OVERHEAD', 'PRODUCTION_DEPRECIATION'] }
 
@@ -75,19 +80,19 @@ function StructuredFields({ value, onChange, context = 'root' }: { value: Record
   return <div className="hgb-fields">{Object.entries(value).filter(([key]) => key !== 'kind' && !(key === 'type' && context.endsWith('schedule'))).map(([key, field]) => {
     const set = (next: unknown) => onChange({ ...value, [key]: next })
     const label = labels[key] ?? key.replaceAll(/([A-Z])/g, ' $1')
-    if (typeof field === 'boolean') return <label className="form-check" key={key}><input className="form-check-input" type="checkbox" checked={field} onChange={event => set(event.target.checked)} /><span>{label}</span></label>
-    if (typeof field === 'number') return <label key={key}>{label}<input className="form-control" type="number" step="1" value={field} onChange={event => set(Number(event.target.value))} /></label>
+    if (typeof field === 'boolean') return <label className="form-check" data-field-key={key} key={key}><input className="form-check-input" type="checkbox" checked={field} onChange={event => set(event.target.checked)} /><span>{label}</span></label>
+    if (typeof field === 'number') return <label data-field-key={key} key={key}>{label}<input className="form-control" type="number" step="1" value={field} onChange={event => set(Number(event.target.value))} /></label>
     if (Array.isArray(field)) {
       if (!field.length || field.every(item => typeof item === 'string')) {
-        const template = itemTemplates[`${key}_${String(value.type ?? context)}`] ?? itemTemplates[key] ?? itemTemplates[`${key}_root`]
+        const template = structuredItemTemplate(key, String(value.type ?? context))
         if (!template) return <label key={key}>{label}<input className="form-control" value={(field as string[]).join(', ')} onChange={event => set(event.target.value.split(',').map(item => item.trim()).filter(Boolean))} placeholder="IDs, durch Komma getrennt" /></label>
         return <fieldset key={key}><legend>{label}</legend>{field.map((item, index) => <div className="card panel" key={index}><StructuredFields value={item as Record<string, unknown>} onChange={next => set(field.map((old, i) => i === index ? next : old))} context="root" /><button type="button" className="btn btn-outline-secondary" onClick={() => set(field.filter((_, i) => i !== index))}>Zeile entfernen</button></div>)}<button type="button" className="btn btn-outline-secondary" onClick={() => set([...field, structuredClone(template)])}>Zeile hinzufügen</button></fieldset>
       }
-      return <fieldset key={key}><legend>{label}</legend>{field.map((item, index) => <div className="card panel" key={index}><StructuredFields value={item as Record<string, unknown>} onChange={next => set(field.map((old, i) => i === index ? next : old))} context="root" /><button type="button" className="btn btn-outline-secondary" onClick={() => set(field.filter((_, i) => i !== index))}>Zeile entfernen</button></div>)}<button type="button" className="btn btn-outline-secondary" onClick={() => set([...field, structuredClone(itemTemplates[`${key}_${String(value.type ?? context)}`] ?? itemTemplates[`${key}_root`] ?? {})])}>Zeile hinzufügen</button></fieldset>
+      return <fieldset key={key}><legend>{label}</legend>{field.map((item, index) => <div className="card panel" key={index}><StructuredFields value={item as Record<string, unknown>} onChange={next => set(field.map((old, i) => i === index ? next : old))} context="root" /><button type="button" className="btn btn-outline-secondary" onClick={() => set(field.filter((_, i) => i !== index))}>Zeile entfernen</button></div>)}<button type="button" className="btn btn-outline-secondary" onClick={() => set([...field, structuredClone(structuredItemTemplate(key, String(value.type ?? context)) ?? {})])}>Zeile hinzufügen</button></fieldset>
     }
-    if (field && typeof field === 'object') return <fieldset key={key}><legend>{label}</legend><StructuredFields value={field as Record<string, unknown>} onChange={set} context={key} /></fieldset>
+    if (field && typeof field === 'object') return <fieldset data-field-key={key} key={key}><legend>{label}</legend><StructuredFields value={field as Record<string, unknown>} onChange={set} context={key} /></fieldset>
     const options = enumOptions[key]
-    return <label key={key}>{label}{options ? <select className="form-select" value={String(field ?? '')} onChange={event => set(event.target.value)}>{options.map(option => <option key={option}>{option}</option>)}</select> : <input className="form-control" type={key.toLowerCase().includes('date') || key.endsWith('Through') ? 'date' : 'text'} value={String(field ?? '')} onChange={event => set(event.target.value)} />}</label>
+    return <label data-field-key={key} key={key}>{label}{options ? <select className="form-select" value={String(field ?? '')} onChange={event => set(event.target.value)}>{options.map(option => <option key={option}>{option}</option>)}</select> : <input className="form-control" type={key.toLowerCase().includes('date') || key.endsWith('Through') ? 'date' : 'text'} value={String(field ?? '')} onChange={event => set(event.target.value)} />}</label>
   })}</div>
 }
 
@@ -102,6 +107,7 @@ export function HgbCloseWorkbench({ year, tenantId, api = browserHgbCloseApi, on
   const [selectedKind, setSelectedKind] = useState<HgbWorkpaperKind>('SIZE_AND_APPLICABILITY')
   const [draft, setDraft] = useState<HgbWorkpaperDraft>(() => newHgbWorkpaper('SIZE_AND_APPLICABILITY', year))
   const [reason, setReason] = useState('')
+  const [annualPackageId, setAnnualPackageId] = useState('')
   const [representatives, setRepresentatives] = useState(''); const [signatureEvidence, setSignatureEvidence] = useState(''); const [signedAt, setSignedAt] = useState(''); const [resolutionId, setResolutionId] = useState('')
   const [busy, setBusy] = useState(false); const [error, setError] = useState('')
   const yearRef = useRef(year); const generationRef = useRef(0)
@@ -109,7 +115,7 @@ export function HgbCloseWorkbench({ year, tenantId, api = browserHgbCloseApi, on
     const requestedYear = year; const generation = ++generationRef.current
     try {
       const [nextOverview, nextCollection] = await Promise.all([api.loadOverview(year, signal, tenantId), api.loadWorkpapers(year, signal, tenantId)])
-      if (operationStillCurrent(requestedYear, yearRef.current, generation, generationRef.current) && !signal?.aborted) { setOverview(nextOverview); setCollection(nextCollection); setError('') }
+      if (operationStillCurrent(requestedYear, yearRef.current, generation, generationRef.current) && !signal?.aborted) { setOverview(nextOverview); setCollection(nextCollection); setAnnualPackageId(current => nextOverview.approvedAnnualPackages.some(item => item.id === current) ? current : nextOverview.approvedAnnualPackages[0]?.id ?? ''); setError('') }
     } catch (caught) { if ((caught as { name?: string }).name !== 'AbortError' && operationStillCurrent(requestedYear, yearRef.current, generation, generationRef.current)) setError((caught as Error).message) }
   }, [api, tenantId, year])
   useEffect(() => { yearRef.current = year; generationRef.current++; setOverview(undefined); setCollection(undefined); setProfile(initialHgbProfile(year)); setDraft(newHgbWorkpaper('SIZE_AND_APPLICABILITY', year)); const controller = new AbortController(); void load(controller.signal); return () => controller.abort() }, [load, year])
@@ -140,8 +146,8 @@ export function HgbCloseWorkbench({ year, tenantId, api = browserHgbCloseApi, on
       <StructuredFields value={draft as unknown as Record<string, unknown>} onChange={next => setDraft(next as unknown as HgbWorkpaperDraft)} />
       <div className="action-stack"><button className="btn btn-primary" disabled={busy || collection?.fiscalPeriod.status !== 'OPEN' || selectedKind === 'SIZE_AND_APPLICABILITY' && !profileIsExplicit(profile)} onClick={() => perform(async () => { const candidate = selectedKind === 'SIZE_AND_APPLICABILITY' ? { ...draft, schedule: { ...draft.schedule, closeProfile: profile as HgbCloseProfile } } as HgbWorkpaperDraft : draft; await api.saveWorkpaper(year, candidate, selected?.status === 'DRAFT' ? selected.checksum : undefined, tenantId) })}>Entwurf speichern</button>{selected && <WorkpaperActions year={year} tenantId={tenantId} record={selected} busy={busy} perform={perform} api={api} />}</div>
     </div></details>
-    <details><summary><strong>3. Unterschriften, Feststellung und Abschlusslauf</strong></summary><div className="hgb-fields mt-3"><label>Vertreter-IDs<input className="form-control" value={representatives} onChange={e => setRepresentatives(e.target.value)} placeholder="Kommagetrennt" /></label><label>Unterschriftnachweis-IDs<input className="form-control" value={signatureEvidence} onChange={e => setSignatureEvidence(e.target.value)} placeholder="In gleicher Reihenfolge" /></label><label>Unterzeichnet am<input className="form-control" type="datetime-local" value={signedAt} onChange={e => setSignedAt(e.target.value)} /></label><label>Gesellschafterbeschluss-ID<input className="form-control" value={resolutionId} onChange={e => setResolutionId(e.target.value)} /></label><label>Grund des Abschlusslaufs<input className="form-control" value={reason} onChange={e => setReason(e.target.value)} /></label>
-      <button className="btn btn-primary" disabled={busy || !reason.trim()} onClick={() => perform(() => api.evaluate(year, evaluationInput(representatives, signatureEvidence, signedAt, resolutionId, reason), tenantId))}>HGB-Abschlusslauf auswerten</button></div></details>
+    <details><summary><strong>3. Unterschriften, Feststellung und Abschlusslauf</strong></summary><div className="hgb-fields mt-3"><label>Freigegebener Jahresabschluss<select className="form-select" value={annualPackageId} onChange={e => setAnnualPackageId(e.target.value)}><option value="">Nicht ausgewählt</option>{overview?.approvedAnnualPackages.map(item => <option key={item.id} value={item.id}>Version {item.version} · {item.id}</option>)}</select></label><label>Vertreter-IDs<input className="form-control" value={representatives} onChange={e => setRepresentatives(e.target.value)} placeholder="Kommagetrennt" /></label><label>Unterschriftnachweis-IDs<input className="form-control" value={signatureEvidence} onChange={e => setSignatureEvidence(e.target.value)} placeholder="In gleicher Reihenfolge" /></label><label>Unterzeichnet am<input className="form-control" type="datetime-local" value={signedAt} onChange={e => setSignedAt(e.target.value)} /></label><label>Gesellschafterbeschluss-ID<input className="form-control" value={resolutionId} onChange={e => setResolutionId(e.target.value)} /></label><label>Grund des Abschlusslaufs<input className="form-control" value={reason} onChange={e => setReason(e.target.value)} /></label>
+      <button className="btn btn-primary" disabled={busy || !reason.trim() || !annualPackageId} onClick={() => { const annualPackage = overview?.approvedAnnualPackages.find(item => item.id === annualPackageId); return perform(() => api.evaluate(year, evaluationInput(representatives, signatureEvidence, signedAt, resolutionId, reason, annualPackage), tenantId)) }}>HGB-Abschlusslauf auswerten</button></div></details>
   </section>
 }
 
@@ -159,7 +165,7 @@ function WorkpaperActions({ year, tenantId, record, busy, perform, api }: { year
   return <>{buttons}</>
 }
 
-function evaluationInput(representativesText: string, evidenceText: string, signedAt: string, shareholderResolutionId: string, reason: string) {
+export function evaluationInput(representativesText: string, evidenceText: string, signedAt: string, shareholderResolutionId: string, reason: string, annualPackage?: { id: string; checksum: string }) {
   const legalRepresentativeIds = representativesText.split(',').map(value => value.trim()).filter(Boolean); const evidenceIds = evidenceText.split(',').map(value => value.trim()).filter(Boolean)
-  return { reason, legalRepresentativeIds, managingDirectorSignatures: legalRepresentativeIds.map((representativeId, index) => ({ representativeId, signedAt: signedAt ? new Date(signedAt).toISOString() : '', signatureEvidenceId: evidenceIds[index] ?? '' })), shareholderResolutionId }
+  return { reason, annualAccountsPackageId: annualPackage?.id, annualAccountsChecksum: annualPackage?.checksum, legalRepresentativeIds, managingDirectorSignatures: legalRepresentativeIds.map((representativeId, index) => ({ representativeId, signedAt: signedAt ? new Date(signedAt).toISOString() : '', signatureEvidenceId: evidenceIds[index] ?? '' })), shareholderResolutionId }
 }

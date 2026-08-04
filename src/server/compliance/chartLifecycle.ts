@@ -3,22 +3,29 @@ import type { FiscalPeriod } from './fiscalPeriods'
 export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'
 export interface AccountMapping { accountNumber: number; name: string; accountType: AccountType; normalBalance: 'DEBIT' | 'CREDIT'; presentationSign?: 1 | -1; hgbPosition: string; eBilanzPosition: string; vatCode?: string; active?: boolean }
 export interface MappingVersion { id: string; ownerId: string; chartId: string; effectiveFrom: string; effectiveTo?: string; mappings: AccountMapping[] }
+
+export function availableCustomChartsForProfileUpdate(configured: readonly string[], requestedChart: unknown, hasPersistedCohort: boolean) {
+  const requested = typeof requestedChart === 'string' ? requestedChart.trim() : ''
+  return [...new Set([...configured, ...(requested.startsWith('CUSTOM:') && hasPersistedCohort ? [requested] : [])])]
+}
 const accountTypes: AccountType[] = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']
 
 const mapping = (accountNumber: number, name: string, accountType: AccountType, eBilanzPosition: string, vatCode?: string): AccountMapping => ({ accountNumber, name, accountType, normalBalance: ['ASSET', 'EXPENSE'].includes(accountType) ? 'DEBIT' : 'CREDIT', hgbPosition: accountType === 'REVENUE' ? 'HGB.275.2.1' : accountType === 'EXPENSE' ? 'HGB.275.2.8' : 'HGB.266', eBilanzPosition, ...(vatCode ? { vatCode } : {}) })
 export const STANDARD_CHARTS = {
   SKR03: [
+    mapping(300, 'Andere Anlagen, Betriebs- und Geschäftsausstattung', 'ASSET', 'bs.ass.fixAss.tan.otherEquipm'),
     mapping(1000, 'Kasse', 'ASSET', 'bs.ass.currAss.cashEquiv.cash'), mapping(1200, 'Bank', 'ASSET', 'bs.ass.currAss.cashEquiv.bank'),
-    mapping(1400, 'Forderungen aus Lieferungen und Leistungen', 'ASSET', 'bs.ass.currAss.receiv.trade'), mapping(1576, 'Abziehbare Vorsteuer 19 %', 'ASSET', 'bs.ass.currAss.receiv.other.vat', 'V19'),
-    mapping(1600, 'Verbindlichkeiten aus Lieferungen und Leistungen', 'LIABILITY', 'bs.eqLiab.liab.trade'), mapping(1776, 'Umsatzsteuer 19 %', 'LIABILITY', 'bs.eqLiab.liab.other.theroffTax.vat', 'U19'),
-    mapping(2900, 'Eigenkapital', 'EQUITY', 'bs.eqLiab.equity'), mapping(4930, 'Bürobedarf', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost'),
-    mapping(8400, 'Erlöse 19 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput', 'U19'),
+    mapping(1400, 'Forderungen aus Lieferungen und Leistungen', 'ASSET', 'bs.ass.currAss.receiv.trade'), mapping(1571, 'Abziehbare Vorsteuer 7 %', 'ASSET', 'bs.ass.currAss.receiv.other.vat', 'V7'), mapping(1576, 'Abziehbare Vorsteuer 19 %', 'ASSET', 'bs.ass.currAss.receiv.other.vat', 'V19'),
+    mapping(1600, 'Verbindlichkeiten aus Lieferungen und Leistungen', 'LIABILITY', 'bs.eqLiab.liab.trade'), mapping(1771, 'Umsatzsteuer 7 %', 'LIABILITY', 'bs.eqLiab.liab.other.theroffTax.vat', 'U7'), mapping(1776, 'Umsatzsteuer 19 %', 'LIABILITY', 'bs.eqLiab.liab.other.theroffTax.vat', 'U19'),
+    mapping(2900, 'Eigenkapital', 'EQUITY', 'bs.eqLiab.equity'), mapping(2310, 'Anlagenabgänge Sachanlagen (Restbuchwert bei Buchverlust)', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost'), mapping(2315, 'Anlagenabgänge Sachanlagen (Restbuchwert bei Buchgewinn)', 'REVENUE', 'is.netIncome.regular.operatingTC.otherOpRevenue'), mapping(4830, 'Abschreibungen auf Sachanlagen', 'EXPENSE', 'is.netIncome.regular.operatingTC.deprAmort.fixAss.tan'), mapping(4930, 'Bürobedarf', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost'),
+    mapping(8300, 'Erlöse 7 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput', 'U7'), mapping(8400, 'Erlöse 19 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput', 'U19'), mapping(8801, 'Erlöse aus Verkäufen Sachanlagevermögen 19 % USt (bei Buchverlust)', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost', 'U19'), mapping(8820, 'Erlöse aus Verkäufen Sachanlagevermögen 19 % USt (bei Buchgewinn)', 'REVENUE', 'is.netIncome.regular.operatingTC.otherOpRevenue', 'U19'),
   ],
   SKR04: [
+    mapping(500, 'Andere Anlagen, Betriebs- und Geschäftsausstattung', 'ASSET', 'bs.ass.fixAss.tan.otherEquipm'),
     mapping(1600, 'Kasse', 'ASSET', 'bs.ass.currAss.cashEquiv.cash'), mapping(1800, 'Bank', 'ASSET', 'bs.ass.currAss.cashEquiv.bank'),
-    mapping(1200, 'Forderungen aus Lieferungen und Leistungen', 'ASSET', 'bs.ass.currAss.receiv.trade'), mapping(1406, 'Abziehbare Vorsteuer 19 %', 'ASSET', 'bs.ass.currAss.receiv.other.vat', 'V19'),
-    mapping(3300, 'Verbindlichkeiten aus Lieferungen und Leistungen', 'LIABILITY', 'bs.eqLiab.liab.trade'), mapping(3806, 'Umsatzsteuer 19 %', 'LIABILITY', 'bs.eqLiab.liab.other.theroffTax.vat', 'U19'),
-    mapping(4400, 'Erlöse 19 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput', 'U19'),
+    mapping(1200, 'Forderungen aus Lieferungen und Leistungen', 'ASSET', 'bs.ass.currAss.receiv.trade'), mapping(1401, 'Abziehbare Vorsteuer 7 %', 'ASSET', 'bs.ass.currAss.receiv.other.vat', 'V7'), mapping(1406, 'Abziehbare Vorsteuer 19 %', 'ASSET', 'bs.ass.currAss.receiv.other.vat', 'V19'),
+    mapping(3300, 'Verbindlichkeiten aus Lieferungen und Leistungen', 'LIABILITY', 'bs.eqLiab.liab.trade'), mapping(3801, 'Umsatzsteuer 7 %', 'LIABILITY', 'bs.eqLiab.liab.other.theroffTax.vat', 'U7'), mapping(3806, 'Umsatzsteuer 19 %', 'LIABILITY', 'bs.eqLiab.liab.other.theroffTax.vat', 'U19'),
+    mapping(4300, 'Erlöse 7 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput', 'U7'), mapping(4400, 'Erlöse 19 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput', 'U19'), mapping(4845, 'Erlöse aus Verkäufen Sachanlagevermögen 19 % USt (bei Buchgewinn)', 'REVENUE', 'is.netIncome.regular.operatingTC.otherOpRevenue', 'U19'), mapping(4855, 'Anlagenabgänge Sachanlagen (Restbuchwert bei Buchgewinn)', 'REVENUE', 'is.netIncome.regular.operatingTC.otherOpRevenue'), mapping(6885, 'Erlöse aus Verkäufen Sachanlagevermögen 19 % USt (bei Buchverlust)', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost', 'U19'), mapping(6895, 'Anlagenabgänge Sachanlagen (Restbuchwert bei Buchverlust)', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost'), mapping(6220, 'Abschreibungen auf Sachanlagen', 'EXPENSE', 'is.netIncome.regular.operatingTC.deprAmort.fixAss.tan'),
   ],
 } as const
 

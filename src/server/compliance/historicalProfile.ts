@@ -5,10 +5,11 @@ import { prisma } from '@/server/persistence/client'
 import { validateVersionedCompanyProfile } from './companyProfile'
 import { appendAuditEvent } from './auditPersistence'
 import { ComplianceRuntimeError } from './runtime'
+import { complianceReferenceDate } from './referenceDate'
 
 const day = (date: Date) => date.toISOString().slice(0, 10)
 
-export async function createHistoricalProfileForFiscalYear(ownerId: string, actorId: string, year: number, input: Record<string, unknown>, today = new Date().toISOString().slice(0, 10)) {
+export async function createHistoricalProfileForFiscalYear(ownerId: string, actorId: string, year: number, input: Record<string, unknown>, today = complianceReferenceDate()) {
   const reason = typeof input.reason === 'string' ? input.reason.trim() : ''
   const evidenceId = typeof input.evidenceId === 'string' ? input.evidenceId.trim() : ''
   if (!reason || !evidenceId) throw new ComplianceRuntimeError('Historical profile reason and retained evidence are required')

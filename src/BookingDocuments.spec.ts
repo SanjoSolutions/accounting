@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import de from '../messages/de.json'
 import en from '../messages/en.json'
 import { readFileSync } from 'node:fs'
-import { acceptedPdfFiles, availableBookingDocuments, clampDocumentColumnPercent, DocumentCard, documentDisplayName, LongTouchSelectionGesture, longTouchSelectionDelayMs, mergeDocumentLists, mergeDocumentSelection, mergeUploadedDocument, parseSavedDocumentColumnPercent, readDocumentUploadResponse, selectDocument, selectionExtendsForActivation } from './BookingDocuments'
+import { acceptedBookingDocumentFiles, acceptedPdfFiles, availableBookingDocuments, clampDocumentColumnPercent, DocumentCard, documentDisplayName, LongTouchSelectionGesture, longTouchSelectionDelayMs, mergeDocumentLists, mergeDocumentSelection, mergeUploadedDocument, parseSavedDocumentColumnPercent, readDocumentUploadResponse, selectDocument, selectionExtendsForActivation } from './BookingDocuments'
 
 afterEach(() => vi.useRealTimers())
 
@@ -83,6 +83,7 @@ describe('booking document selection', () => {
 
   it('removes only the trailing PDF extension from document display names', () => {
     expect(documentDisplayName('Invoice.final.PDF')).toBe('Invoice.final')
+    expect(documentDisplayName('Invoice.XML')).toBe('Invoice')
     expect(documentDisplayName('Invoice')).toBe('Invoice')
     expect(documentDisplayName('.pdf', 'Unnamed document')).toBe('Unnamed document')
   })
@@ -105,6 +106,11 @@ describe('booking document selection', () => {
   it('accepts one or many PDFs from the viewport drop target or file picker', () => {
     const files = [{ name: 'invoice.pdf', type: '' }, { name: 'scan', type: 'application/pdf' }, { name: 'notes.txt', type: 'text/plain' }]
     expect(acceptedPdfFiles(files).map(file => file.name)).toEqual(['invoice.pdf', 'scan'])
+  })
+
+  it('Given a structured invoice, when files are selected, then XML and PDF evidence enter the booking workflow while unrelated files remain excluded', () => {
+    const files = [{ name: 'invoice.xml', type: '' }, { name: 'cii', type: 'application/xml' }, { name: 'hybrid.pdf', type: 'application/pdf' }, { name: 'notes.txt', type: 'text/plain' }]
+    expect(acceptedBookingDocumentFiles(files).map(file => file.name)).toEqual(['invoice.xml', 'cii', 'hybrid.pdf'])
   })
 
   it('merges each successful upload into the latest selection without overwriting concurrent choices', () => {

@@ -2,14 +2,18 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { test, expect } from '@playwright/test'
 import { AnnualClosePage } from './annual-close-page'
-import { createHgbStatementRuleSet } from '../src/core/hgbStatements'
-import { HGB_WORKPAPER_KINDS, type HgbCloseProfile } from '../src/core/hgbClose'
-import type { HgbWorkpaperDraft } from '../src/core/hgbWorkpapers'
+import { HGB_WORKPAPER_KINDS } from '../src/core/hgbClose'
+import { TaxWorkflowPage } from './tax-workflow-page'
+import { EBalancePage } from './e-balance-page'
+import { AuthenticationPage } from './pages'
+import { AccessPage, ComplianceSetupPage } from './compliance-setup-page'
 
 const invoicePdf = readFileSync(new URL('./fixtures/invoice.pdf', import.meta.url))
 
+test.use({ actionTimeout: 10_000 })
+
 test.describe('real annual close', () => {
-  test.setTimeout(120_000)
+  test.setTimeout(600_000)
 
   test('fails closed when an expired ledger has no current statutory HGB run', async ({ browser }, testInfo) => {
     const baseURL = testInfo.project.use.baseURL as string
@@ -17,14 +21,11 @@ test.describe('real annual close', () => {
     await context.addCookies([{ name: 'NEXT_LOCALE', value: 'en', url: baseURL }])
     const page = await context.newPage()
     const email = `annual-close-${randomUUID()}@example.test`
-    const signUp = await page.request.post('/api/auth/sign-up/email', {
-      headers: { Origin: baseURL },
-      data: { name: 'Annual Close E2E', email, password: 'Annual-close-password-2026!' },
-    })
-    expect(signUp.ok(), `${signUp.status()} ${await signUp.text()}`).toBe(true)
+    await page.goto('/sign-up')
+    await new AuthenticationPage(page).signUp('Annual Close E2E', email, 'Annual-close-password-2026!')
+    await expect(page).toHaveURL('/')
 
     const annualClose = new AnnualClosePage(page)
-    await annualClose.createExpiredShortFiscalYear2026()
     await annualClose.postRevenueWithEvidence(invoicePdf)
 
     const beforeCloseResponse = await page.request.get('/api/booking-records?year=2026')
@@ -53,92 +54,52 @@ test.describe('real annual close', () => {
     await context.close()
   })
 
-  test('completes the reviewed HGB close, E-Bilanz export, KSt and GewSt lifecycle for a 2025 UG', async ({ browser }, testInfo) => {
+  for (const scenario of [{ legalForm: 'UG' as const, year: 2025 }, { legalForm: 'GMBH' as const, year: 2026 }]) test(`completes the reviewed HGB close, E-Bilanz export, KSt and GewSt lifecycle for a ${scenario.year} ${scenario.legalForm}`, async ({ browser }, testInfo) => {
+    const year = scenario.year; const priorYear = year - 1
     const baseURL = testInfo.project.use.baseURL as string
     const ownerContext = await browser.newContext({ baseURL }); await ownerContext.addCookies([{ name: 'NEXT_LOCALE', value: 'en', url: baseURL }]); const ownerPage = await ownerContext.newPage()
     const reviewerContext = await browser.newContext({ baseURL }); const reviewerPage = await reviewerContext.newPage()
     const password = 'Annual-close-password-2026!'
-    const signup = async (page: typeof ownerPage, role: string) => {
-      const response = await page.request.post('/api/auth/sign-up/email', { headers: { Origin: baseURL }, data: { name: role, email: `${role.toLowerCase().replaceAll(' ', '-')}-${randomUUID()}@example.test`, password } })
-      expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true)
-      const overview = await api(page, 'get', '/api/compliance')
-      return overview.tenantId as string
-    }
-    const ownerId = await signup(ownerPage, 'HGB owner'); const reviewerId = await signup(reviewerPage, 'HGB reviewer')
-    await api(ownerPage, 'post', '/api/compliance', { action: 'policy.configure', operatorIds: [ownerId, reviewerId], allowedStorageRegions: ['DE'], recoveryPointObjectiveMinutes: 60, recoveryTimeObjectiveMinutes: 60, backupKeyId: 'e2e-hgb-key', reason: 'Independent HGB reviewer' })
-    const document = await api(ownerPage, 'post', '/api/documents', invoicePdf, { 'content-type': 'application/pdf', 'x-document-file-name': encodeURIComponent('hgb-close-evidence.pdf') })
-    const evidenceId = document.id as string
+    const ownerEmail = `hgb-owner-${randomUUID()}@example.test`; const reviewerEmail = `hgb-reviewer-${randomUUID()}@example.test`
+    await ownerPage.goto('/sign-up'); await new AuthenticationPage(ownerPage).signUp('HGB owner', ownerEmail, password); await expect(ownerPage).toHaveURL('/')
+    await reviewerPage.goto('/sign-up'); await new AuthenticationPage(reviewerPage).signUp('HGB reviewer', reviewerEmail, password); await expect(reviewerPage).toHaveURL('/')
+    const ownerAccess = new AccessPage(ownerPage); await ownerAccess.open(); const ownerId = await ownerAccess.activeTenantId()
+    const reviewerAccess = new AccessPage(reviewerPage); await reviewerAccess.open(); const reviewerId = await reviewerAccess.activeTenantId()
+    await ownerAccess.grantAccountant(reviewerEmail)
+    await reviewerAccess.open(); await reviewerAccess.selectCompany(ownerId)
 
-    const periods = new Map<number, { id: string }>()
-    for (const year of [2024, 2025]) periods.set(year, await api(ownerPage, 'post', '/api/compliance', { action: 'period.create', referenceYear: year, label: `HGB ${year}`, startsAt: `${year}-01-01`, endsAt: `${year}-12-31`, reason: 'HGB close acceptance period' }))
-    const companyProfile = { companyName: 'HGB E2E UG (haftungsbeschränkt)', registeredAddress: { streetAndHouseNumber: 'Test 1', zipCode: '10115', city: 'Berlin', country: 'DE' }, legalForm: 'UG', registerCourt: 'Berlin', registerNumber: 'HRB 1', taxNumber: '1234567890123', taxOffice: 'Berlin', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: 'Software', sizeClass: 'MICRO', chart: 'CUSTOM:HGB-MICRO', elections: [], annualTaxProfile: { tradeBusiness: true, establishments: 1, adviserExtension: false, municipalityCode: '11000000', tradeTaxMultiplierBasisPoints: 41000, foreignIncome: false, groupOrConsolidation: false, lossCarry: false, specialRegime: false, withholdingOrCredits: false, payroll: false }, eBilanz: { accountingStandard: 'HGB', incomeStatementMethod: 'GKV', statementType: 'E', reportStatus: 'E', consolidationRange: 'EA', incomeClassification: 'trade' } }
-    const mappingInput = { chartId: 'CUSTOM:HGB-MICRO', size: 'MICRO', method: 'GKV', reason: 'Reviewed HGB presentation mapping', evidenceId, mappings: [
-      { accountNumber: 1200, name: 'Bank', accountType: 'ASSET', normalBalance: 'DEBIT', presentationSign: 1, hgbPosition: 'BS.A.B', eBilanzPosition: 'bs.ass.currAss.cashEquiv.bank' },
-      { accountNumber: 8400, name: 'Revenue', accountType: 'REVENUE', normalBalance: 'CREDIT', presentationSign: 1, hgbPosition: 'IS.M.1', eBilanzPosition: 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput' },
-    ] }
-    const mappingIds: string[] = []
-    for (const year of [2024, 2025]) {
-      await api(ownerPage, 'post', `/api/fiscal-years/${year}/hgb-close/profile`, { profile: companyProfile, evidenceId, reason: 'Verified company register and master data' })
-      const rows = await api(ownerPage, 'post', `/api/fiscal-years/${year}/hgb-close/mappings`, mappingInput) as Array<{ id: string }>; mappingIds.push(...rows.map(row => row.id))
-    }
-    const workspace = await api(ownerPage, 'get', '/api/booking-records?year=2024')
-    const accountId = (number: number) => (workspace.accounts as Array<{ id: string; number: number }>).find(account => account.number === number)!.id
-    await api(ownerPage, 'post', '/api/booking-records', { fiscalYear: 2025, bookingDate: '2025-12-15', documentNumber: 'HGB-2025', description: 'HGB revenue 2025', documentIds: [evidenceId], lines: [{ accountId: accountId(1200), debitCents: 100, creditCents: 0 }, { accountId: accountId(8400), debitCents: 0, creditCents: 100 }] })
+    const ownerAnnualClose = new AnnualClosePage(ownerPage)
+    const evidenceId = await ownerAnnualClose.uploadEvidence(invoicePdf)
+    const compliance = new ComplianceSetupPage(ownerPage); await compliance.open()
+    const companyProfile = { companyName: scenario.legalForm === 'UG' ? 'HGB E2E UG (haftungsbeschränkt)' : 'HGB E2E GmbH', registeredAddress: { streetAndHouseNumber: 'Test 1', zipCode: '10115', city: 'Berlin', country: 'DE' }, legalForm: scenario.legalForm, registerCourt: 'Berlin', registerNumber: 'HRB 1', taxNumber: '1234567890123', taxOffice: 'Berlin', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: 'Software', sizeClass: 'MICRO', chart: 'CUSTOM:HGB-MICRO', elections: [], annualTaxProfile: { tradeBusiness: true, establishments: 1, adviserExtension: false, municipalityCode: '11000000', tradeTaxMultiplierBasisPoints: 41000, foreignIncome: false, groupOrConsolidation: false, lossCarry: false, specialRegime: false, withholdingOrCredits: false, payroll: false }, eBilanz: { accountingStandard: 'HGB', incomeStatementMethod: 'GKV', statementType: 'E', reportStatus: 'E', consolidationRange: 'EA', incomeClassification: 'trade' } }
+    await compliance.createPeriod(year); await compliance.createPeriod(priorYear)
+    await compliance.saveCapitalCompanyProfile({ legalForm: scenario.legalForm, year, companyName: companyProfile.companyName })
+    await compliance.onboardHistoricalHgb([priorYear, year], evidenceId)
+    const mappingIds = await compliance.visibleMappingIds(year)
+    await compliance.configureReviewPolicy(ownerId, reviewerId)
+    await ownerAnnualClose.postRevenueWithEvidence(invoicePdf, year)
+    await ownerAnnualClose.prepareSupportedMicroClose({ year, legalForm: scenario.legalForm, evidenceId, mappingIds })
+    const requiredKinds = HGB_WORKPAPER_KINDS.filter(kind => !['FIXED_ASSETS_AND_DEPRECIATION', 'INVENTORY_COUNT_AND_VALUATION', 'NOTES'].includes(kind))
+    await new AnnualClosePage(reviewerPage).approvePreparedWorkpapers(year, requiredKinds)
+    await compliance.open(); const periodId = await compliance.visiblePeriodId(year); const packageId = await compliance.createAnnualAccounts(periodId)
+    const reviewerCompliance = new ComplianceSetupPage(reviewerPage); await reviewerCompliance.open(); await reviewerCompliance.approveAnnualAccounts(packageId)
+    await ownerAnnualClose.evaluateReadyClose(year, { evidenceId, signedAt: `${year + 1}-01-15T11:00` })
+    await ownerAnnualClose.lockReadyFiscalYear(year)
 
-    const closeProfile: HgbCloseProfile = { ruleSetVersion: 'HGB-DE-2024.1', legalForm: 'UG', fiscalPeriodStart: '2025-01-01', fiscalPeriodEnd: '2025-12-31', germanRegisteredEntity: true, groupStatus: 'STANDALONE_NO_EXEMPTION', publicInterestEntity: false, capitalMarketOrListed: false, regulatedIndustry: false, liquidationOrInsolvencyBasis: false, goingConcern: true, formedOrConvertedInCurrentPeriod: false, currentSizeFacts: { balanceSheetTotalCents: 100, revenueCents: 100, quarterlyEmployeeCounts: [1, 1, 1, 1], microExcludedBySection267a: false }, priorSizeFacts: { balanceSheetTotalCents: 90, revenueCents: 90, quarterlyEmployeeCounts: [1, 1, 1, 1], microExcludedBySection267a: false }, priorEstablishedSize: 'MICRO', hasInventory: false, hasFixedAssets: false, microNotesOmission: { requiredSection268Paragraph7DisclosuresIncludedBelowBalanceSheet: true, advancesAndLoansToManagementDisclosedBelowBalanceSheet: true, requiredAdditionalTrueAndFairDisclosuresIncludedBelowBalanceSheet: true }, section5aApplies: false }
-    const prior: Record<string, number> = {}
-    const rule = createHgbStatementRuleSet('MICRO', 'GKV'); const approvedComparativeLeaves = rule.lines.filter(line => !rule.lines.some(candidate => candidate.parentId === line.id)).map(line => ({ lineId: line.id, amountCents: prior[line.id] ?? 0 }))
-    const base = (kind: typeof HGB_WORKPAPER_KINDS[number], schedule: Record<string, unknown>, conclusion: HgbWorkpaperDraft['conclusion'] = 'COMPLETE'): HgbWorkpaperDraft => ({ kind, title: `Reviewed ${kind}`, conclusion, evidenceIds: [evidenceId], schedule: schedule as unknown as HgbWorkpaperDraft['schedule'], adjustments: [] })
-    const applicable = { applicability: 'APPLICABLE', rationale: 'Reviewed against complete evidence population' }
-    const notApplicable = (type: string) => ({ type, applicability: 'NOT_APPLICABLE', rationale: 'No applicable balance or transaction population' })
-    const papers: HgbWorkpaperDraft[] = [
-      base('OPENING_BALANCE', { ...applicable, type: 'OPENING_BALANCE', priorClosingFingerprint: 'opening-match', currentOpeningFingerprint: 'opening-match', reconciled: true, reconciliationEvidenceId: evidenceId, approvedComparativeLeaves }),
-      base('MAPPING_AND_PRESENTATION', { ...applicable, type: 'MAPPING_PRESENTATION', mappingVersionIds: mappingIds, allPostingAccountsMappedOnce: true, presentationReviewed: true, evidenceId }),
-      base('RECOGNITION_AND_OWNERSHIP', { ...applicable, type: 'RECOGNITION_OWNERSHIP', items: [{ id: 'revenue-population', description: 'Revenue and bank population', recognition: 'RECOGNIZE', ownershipEvidenceId: evidenceId, measurementBasis: 'Nominal amount' }] }),
-      base('CUT_OFF_AND_ACCRUAL_DEFERRAL', { ...applicable, type: 'CUT_OFF_ACCRUAL_DEFERRAL', testedBeforeThrough: '2025-12-31', testedAfterThrough: '2026-01-15', populationEvidenceId: evidenceId, exceptionsResolved: true, items: [] }),
-      base('PROVISIONS_AND_CONTINGENCIES', { ...applicable, type: 'PROVISION_CONTINGENCY', items: [] }),
-      base('RECEIVABLE_AND_MARKET_VALUATION', { ...applicable, type: 'RECEIVABLE_MARKET_VALUATION', items: [] }),
-      base('FIXED_ASSETS_AND_DEPRECIATION', notApplicable('FIXED_ASSET_VALUATION'), 'NOT_APPLICABLE'), base('INVENTORY_COUNT_AND_VALUATION', notApplicable('INVENTORY_VALUATION'), 'NOT_APPLICABLE'),
-      base('SUBSEQUENT_EVENTS', { ...applicable, type: 'SUBSEQUENT_EVENTS', searchThrough: '2026-02-01', evidenceId, events: [] }),
-      base('GOING_CONCERN', { ...applicable, type: 'GOING_CONCERN', assessmentThrough: '2026-12-31', forecastEvidenceId: evidenceId, goingConcernAppropriate: true, materialUncertainty: false }),
-      base('POLICY_ELECTIONS', { ...applicable, type: 'POLICY_ELECTIONS', elections: [{ id: 'gkv', policy: 'TOTAL_COST_PNL', selected: true, rationale: 'Reviewed total-cost method', applicable: true }] }),
-      base('NOTES', notApplicable('NOTES_QUESTIONNAIRE'), 'NOT_APPLICABLE'),
-      base('GMBH_EQUITY_AND_RESULT', { ...applicable, type: 'GMBH_EQUITY_RESULT', shareCapitalCents: 0, resultCents: 100, equityReconciled: true, section5aReserveApplicable: false, evidenceId, proposalIds: [] }),
-      base('MICRO_NOTES_OMISSION', { ...applicable, type: 'MICRO_NOTES_OMISSION', section268Paragraph7Disclosed: true, managementLoansDisclosed: true, additionalTrueAndFairDisclosureAssessed: true, evidenceId }),
-      base('SIZE_AND_APPLICABILITY', { ...applicable, type: 'SIZE_APPLICABILITY', legalForm: 'UG', establishedSize: 'MICRO', currentFactsEvidenceId: evidenceId, priorFactsEvidenceId: evidenceId, standaloneNoExemption: true, nonPieUnlistedUnregulated: true, closeProfile }),
-    ]
-    for (const paper of papers) {
-      const saved = await api(ownerPage, 'put', '/api/fiscal-years/2025/hgb-close/workpapers', { workpaper: paper })
-      await api(ownerPage, 'post', `/api/fiscal-years/2025/hgb-close/workpapers/${saved.id}/prepare`, { expectedChecksum: saved.checksum })
-      await api(reviewerPage, 'post', `/api/fiscal-years/2025/hgb-close/workpapers/${saved.id}/review`, { tenantId: ownerId, decision: 'APPROVE', reason: 'Independent HGB acceptance review' })
-    }
-    const annual = await api(ownerPage, 'post', '/api/compliance', { action: 'reporting.annual.create', fiscalPeriodId: periods.get(2025)!.id, reason: 'Generate reviewed HGB annual accounts' })
-    await api(reviewerPage, 'post', '/api/compliance', { tenantId: ownerId, action: 'reporting.package.approve', packageId: annual.id, reason: 'Independent annual accounts approval' })
-    const signedAt = new Date().toISOString()
-    await api(ownerPage, 'post', '/api/fiscal-years/2025/hgb-close', { reason: 'Final HGB close acceptance', annualAccountsPackageId: annual.id, annualAccountsChecksum: annual.checksum, legalRepresentativeIds: ['director-1'], managingDirectorSignatures: [{ representativeId: 'director-1', signedAt, signatureEvidenceId: evidenceId }], shareholderResolutionId: evidenceId })
-    const overview = await api(ownerPage, 'get', '/api/fiscal-years/2025/hgb-close')
-    expect(overview.runs[0].status).toBe('READY_TO_LOCK')
-    const beforeLock = await api(ownerPage, 'get', '/api/booking-records?year=2025')
-    expect(beforeLock.closingIssues).toEqual([])
-    await new AnnualClosePage(ownerPage).lockReadyFiscalYear(2025)
-    expect((await api(ownerPage, 'get', '/api/booking-records?year=2025')).fiscalYear.status).toBe('CLOSED')
-    const rejected = await ownerPage.request.post('/api/booking-records', { data: { fiscalYear: 2025, bookingDate: '2025-12-20', documentNumber: 'LATE', description: 'Must reject', lines: [{ accountId: accountId(1200), debitCents: 1, creditCents: 0 }, { accountId: accountId(8400), debitCents: 0, creditCents: 1 }] } })
-    expect(rejected.status()).toBe(400)
+    const eBalance = new EBalancePage(ownerPage)
+    await eBalance.open(year)
+    await eBalance.expectAuthoritativeMasterData({ companyName: companyProfile.companyName, street: 'Test 1', postalCode: '10115', city: 'Berlin', taxNumber: '1234567890123', legalForm: scenario.legalForm })
+    await eBalance.exportCurrentValidationPackage(year)
 
-    await ownerPage.goto('/e-bilanz/2025')
-    await ownerPage.getByLabel('Company name').fill(companyProfile.companyName)
-    await ownerPage.getByLabel('Street and house number').fill('Test 1')
-    await ownerPage.getByLabel('Postal code').fill('10115')
-    await ownerPage.getByLabel('City').fill('Berlin')
-    await ownerPage.getByLabel('13-digit ELSTER tax number').fill('1234567890123')
-    await ownerPage.getByLabel('Legal form').selectOption('UG')
-    const download = ownerPage.waitForEvent('download')
-    await ownerPage.getByRole('button', { name: 'Create XBRL validation package' }).click()
-    expect((await download).suggestedFilename()).toBe('e-bilanz-2025-pruefpaket.zip')
-    await expect(ownerPage.getByText(/v1 · EXPORTED/)).toBeVisible()
+    const corporationTax = new TaxWorkflowPage(ownerPage, year)
+    await corporationTax.prepare('KST')
+    const adjustmentPage = await ownerContext.newPage()
+    await new TaxWorkflowPage(adjustmentPage, year).saveEvidenceBackedAdjustment('KST', evidenceId)
+    await adjustmentPage.close()
+    await corporationTax.expectPreparedSourceChangeBlocked(/evidenced tax adjustments changed; prepare and approve a new annual dataset/)
 
     for (const kind of ['KST', 'GEWST'] as const) {
-      await ownerPage.goto('/tax/2025')
+      await ownerPage.goto(`/tax/${year}`)
       await expect(ownerPage.getByText(/Local lifecycle emulator/)).toBeVisible()
       await ownerPage.getByLabel('Form').selectOption(kind)
       await ownerPage.getByRole('button', { name: 'Validate officially' }).click()
@@ -146,26 +107,32 @@ test.describe('real annual close', () => {
       await expect(ownerPage.getByText(/Finanzamt assessment is authoritative/).first()).toBeVisible()
       await ownerPage.getByLabel('I explicitly approve this binding transmission.').check()
       await ownerPage.getByRole('button', { name: 'Submit binding' }).click()
-      await expect(ownerPage.getByRole('cell', { name: `e2e-${kind.toLowerCase()}-2025-receipt` })).toBeVisible()
+      await expect(ownerPage.getByRole('cell', { name: `e2e-${kind.toLowerCase()}-${year}-receipt` })).toBeVisible()
     }
-    await ownerPage.goto('/tax/2025')
-    await ownerPage.getByLabel('Accepted declaration').selectOption({ label: 'KST · 2025' })
-    await ownerPage.getByLabel('Notice ID').fill('KST-2025-E2E-1')
+    await ownerPage.goto(`/tax/${year}`)
+    await ownerPage.getByLabel('Accepted declaration').selectOption({ label: `KST · ${year}` })
+    await ownerPage.getByLabel('Notice ID').fill(`KST-${year}-E2E-1`)
     await ownerPage.getByLabel('Assessed amount (cents)').fill('42')
     await ownerPage.getByLabel('Received on').fill(new Date().toISOString().slice(0, 10))
     await ownerPage.getByLabel('Evidence document ID').fill(evidenceId)
     await ownerPage.getByRole('button', { name: 'Record authoritative assessment' }).click()
     await expect(ownerPage.getByText('Authoritative Finanzamt assessment recorded and reconciled.')).toBeVisible()
-    await expect(ownerPage.getByRole('cell', { name: 'KST-2025-E2E-1' })).toBeVisible()
+    await expect(ownerPage.getByRole('cell', { name: `KST-${year}-E2E-1` })).toBeVisible()
     await ownerPage.reload()
-    await expect(ownerPage.getByRole('cell', { name: 'KST-2025-E2E-1' })).toBeVisible()
+    await expect(ownerPage.getByRole('cell', { name: `KST-${year}-E2E-1` })).toBeVisible()
+    if (scenario.legalForm === 'GMBH') {
+      await compliance.saveAuthoritativeCityChange({ city: 'Berlin-Mitte', effectiveFrom: `${year}-08-04` })
+      await eBalance.open(year)
+      await eBalance.expectAuthoritativeSourceStale()
+      await ownerAnnualClose.evaluateReadyClose(year, { evidenceId, signedAt: `${year + 1}-01-16T11:00` })
+      await compliance.open()
+      const reopenRequestId = await compliance.requestPeriodReopen(periodId)
+      await reviewerCompliance.open()
+      await reviewerCompliance.approvePeriodReopen(reopenRequestId)
+      await ownerAnnualClose.lockReadyFiscalYear(year)
+      await eBalance.open(year)
+      await eBalance.exportRemediatedAuthoritativePackage(year)
+    }
     await ownerContext.close(); await reviewerContext.close()
   })
 })
-
-async function api(page: import('@playwright/test').Page, method: 'get' | 'post' | 'put', url: string, data?: unknown, headers?: Record<string, string>) {
-  const response = await page.request[method](url, method === 'get' ? undefined : { data, headers })
-  if (!response.ok()) throw new Error(`${method.toUpperCase()} ${url}: ${response.status()} ${await response.text()}`)
-  const body = await response.json()
-  return body.data ?? body
-}

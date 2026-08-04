@@ -2,25 +2,27 @@ import 'server-only'
 
 import { createHash, randomUUID } from 'node:crypto'
 import { Document } from '@/core/Document'
+import { CommercialAccountingError, preflightOutgoingStructuredCorrectionAccounting, preflightOutgoingStructuredInvoiceAccounting, registerOutgoingStructuredCorrection } from '@/server/commercialAccountingRepository'
 import {
   EInvoiceValidationError,
-  InvoiceCorrectionChain,
   extractUncompressedStructuredInvoiceFromPdf,
-  generateUblInvoice,
+  generateXRechnungUblInvoice,
   receiveStructuredInvoice,
   renderInvoiceHtml,
   type InvoiceDocumentKind,
   type StructuredInvoiceData,
+  type XRechnungElectronicAddress,
   type ValidatedEInvoice,
 } from '@/core/eInvoice'
 import { prisma } from '@/server/persistence/client'
 import { getDocumentStorage } from '@/server/storage'
+import { structuredIncomingInvoiceReviewExtraction } from '@/core/structuredIncomingInvoice'
 import { importedInvoiceNumbersHash } from './operations'
 
 const MAX_STRUCTURED_UPLOAD = 20 * 1024 * 1024
 export class StructuredInvoiceConflictError extends Error {}
 
-export type StructuredInvoiceInput = Omit<StructuredInvoiceData, 'syntax' | 'invoiceNumber'>
+export type StructuredInvoiceInput = Omit<StructuredInvoiceData, 'syntax' | 'invoiceNumber' | 'seller'> & { buyerReference: string; buyerElectronicAddress: XRechnungElectronicAddress }
 export function requireInvoiceIssuanceBody(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new EInvoiceValidationError(['Invoice issuance requires a JSON object.'])
   return value as Record<string, unknown>
@@ -123,6 +125,13 @@ export async function storeStructuredInvoice(ownerId: string, invoice: Validated
         visualOriginal: invoice.visualOriginal ? Buffer.from(invoice.visualOriginal.bytes) : undefined, data: JSON.stringify(invoice.data),
         provenance: JSON.stringify(invoice.provenance), renderedHtml: renderInvoiceHtml(invoice), correctsId: effectiveCorrectsId,
       } })
+      if (direction === 'INCOMING' && invoice.data.kind === 'invoice') {
+        const extraction = structuredIncomingInvoiceReviewExtraction(invoice.data)
+        await transaction.documentExtraction.create({ data: {
+          ownerId, documentId, status: 'NEEDS_REVIEW', provider: 'structured-invoice', providerVersion: 'EN16931-parser-1',
+          inputHash: invoice.structuredOriginal.sha256, extractedData: JSON.stringify(extraction), rawTextHash: invoice.structuredOriginal.sha256,
+        } })
+      }
       if (reservationId) {
         const issued = await transaction.invoiceNumberReservation.updateMany({ where: { id: reservationId, ownerId, invoiceNumber: invoice.data.invoiceNumber, status: 'RESERVED' }, data: { status: 'ISSUED', structuredInvoiceId: id } })
         if (issued.count !== 1) throw new EInvoiceValidationError(['The outgoing invoice number reservation is missing or no longer available.'])
@@ -222,14 +231,15 @@ async function prepareIssuedInvoice(ownerId: string, input: StructuredInvoiceInp
   const year = Number(input.issueDate.slice(0, 4))
   const account = await prisma.accountRecord.findFirst({ where: { ownerId }, select: { payload: true } })
   if (!account) throw new EInvoiceValidationError(['Configure the tenant company and invoice-issuer master data before issuing invoices.'])
-  const master = JSON.parse(account.payload) as { invoiceIssuer?: { name?: string; streetAndHouseNumber?: string; zipCode?: string; city?: string; country?: string }; companyProfile?: { companyName?: string; taxNumber?: string; vatId?: string } }
+  const master = JSON.parse(account.payload) as { invoiceIssuer?: { name?: string; streetAndHouseNumber?: string; zipCode?: string; city?: string; country?: string; contactName?: string; contactTelephone?: string; contactEmail?: string }; companyProfile?: { companyName?: string; taxNumber?: string; vatId?: string } }
   const issuer = master.invoiceIssuer; const company = master.companyProfile
-  if (!issuer?.name?.trim() || !issuer.streetAndHouseNumber?.trim() || !issuer.zipCode?.trim() || !issuer.city?.trim() || !issuer.country?.trim() || !company?.taxNumber?.trim()) throw new EInvoiceValidationError(['Tenant invoice-issuer master data is incomplete.'])
+  if (!issuer?.name?.trim() || !issuer.streetAndHouseNumber?.trim() || !issuer.zipCode?.trim() || !issuer.city?.trim() || !issuer.country?.trim() || !issuer.contactName?.trim() || !issuer.contactTelephone?.trim() || !issuer.contactEmail?.trim() || !company?.taxNumber?.trim() || !company.vatId?.trim()) throw new EInvoiceValidationError(['XRechnung invoice-issuer master data requires address, VAT ID, contact name, telephone and email.'])
   const canonicalInput = { ...input, seller: { name: company.companyName?.trim() || issuer.name.trim(), street: issuer.streetAndHouseNumber.trim(), postalCode: issuer.zipCode.trim(), city: issuer.city.trim(), countryCode: issuer.country.trim().toUpperCase(), taxId: company.taxNumber.trim(), ...(company.vatId?.trim() ? { vatId: company.vatId.trim().toUpperCase() } : {}) } }
-  generateUblInvoice({ ...canonicalInput, invoiceNumber: 'VALIDATION-PENDING' })
+  const sellerContact = { name: issuer.contactName.trim(), telephone: issuer.contactTelephone.trim(), email: issuer.contactEmail.trim() }
+  generateXRechnungUblInvoice({ ...canonicalInput, sellerContact, invoiceNumber: 'VALIDATION-PENDING' })
   const allocation = await nextInvoiceNumber(ownerId, year, issuanceRequestId)
   try {
-    const xml = generateUblInvoice({ ...canonicalInput, invoiceNumber: allocation.invoiceNumber })
+    const xml = generateXRechnungUblInvoice({ ...canonicalInput, sellerContact, invoiceNumber: allocation.invoiceNumber })
     return { ...allocation, invoice: receiveStructuredInvoice(xml) }
   } catch (error) { await voidInvoiceNumber(ownerId, allocation.reservationId, error); throw error }
 }
@@ -282,6 +292,14 @@ async function idempotentInvoiceIssuance<T>(ownerId: string, requestKey: string,
 
 export async function issueStructuredInvoice(ownerId: string, input: StructuredInvoiceInput, requestKey: string) {
   if (input?.kind !== 'invoice') throw new EInvoiceValidationError(['Credit notes, corrections and cancellations must use the immutable correction workflow.'])
+  // A completed request may still need the route's idempotent commercial
+  // registration after a process crash. Do not let later ledger changes block
+  // returning that already-issued artifact for repair.
+  const prior = await prisma.invoiceIssuanceRequest.findUnique({ where: { ownerId_requestKey: { ownerId, requestKey } }, select: { structuredInvoiceId: true } })
+  if (!prior?.structuredInvoiceId) {
+    try { await preflightOutgoingStructuredInvoiceAccounting(ownerId, input) }
+    catch (error) { if (error instanceof CommercialAccountingError) throw new EInvoiceValidationError([error.message]); throw error }
+  }
   return idempotentInvoiceIssuance(ownerId, requestKey, { operation: 'issue', input }, async issuanceRequestId => {
     const prepared = await prepareIssuedInvoice(ownerId, input, issuanceRequestId)
     try { return await storeStructuredInvoice(ownerId, prepared.invoice, `${prepared.invoiceNumber}.xml`, undefined, 'OUTGOING', prepared.reservationId, issuanceRequestId) }
@@ -290,31 +308,35 @@ export async function issueStructuredInvoice(ownerId: string, input: StructuredI
 }
 
 export async function correctStructuredInvoice(ownerId: string, targetId: string, input: Omit<StructuredInvoiceInput, 'kind' | 'correctedInvoiceNumber'> & { kind: Exclude<InvoiceDocumentKind, 'invoice'> }, requestKey: string) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new EInvoiceValidationError(['Structured correction data must be an object.'])
-  if (!['credit-note', 'correction', 'cancellation'].includes(input.kind)) throw new EInvoiceValidationError(['A correction must use credit-note, correction or cancellation kind.'])
-  return idempotentInvoiceIssuance(ownerId, requestKey, { operation: 'correct', targetId, input }, async issuanceRequestId => {
-  const target = await prisma.structuredInvoice.findFirst({ where: { id: targetId, ownerId, direction: 'OUTGOING' } })
-  if (!target) throw new EInvoiceValidationError(['The corrected invoice does not exist for this tenant.'])
-  const rows = await prisma.structuredInvoice.findMany({ where: { ownerId }, orderBy: { createdAt: 'asc' } })
-  const byId = new Map(rows.map(row => [row.id, row]))
-  const lineage = [] as typeof rows
-  let cursor: typeof target | undefined = target
-  const seen = new Set<string>()
-  while (cursor) {
-    if (seen.has(cursor.id)) throw new EInvoiceValidationError(['The stored correction chain is cyclic.'])
-    seen.add(cursor.id); lineage.unshift(cursor); cursor = cursor.correctsId ? byId.get(cursor.correctsId) : undefined
-  }
-  const chain = new InvoiceCorrectionChain(lineage.map(row => ({ id: row.id, kind: row.kind as InvoiceDocumentKind, sha256: row.structuredHash, ...(row.correctsId ? { corrects: row.correctsId } : {}) })))
-  const prepared = await prepareIssuedInvoice(ownerId, { ...input, kind: input.kind, correctedInvoiceNumber: target.invoiceNumber }, issuanceRequestId)
-  try {
-    chain.append({ id: `prospective:${prepared.invoiceNumber}`, kind: input.kind, sha256: prepared.invoice.structuredOriginal.sha256, corrects: target.id })
-    return await storeStructuredInvoice(ownerId, prepared.invoice, `${prepared.invoiceNumber}.xml`, target.id, 'OUTGOING', prepared.reservationId, issuanceRequestId)
-  } catch (error) { await voidInvoiceNumber(ownerId, prepared.reservationId, error); throw error }
+  if (!['credit-note', 'cancellation'].includes(input?.kind)) throw new EInvoiceValidationError(['Only domestic EUR credit notes and full cancellations are supported; replacement correction semantics are rejected.'])
+  const target = await prisma.structuredInvoice.findFirst({ where: { ownerId, id: targetId, direction: 'OUTGOING', kind: 'invoice' }, select: { invoiceNumber: true } })
+  if (!target) throw new EInvoiceValidationError(['The corrected outgoing invoice does not belong to this tenant.'])
+  const prior = await prisma.invoiceIssuanceRequest.findUnique({ where: { ownerId_requestKey: { ownerId, requestKey } }, select: { structuredInvoiceId: true } })
+  if (!prior?.structuredInvoiceId) { try { await preflightOutgoingStructuredCorrectionAccounting(ownerId, targetId, input) } catch (error) { if (error instanceof CommercialAccountingError) throw new EInvoiceValidationError([error.message]); throw error } }
+  const issued = await idempotentInvoiceIssuance(ownerId, requestKey, { operation: 'correct', targetId, input }, async issuanceRequestId => {
+    const prepared = await prepareIssuedInvoice(ownerId, { ...input, correctedInvoiceNumber: target.invoiceNumber }, issuanceRequestId)
+    try { return await storeStructuredInvoice(ownerId, prepared.invoice, `${prepared.invoiceNumber}.xml`, targetId, 'OUTGOING', prepared.reservationId, issuanceRequestId) }
+    catch (error) { await voidInvoiceNumber(ownerId, prepared.reservationId, error); throw error }
   })
+  try { await registerOutgoingStructuredCorrection(ownerId, ownerId, issued.id, requestKey) } catch (error) { if (error instanceof CommercialAccountingError) throw new EInvoiceValidationError([error.message]); throw error }
+  return issued
 }
 
 export async function listStructuredInvoices(ownerId: string) {
   return (await prisma.structuredInvoice.findMany({ where: { ownerId }, orderBy: { createdAt: 'desc' }, select: structuredInvoiceMetadataSelect })).map(publicStructuredInvoice)
+}
+
+export async function getOutgoingStructuredCorrectionTemplate(ownerId: string, id: string) {
+  const row = await prisma.structuredInvoice.findFirst({ where: { ownerId, id, direction: 'OUTGOING', kind: 'invoice' }, select: { data: true, structuredOriginal: true } })
+  if (!row) throw new EInvoiceValidationError(['The corrected outgoing invoice does not belong to this tenant.'])
+  const data = JSON.parse(row.data) as StructuredInvoiceData; const xml = Buffer.from(row.structuredOriginal).toString('utf8'); const value = (pattern: RegExp) => decodeXml(pattern.exec(xml)?.[1] ?? '')
+  return { data, buyerReference: value(/<cbc:BuyerReference>([^<]+)<\/cbc:BuyerReference>/), buyerElectronicAddress: { schemeId: (/<cac:AccountingCustomerParty>[\s\S]*?<cbc:EndpointID schemeID="([^"]+)"/.exec(xml)?.[1] ?? 'EM') as XRechnungElectronicAddress['schemeId'], value: value(/<cac:AccountingCustomerParty>[\s\S]*?<cbc:EndpointID[^>]*>([^<]+)<\/cbc:EndpointID>/) }, paymentTerms: value(/<cac:PaymentTerms>[\s\S]*?<cbc:Note>([^<]+)<\/cbc:Note>/), paymentIban: value(/<cac:PayeeFinancialAccount>[\s\S]*?<cbc:ID>([^<]+)<\/cbc:ID>/) }
+}
+
+function decodeXml(value: string) { return value.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&') }
+
+export async function listInvoiceNumberSequences(ownerId: string) {
+  return prisma.invoiceNumberSequence.findMany({ where: { ownerId }, select: { year: true, nextValue: true }, orderBy: { year: 'desc' } })
 }
 
 export async function getStructuredInvoiceRendering(ownerId: string, id: string) {

@@ -137,11 +137,12 @@ model ProcedureDocumentRecord {
 }
 
 model FixedAssetRecord {
-  id        String   @id
-  ownerId   String
-  payload   String
-  createdBy String
-  createdAt DateTime @default(now())
+  id                       String   @id
+  ownerId                  String
+  payload                  String
+  acquisitionJournalLineId String?  @unique
+  createdBy                String
+  createdAt                DateTime @default(now())
 
   @@index([ownerId, createdAt])
 }
@@ -238,9 +239,37 @@ model DocumentRecord {
   availableForBooking Boolean                     @default(true)
   attachments         JournalDocumentAttachment[]
   structuredInvoice   StructuredInvoice?
+  commercialDocuments CommercialDocument[]
+  extraction          DocumentExtraction?
 
+  @@unique([ownerId, id])
   @@index([ownerId])
   @@index([ownerId, availableForBooking])
+}
+
+model DocumentExtraction {
+  id               String         @id @default(cuid())
+  ownerId          String
+  documentId       String         @unique
+  document         DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  status           String
+  provider         String
+  providerVersion  String
+  inputHash        String
+  attempt          Int            @default(1)
+  extractedData    String?
+  rawTextHash      String?
+  failureCode      String?
+  failureMessage   String?
+  retryable        Boolean        @default(false)
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@unique([ownerId, documentId])
+  @@index([ownerId, status, updatedAt])
+  @@index([ownerId, inputHash])
 }
 
 model DocumentStorageClaim {
@@ -308,28 +337,131 @@ model LedgerAccount {
   eBilanzPosition String?
   active          Boolean       @default(true)
   journalLines    JournalLine[]
+  bankAccounts    BankAccount[]
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
   @@unique([ownerId, number])
+  @@unique([ownerId, id])
+}
+
+model BankAccount {
+  id              String            @id @default(cuid())
+  ownerId         String
+  name            String
+  iban            String
+  currency        String            @default("EUR")
+  ledgerAccountId String
+  ledgerAccount   LedgerAccount     @relation(fields: [ownerId, ledgerAccountId], references: [ownerId, id], onDelete: Restrict)
+  active          Boolean           @default(true)
+  statements      BankStatement[]
+  transactions    BankTransaction[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, iban])
+  @@index([ownerId, active])
+}
+
+model BankStatement {
+  id                  String            @id @default(cuid())
+  ownerId             String
+  bankAccountId       String
+  bankAccount         BankAccount       @relation(fields: [ownerId, bankAccountId], references: [ownerId, id], onDelete: Restrict)
+  externalStatementId String
+  format              String            @default("CAMT053")
+  contentHash         String
+  originalXml         Bytes
+  periodStart         DateTime
+  periodEnd           DateTime
+  openingBalanceCents Int
+  closingBalanceCents Int
+  currency            String            @default("EUR")
+  importedBy          String
+  transactions        BankTransaction[]
+  importedAt          DateTime          @default(now())
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, bankAccountId, externalStatementId])
+  @@unique([ownerId, bankAccountId, contentHash])
+  @@index([ownerId, periodEnd])
+}
+
+model BankTransaction {
+  id               String        @id @default(cuid())
+  ownerId          String
+  bankAccountId    String
+  bankAccount      BankAccount   @relation(fields: [ownerId, bankAccountId], references: [ownerId, id], onDelete: Restrict)
+  statementId      String
+  statement        BankStatement @relation(fields: [ownerId, statementId], references: [ownerId, id], onDelete: Restrict)
+  externalKey      String
+  factHash         String
+  amountCents      Int
+  currency         String        @default("EUR")
+  bookingDate      DateTime
+  valueDate        DateTime?
+  bankReference    String?
+  counterpartyName String?
+  counterpartyIban String?
+  remittance       String?
+  rawData          String
+  matches          BankTransactionMatch[]
+  createdAt        DateTime      @default(now())
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, bankAccountId, externalKey])
+  @@index([ownerId, bankAccountId, bookingDate])
+}
+
+model BankTransactionMatch {
+  id                   String               @id @default(cuid())
+  ownerId              String
+  bankTransactionId    String
+  bankTransaction      BankTransaction      @relation(fields: [ownerId, bankTransactionId], references: [ownerId, id], onDelete: Restrict)
+  openItemId           String
+  openItem             OpenItem             @relation(fields: [ownerId, openItemId], references: [ownerId, id], onDelete: Restrict)
+  settlementId         String
+  settlement           PaymentSettlement    @relation(fields: [ownerId, settlementId], references: [ownerId, id], onDelete: Restrict)
+  allocationId         String
+  allocation           SettlementAllocation @relation(fields: [ownerId, allocationId], references: [ownerId, id], onDelete: Restrict)
+  journalEntryId       String
+  journalEntry         JournalEntry         @relation(fields: [ownerId, journalEntryId], references: [ownerId, id], onDelete: Restrict)
+  kind                 String
+  amountCents          Int
+  requestKey           String
+  requestHash          String
+  reversesMatchId      String?
+  reverses             BankTransactionMatch? @relation("BankMatchReversal", fields: [ownerId, reversesMatchId], references: [ownerId, id], onDelete: Restrict)
+  reversedBy           BankTransactionMatch[] @relation("BankMatchReversal")
+  effectiveDate        DateTime
+  createdBy            String
+  createdAt            DateTime             @default(now())
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, requestKey])
+  @@unique([ownerId, journalEntryId])
+  @@unique([ownerId, allocationId])
+  @@unique([ownerId, reversesMatchId])
+  @@index([ownerId, bankTransactionId, createdAt])
 }
 
 model AccountMappingVersion {
-  id              String    @id @default(cuid())
-  ownerId         String
-  chartId         String
-  accountNumber   Int
-  effectiveFrom   DateTime
-  effectiveTo     DateTime?
-  accountName     String
-  accountType     String
-  normalBalance   String
-  presentationSign Int     @default(1)
-  hgbPosition     String
-  eBilanzPosition String
-  vatCode         String?
-  active          Boolean   @default(true)
-  createdAt       DateTime  @default(now())
+  id               String    @id @default(cuid())
+  ownerId          String
+  chartId          String
+  accountNumber    Int
+  effectiveFrom    DateTime
+  effectiveTo      DateTime?
+  accountName      String
+  accountType      String
+  normalBalance    String
+  presentationSign Int       @default(1)
+  hgbPosition      String
+  eBilanzPosition  String
+  vatCode          String?
+  active           Boolean   @default(true)
+  createdAt        DateTime  @default(now())
 
   @@unique([ownerId, chartId, accountNumber, effectiveFrom])
   @@index([ownerId, effectiveFrom, effectiveTo])
@@ -461,32 +593,33 @@ model LexwareAnnualVatField {
 }
 
 model FiscalYear {
-  id                  String               @id @default(cuid())
+  id                  String                  @id @default(cuid())
   ownerId             String
   year                Int
   label               String?
   startsAt            DateTime
   endsAt              DateTime
-  status              String               @default("OPEN")
+  status              String                  @default("OPEN")
   lockedAt            DateTime?
   closingSnapshot     String?
   journalEntries      JournalEntry[]
   eBalanceSubmissions EBalanceSubmission[]
   hgbCloseRuns        HgbCloseRun[]
   closeGenerations    FiscalCloseGeneration[]
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
 
   @@unique([ownerId, year])
+  @@unique([ownerId, id])
   @@unique([ownerId, startsAt, endsAt])
   @@index([ownerId, startsAt, endsAt])
 }
 
 model HgbCloseRun {
-  id                String     @id @default(cuid())
+  id                String                  @id @default(cuid())
   ownerId           String
   fiscalPeriodId    String
-  fiscalPeriod      FiscalYear @relation(fields: [fiscalPeriodId], references: [id], onDelete: Restrict)
+  fiscalPeriod      FiscalYear              @relation(fields: [fiscalPeriodId], references: [id], onDelete: Restrict)
   version           Int
   status            String
   ruleSetVersion    String
@@ -495,7 +628,7 @@ model HgbCloseRun {
   checksum          String
   payload           String
   createdBy         String
-  createdAt         DateTime   @default(now())
+  createdAt         DateTime                @default(now())
   closeGenerations  FiscalCloseGeneration[]
 
   @@unique([ownerId, fiscalPeriodId, version])
@@ -504,17 +637,17 @@ model HgbCloseRun {
 }
 
 model FiscalCloseGeneration {
-  id                  String      @id @default(cuid())
+  id                  String                        @id @default(cuid())
   ownerId             String
   fiscalYearId        String
-  fiscalYear          FiscalYear  @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+  fiscalYear          FiscalYear                    @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
   generation          Int
   hgbCloseRunId       String
-  hgbCloseRun         HgbCloseRun @relation(fields: [hgbCloseRunId], references: [id], onDelete: Restrict)
+  hgbCloseRun         HgbCloseRun                   @relation(fields: [hgbCloseRunId], references: [id], onDelete: Restrict)
   hgbCloseRunChecksum String
   snapshotHash        String
   lockedAt            DateTime
-  createdAt           DateTime    @default(now())
+  createdAt           DateTime                      @default(now())
   eBalanceSubmissions EBalanceSubmission[]
   eBalanceReports     EBalanceLifecycleReport[]
   annualTaxCases      TaxAnnualCaseRecord[]
@@ -575,11 +708,11 @@ model HgbAdjustmentRecord {
 }
 
 model EBalanceSubmission {
-  id                String     @id @default(cuid())
+  id                String                 @id @default(cuid())
   ownerId           String
   year              Int
   fiscalYearId      String
-  fiscalYear        FiscalYear @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
+  fiscalYear        FiscalYear             @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
   closeGenerationId String?
   closeGeneration   FiscalCloseGeneration? @relation(fields: [closeGenerationId], references: [id], onDelete: Restrict)
   kind              String
@@ -592,7 +725,7 @@ model EBalanceSubmission {
   ericMessage       String?
   resultXml         String?
   serverResponseXml String?
-  createdAt         DateTime   @default(now())
+  createdAt         DateTime               @default(now())
 
   @@unique([ownerId, idempotencyKey])
   @@index([ownerId, year, createdAt])
@@ -617,7 +750,7 @@ model EBalanceTaxonomyRelease {
 }
 
 model EBalanceLifecycleReport {
-  id                    String    @id
+  id                    String                 @id
   ownerId               String
   fiscalYearId          String
   closeGenerationId     String?
@@ -637,7 +770,7 @@ model EBalanceLifecycleReport {
   approvedBy            String?
   approvedAt            DateTime?
   createdBy             String
-  createdAt             DateTime  @default(now())
+  createdAt             DateTime               @default(now())
 
   @@unique([ownerId, fiscalYearId, version])
   @@unique([ownerId, closeGenerationId, reportChecksum])
@@ -663,29 +796,36 @@ model EBalanceReconciliationRecord {
 }
 
 model JournalEntry {
-  id                String                      @id @default(cuid())
-  sequenceNumber    Int
-  bookingDate       DateTime
-  sourcePostingDate DateTime?
-  sourceJournalDate DateTime?
-  sourcePeriod      Int?
-  documentNumber    String
-  description       String
-  source            String                      @default("MANUAL")
-  state             String                      @default("POSTED")
-  entryDate         DateTime?                   @default(now())
-  lateReason        String?
-  reversalOfId      String?                     @unique
-  replacementOfId   String?                     @unique
-  externalKey       String?                     @unique
-  fiscalYearId      String
-  fiscalYear        FiscalYear                  @relation(fields: [fiscalYearId], references: [id], onDelete: Restrict)
-  lines             JournalLine[]
-  documents         JournalDocumentAttachment[]
-  createdAt         DateTime                    @default(now())
+  id                    String                      @id @default(cuid())
+  ownerId               String
+  sequenceNumber        Int
+  bookingDate           DateTime
+  sourcePostingDate     DateTime?
+  sourceJournalDate     DateTime?
+  sourcePeriod          Int?
+  documentNumber        String
+  description           String
+  source                String                      @default("MANUAL")
+  state                 String                      @default("POSTED")
+  entryDate             DateTime?                   @default(now())
+  lateReason            String?
+  reversalOfId          String?                     @unique
+  replacementOfId       String?                     @unique
+  externalKey           String?                     @unique
+  fiscalYearId          String
+  fiscalYear            FiscalYear                  @relation(fields: [ownerId, fiscalYearId], references: [ownerId, id], onDelete: Restrict)
+  lines                 JournalLine[]
+  documents             JournalDocumentAttachment[]
+  commercialDocuments   CommercialDocument[]
+  paymentSettlements    PaymentSettlement[]
+  settlementAllocations SettlementAllocation[]
+  correctionNettings     CorrectionNetting[]
+  bankTransactionMatches BankTransactionMatch[]
+  createdAt             DateTime                    @default(now())
 
   @@unique([fiscalYearId, sequenceNumber])
   @@unique([fiscalYearId, documentNumber])
+  @@unique([ownerId, id])
   @@index([bookingDate])
 }
 
@@ -770,10 +910,10 @@ model JournalLine {
 }
 
 model StructuredInvoice {
-  id                 String         @id @default(cuid())
+  id                 String              @id @default(cuid())
   ownerId            String
-  documentId         String         @unique
-  document           DocumentRecord @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  documentId         String              @unique
+  document           DocumentRecord      @relation(fields: [documentId], references: [id], onDelete: Restrict)
   syntax             String
   kind               String
   direction          String
@@ -789,12 +929,273 @@ model StructuredInvoice {
   provenance         String
   renderedHtml       String
   correctsId         String?
-  createdAt          DateTime       @default(now())
+  commercialDocument CommercialDocument?
+  createdAt          DateTime            @default(now())
 
   @@unique([ownerId, direction, issuerKey, invoiceNumber])
   @@unique([ownerId, structuredHash])
+  @@unique([ownerId, id])
   @@index([ownerId, issueDate])
   @@index([ownerId, correctsId])
+}
+
+model BusinessPartner {
+  id                  String               @id @default(cuid())
+  ownerId             String
+  partnerNumber       String
+  role                String
+  name                String
+  contactName         String?
+  email               String?
+  street              String?
+  houseNumber         String?
+  postalCode          String?
+  city                String?
+  countryCode         String               @default("DE")
+  vatId               String?
+  taxId               String?
+  paymentTermDays     Int                  @default(14)
+  active              Boolean              @default(true)
+  version             Int                  @default(1)
+  commercialDocuments CommercialDocument[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  paymentSettlements  PaymentSettlement[]
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, partnerNumber])
+  @@index([ownerId, name])
+  @@index([ownerId, vatId])
+}
+
+model CommercialDocument {
+  id                    String               @id @default(cuid())
+  ownerId               String
+  businessPartnerId     String
+  businessPartner       BusinessPartner      @relation(fields: [ownerId, businessPartnerId], references: [ownerId, id], onDelete: Restrict)
+  structuredInvoiceId   String?
+  structuredInvoice     StructuredInvoice?   @relation(fields: [ownerId, structuredInvoiceId], references: [ownerId, id], onDelete: Restrict)
+  evidenceDocumentId    String?
+  evidenceDocument      DocumentRecord?      @relation(fields: [ownerId, evidenceDocumentId], references: [ownerId, id], onDelete: Restrict)
+  postingJournalEntryId String?
+  postingJournalEntry   JournalEntry?        @relation(fields: [ownerId, postingJournalEntryId], references: [ownerId, id], onDelete: Restrict)
+  correctsId            String?
+  corrects              CommercialDocument?  @relation("CommercialDocumentCorrection", fields: [ownerId, correctsId], references: [ownerId, id], onDelete: Restrict)
+  correctedBy           CommercialDocument[] @relation("CommercialDocumentCorrection")
+  direction             String
+  kind                  String
+  status                String               @default("DRAFT")
+  documentNumber        String?
+  documentIdentityKey   String?
+  issueDate             DateTime?
+  serviceDate           DateTime
+  dueDate               DateTime
+  description           String
+  currency              String               @default("EUR")
+  netAmountCents        Int
+  taxAmountCents        Int
+  grossAmountCents      Int
+  payableAmountCents    Int
+  counterpartySnapshot  String?
+  version               Int                  @default(1)
+  openItem              OpenItem?
+  correctionNetting     CorrectionNetting?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, direction, documentIdentityKey])
+  @@unique([ownerId, structuredInvoiceId])
+  @@index([ownerId, businessPartnerId, serviceDate])
+  @@index([ownerId, status, dueDate])
+  @@index([ownerId, postingJournalEntryId])
+  @@index([ownerId, correctsId])
+}
+
+model OpenItem {
+  id                   String                 @id @default(cuid())
+  ownerId              String
+  commercialDocumentId String
+  commercialDocument   CommercialDocument     @relation(fields: [ownerId, commercialDocumentId], references: [ownerId, id], onDelete: Restrict)
+  side                 String
+  currency             String
+  originalAmountCents  Int
+  allocatedAmountCents Int                    @default(0)
+  status               String                 @default("OPEN")
+  version              Int                    @default(1)
+  allocations          SettlementAllocation[]
+  correctionNettingsAsDebit  CorrectionNetting[] @relation("CorrectionNettingDebit")
+  correctionNettingsAsCredit CorrectionNetting[] @relation("CorrectionNettingCredit")
+  bankTransactionMatches BankTransactionMatch[]
+  receivablesReminders    ReceivablesReminder[]
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, commercialDocumentId])
+  @@index([ownerId, status, updatedAt])
+}
+
+model CorrectionNetting {
+  id                         String             @id @default(cuid())
+  ownerId                    String
+  correctionDocumentId       String
+  correctionDocument         CommercialDocument @relation(fields: [ownerId, correctionDocumentId], references: [ownerId, id], onDelete: Restrict)
+  originalOpenItemId         String
+  originalOpenItem           OpenItem           @relation("CorrectionNettingDebit", fields: [ownerId, originalOpenItemId], references: [ownerId, id], onDelete: Restrict)
+  creditOpenItemId           String
+  creditOpenItem             OpenItem           @relation("CorrectionNettingCredit", fields: [ownerId, creditOpenItemId], references: [ownerId, id], onDelete: Restrict)
+  journalEntryId             String
+  journalEntry               JournalEntry       @relation(fields: [ownerId, journalEntryId], references: [ownerId, id], onDelete: Restrict)
+  amountCents                Int
+  requestKey                 String
+  requestHash                String
+  effectiveDate              DateTime
+  createdBy                  String
+  createdAt                  DateTime           @default(now())
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, correctionDocumentId])
+  @@unique([ownerId, creditOpenItemId])
+  @@unique([ownerId, requestKey])
+  @@index([ownerId, originalOpenItemId, createdAt])
+}
+
+model ReceivablesReminder {
+  id                   String                          @id @default(cuid())
+  ownerId              String
+  openItemId           String
+  openItem             OpenItem                        @relation(fields: [ownerId, openItemId], references: [ownerId, id], onDelete: Restrict)
+  level                 Int
+  requestKey            String
+  requestHash           String
+  issuedOn              DateTime
+  paymentDueDate        DateTime
+  originalDueDate       DateTime
+  remainingAmountCents  Int
+  currency              String
+  invoiceNumber         String
+  partnerSnapshot       String
+  issuerSnapshot        String
+  printableHtml         String
+  createdBy             String
+  createdAt             DateTime                        @default(now())
+  cancellation          ReceivablesReminderCancellation?
+  deliveryAttempts      ReceivablesReminderDeliveryAttempt[]
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, requestKey])
+  @@unique([ownerId, openItemId, level])
+  @@index([ownerId, issuedOn])
+}
+
+model ReceivablesReminderDeliveryAttempt {
+  id                 String                             @id
+  ownerId            String
+  reminderId         String
+  reminder           ReceivablesReminder                @relation(fields: [ownerId, reminderId], references: [ownerId, id], onDelete: Restrict)
+  requestKey         String
+  requestHash        String
+  recipient          String
+  subject            String
+  contentHash        String
+  attachmentFileName String
+  attachmentHash     String
+  requestedBy        String
+  requestedAt        DateTime                           @default(now())
+  result             ReceivablesReminderDeliveryResult?
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, requestKey])
+  @@index([ownerId, reminderId, requestedAt])
+}
+
+model ReceivablesReminderDeliveryResult {
+  id                String                             @id
+  ownerId           String
+  attemptId         String
+  attempt           ReceivablesReminderDeliveryAttempt @relation(fields: [ownerId, attemptId], references: [ownerId, id], onDelete: Restrict)
+  status            String
+  providerMessageId String?
+  failureCode       String?
+  failureMessage    String?
+  respondedAt       DateTime                           @default(now())
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, attemptId])
+  @@index([ownerId, status, respondedAt])
+}
+
+model ReceivablesReminderCancellation {
+  id          String              @id @default(cuid())
+  ownerId     String
+  reminderId  String
+  reminder    ReceivablesReminder @relation(fields: [ownerId, reminderId], references: [ownerId, id], onDelete: Restrict)
+  requestKey  String
+  requestHash String
+  cancelledOn DateTime
+  reason      String
+  createdBy   String
+  createdAt   DateTime            @default(now())
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, reminderId])
+  @@unique([ownerId, requestKey])
+  @@index([ownerId, cancelledOn])
+}
+
+model PaymentSettlement {
+  id                   String                 @id @default(cuid())
+  ownerId              String
+  businessPartnerId    String
+  businessPartner      BusinessPartner        @relation(fields: [ownerId, businessPartnerId], references: [ownerId, id], onDelete: Restrict)
+  journalEntryId       String
+  journalEntry         JournalEntry           @relation(fields: [ownerId, journalEntryId], references: [ownerId, id], onDelete: Restrict)
+  direction            String
+  currency             String
+  amountCents          Int
+  allocatedAmountCents Int                    @default(0)
+  status               String                 @default("UNALLOCATED")
+  version              Int                    @default(1)
+  allocations          SettlementAllocation[]
+  bankTransactionMatches BankTransactionMatch[]
+  occurredOn           DateTime
+  createdBy            String
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, journalEntryId])
+  @@index([ownerId, businessPartnerId, status, occurredOn])
+}
+
+model SettlementAllocation {
+  id                   String                 @id @default(cuid())
+  ownerId              String
+  openItemId           String
+  openItem             OpenItem               @relation(fields: [ownerId, openItemId], references: [ownerId, id], onDelete: Restrict)
+  settlementId         String
+  settlement           PaymentSettlement      @relation(fields: [ownerId, settlementId], references: [ownerId, id], onDelete: Restrict)
+  journalEntryId       String
+  journalEntry         JournalEntry           @relation(fields: [ownerId, journalEntryId], references: [ownerId, id], onDelete: Restrict)
+  kind                 String
+  amountCents          Int
+  requestKey           String
+  requestHash          String
+  reversesAllocationId String?
+  reverses             SettlementAllocation?  @relation("SettlementReversal", fields: [ownerId, reversesAllocationId], references: [ownerId, id], onDelete: Restrict)
+  reversedBy           SettlementAllocation[] @relation("SettlementReversal")
+  bankTransactionMatch BankTransactionMatch?
+  effectiveDate        DateTime
+  createdBy            String
+  createdAt            DateTime               @default(now())
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, requestKey])
+  @@unique([ownerId, reversesAllocationId])
+  @@index([ownerId, openItemId, createdAt])
+  @@index([ownerId, settlementId, createdAt])
+  @@index([ownerId, journalEntryId])
 }
 
 model InvoiceNumberSequence {
@@ -945,21 +1346,21 @@ model TaxAdjustmentRecord {
 }
 
 model TaxDatasetPreparationRecord {
-  id            String   @id @default(cuid())
-  ownerId       String
-  kind          String
-  period        String
-  datasetHash   String
-  sourcePayload String?
-  datasetPayload String?
-  sourceChecksum String?
-  ruleVersion    String?
-  bindingKind    String?
+  id                String                 @id @default(cuid())
+  ownerId           String
+  kind              String
+  period            String
+  datasetHash       String
+  sourcePayload     String?
+  datasetPayload    String?
+  sourceChecksum    String?
+  ruleVersion       String?
+  bindingKind       String?
   closeGenerationId String?
-  closeGeneration FiscalCloseGeneration? @relation(fields: [closeGenerationId], references: [id], onDelete: Restrict)
-  annualCaseId   String?
-  annualCase     TaxAnnualCaseRecord? @relation(fields: [annualCaseId], references: [id], onDelete: Restrict)
-  createdAt     DateTime @default(now())
+  closeGeneration   FiscalCloseGeneration? @relation(fields: [closeGenerationId], references: [id], onDelete: Restrict)
+  annualCaseId      String?
+  annualCase        TaxAnnualCaseRecord?   @relation(fields: [annualCaseId], references: [id], onDelete: Restrict)
+  createdAt         DateTime               @default(now())
 
   @@unique([ownerId, datasetHash])
   @@index([ownerId, kind, period, createdAt])
@@ -968,31 +1369,31 @@ model TaxDatasetPreparationRecord {
 }
 
 model TaxAnnualCaseRecord {
-  id                         String   @id @default(cuid())
-  ownerId                    String
-  year                       Int
-  closeGenerationId          String
-  closeGeneration            FiscalCloseGeneration @relation(fields: [closeGenerationId], references: [id], onDelete: Restrict)
-  status                     String   @default("PREPARED")
-  ruleVersion                String
-  legalForm                  String
-  establishments             Int
-  municipalityCode           String
-  hebesatzBasisPoints        Int
-  foreignIncome              Boolean
-  groupOrConsolidation       Boolean
-  lossCarry                  Boolean
-  specialRegime              Boolean
-  withholdingOrCredits       Boolean
-  payroll                    Boolean
-  incomeAdjustmentCents      Int
-  tradeAdjustmentCents       Int
-  previewPayload             String
-  sourceChecksum             String
-  createdBy                  String
-  createdAt                  DateTime @default(now())
-  preparations               TaxDatasetPreparationRecord[]
-  assessments                TaxAssessmentRecord[]
+  id                    String                        @id @default(cuid())
+  ownerId               String
+  year                  Int
+  closeGenerationId     String
+  closeGeneration       FiscalCloseGeneration         @relation(fields: [closeGenerationId], references: [id], onDelete: Restrict)
+  status                String                        @default("PREPARED")
+  ruleVersion           String
+  legalForm             String
+  establishments        Int
+  municipalityCode      String
+  hebesatzBasisPoints   Int
+  foreignIncome         Boolean
+  groupOrConsolidation  Boolean
+  lossCarry             Boolean
+  specialRegime         Boolean
+  withholdingOrCredits  Boolean
+  payroll               Boolean
+  incomeAdjustmentCents Int
+  tradeAdjustmentCents  Int
+  previewPayload        String
+  sourceChecksum        String
+  createdBy             String
+  createdAt             DateTime                      @default(now())
+  preparations          TaxDatasetPreparationRecord[]
+  assessments           TaxAssessmentRecord[]
 
   @@unique([ownerId, sourceChecksum])
   @@index([ownerId, year, createdAt])
@@ -1009,7 +1410,7 @@ model TaxAssessmentRecord {
   documentHash            String
   documentId              String?
   evidenceStorageKey      String?
-  authority               String   @default("FINANZAMT")
+  authority               String               @default("FINANZAMT")
   noticeId                String?
   noticePayloadHash       String?
   declarationSubmissionId String
@@ -1019,12 +1420,12 @@ model TaxAssessmentRecord {
   annualCase              TaxAnnualCaseRecord? @relation(fields: [annualCaseId], references: [id], onDelete: Restrict)
   differenceCents         Int
   needsReview             Boolean
-  createdAt               DateTime @default(now())
+  createdAt               DateTime             @default(now())
 
   @@id([ownerId, id])
+  @@unique([ownerId, noticeId])
   @@index([ownerId, kind, period])
   @@index([ownerId, declarationSubmissionId])
-  @@unique([ownerId, noticeId])
   @@index([annualCaseId])
 }
 
@@ -1038,8 +1439,21 @@ model User {
   updatedAt     DateTime      @updatedAt
   sessions      Session[]
   accounts      AuthAccount[]
+  tenantMemberships TenantMembership[]
 
   @@map("user")
+}
+
+model TenantMembership {
+  ownerId  String
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@id([ownerId, userId])
+  @@index([userId, ownerId])
 }
 
 model Session {

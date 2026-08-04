@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { declarationPreparationRequest, parseAnnualValues, parseDeclarationFields, preparationSourceAfterValidation, requestKeyAfterPreparation, shouldReplaySubmissionFailure, submissionOutcomeMessage, submissionRequestKey, submissionSuccessMessage, workspaceLoadStatus } from './TaxWorkspace'
+import { annualAdjustmentRuleVersion, declarationPreparationRequest, parseAnnualValues, parseDeclarationFields, preparationSourceAfterValidation, requestKeyAfterPreparation, shouldReplaySubmissionFailure, submissionOutcomeMessage, submissionRequestKey, submissionSuccessMessage, workspaceLoadStatus } from './TaxWorkspace'
 
 describe('tax filing workspace', () => {
   it('accepts official integer-cent fields for the usable validation/submission form', () => expect(parseDeclarationFields('{"KZ81":10000,"USTID_OK":true}')).toEqual({ KZ81: 10000, USTID_OK: true }))
@@ -37,6 +37,13 @@ describe('tax filing workspace', () => {
     expect(declarationPreparationRequest('UST_ANNUAL', '2026', 2026, '{}')).toEqual(['/api/tax/vat-annual?year=2026'])
     expect(declarationPreparationRequest('USTVA', '2026-01', 2026, '{}')).toEqual(['/api/tax/vat-reconciliation?period=2026-01'])
     expect(declarationPreparationRequest('KST', '2025', 2025, '[]')).toEqual(['/api/tax/annual/narrow', expect.objectContaining({ method: 'POST', body: '{"year":2025}' })])
+    expect(declarationPreparationRequest('GEWST', '2026', 2026, '[]')).toEqual(['/api/tax/annual/narrow', expect.objectContaining({ method: 'POST', body: '{"year":2026}' })])
+  })
+  it('selects the installed year-specific adjustment authority for both capital-company periods', () => {
+    expect(annualAdjustmentRuleVersion('income-tax', 2026)).toBe('KStG-2026.1')
+    expect(annualAdjustmentRuleVersion('trade-tax', 2025)).toBe('GewStG-2025.1')
+    expect(() => annualAdjustmentRuleVersion('income-tax', 2027)).toThrow(/in 2025 and 2026/)
+    expect(() => annualAdjustmentRuleVersion('other', 2026)).toThrow(/income\/trade tax/)
   })
   it('preserves a successful submission result when refreshing history fails', () => {
     expect(submissionSuccessMessage('Submitted.', true, 'History could not be loaded.')).toBe('Submitted. History could not be loaded.')

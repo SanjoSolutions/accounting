@@ -101,6 +101,6 @@ export function AnnualCloseWorkspace({ year }: { year: number }) {
   </div>
 }
 export function canCloseYear(data: CloseData | null, issues: string[], loading: boolean, busy: boolean, selectedYear = data?.fiscalYear.year, hgbReady = false) {
-  return Boolean(data && data.fiscalYear.year === selectedYear && data.entries?.length && !loading && !busy && hgbReady && issues.length === 0 && data.fiscalYear.status === 'OPEN')
+  return Boolean(data && data.fiscalYear.year === selectedYear && data.entries?.length && !loading && !busy && hgbReady && issues.length === 0 && ['OPEN', 'REOPENED'].includes(data.fiscalYear.status))
 }
 function Statement({ label, value = 0, important = false }: { label: string; value?: number; important?: boolean }) { return <div className={important ? 'important' : ''}><dt>{label}</dt><dd>{money.format(value / 100)}</dd></div> }

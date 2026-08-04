@@ -132,7 +132,8 @@ export function parseDatevFiles(files: DatevFile[]): DatevImport {
       const description = bookingText || `DATEV-Import${sourceDocument ? ` ${sourceDocument}` : ''}`
       const taxCode = normalizeDatevTaxCode(optionalValue(table, row, 'BU-Schlüssel')?.trim() || '', table.name, rowIndex + 3)
       const accountAutomatic = !taxCode ? automaticAccountTax(accountNumber, contraAccountNumber, chart, accountLength) : undefined
-      const taxDefinition = taxCode && taxCode !== '1' ? parseAutomaticTax(taxCode, chart, accountLength, table.name, rowIndex + 3) : accountAutomatic?.automaticTax
+      const suppressesAutomaticTax = taxCode === '40'
+      const taxDefinition = taxCode && taxCode !== '1' && !suppressesAutomaticTax ? parseAutomaticTax(taxCode, chart, accountLength, table.name, rowIndex + 3) : suppressesAutomaticTax ? undefined : accountAutomatic?.automaticTax
       const automaticTax = taxDefinition ? {
         ...taxDefinition,
         splitSide: determineAutomaticTaxSide(taxDefinition.kind, accounts.get(accountNumber)!, accounts.get(contraAccountNumber)!, accountLength, table.name, rowIndex + 3),

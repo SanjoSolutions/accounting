@@ -2,11 +2,25 @@ import 'server-only'
 import { AccountingValidationError } from '@/core/doubleEntry'
 import { parseEBalanceMasterData } from '@/core/eBilanz'
 import { getCurrentUser } from '@/server/authentication'
-import { exportEBalance } from '@/server/ledger'
+import { forbiddenUnless } from '@/server/authorization'
+import { exportEBalance, getEBalanceMasterData } from '@/server/ledger'
+
+export async function GET(request: Request, { params }: { params: Promise<{ year: string }> }) {
+  const user = await getCurrentUser(request.headers)
+  if (!user) return Response.json({ success: false }, { status: 401 })
+  try {
+    const year = Number((await params).year)
+    return Response.json({ success: true, data: await getEBalanceMasterData(user.id, year) })
+  } catch (error) {
+    if (error instanceof AccountingValidationError) return Response.json({ success: false, issues: error.issues }, { status: 400 })
+    return Response.json({ success: false }, { status: 500 })
+  }
+}
 
 export async function POST(request: Request, { params }: { params: Promise<{ year: string }> }) {
   const user = await getCurrentUser(request.headers)
   if (!user) return Response.json({ success: false }, { status: 401 })
+  const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   const year = Number((await params).year)
   try {
     const body: unknown = await request.json()

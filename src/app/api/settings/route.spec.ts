@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   getSettings: vi.fn(async () => ({ id: 'company:local' })),
   updateSettings: vi.fn(),
+  membership: vi.fn(),
 }))
 
 vi.mock('server-only', () => ({}))
@@ -14,6 +15,7 @@ vi.mock('@/server', () => ({
   getSettings: mocks.getSettings,
   updateSettings: mocks.updateSettings,
 }))
+vi.mock('@/server/persistence/client', () => ({ prisma: { tenantMembership: { findUnique: mocks.membership } } }))
 
 import { GET, PUT } from './route'
 import { CompanyProfileValidationError } from '@/server/compliance/companyProfile'
@@ -81,6 +83,19 @@ describe('settings API authentication', () => {
     expect(mocks.updateSettings).toHaveBeenCalledWith(settings, 'local', 'local')
   })
 
+  it('Given a read-only member, when company settings are read and then changed, then reading succeeds and mutation is rejected server-side', async () => {
+    process.env.AUTH_MODE = 'credentials'
+    mocks.getSession.mockResolvedValue({ user: { id: 'reader-1', name: 'Reader', email: 'reader@example.test' } })
+    mocks.membership.mockResolvedValue({ role: 'READ_ONLY' })
+    const headers = { cookie: 'accounting-tenant=tenant-a', 'content-type': 'application/json' }
+    const read = await GET(new Request('http://localhost/api/settings', { headers }))
+    const write = await PUT(new Request('http://localhost/api/settings', { method: 'PUT', headers, body: JSON.stringify({ chartOfAccounts: 'SKR03' }) }))
+    expect(read.status).toBe(200)
+    expect(mocks.getSettings).toHaveBeenCalledWith('tenant-a')
+    expect(write.status).toBe(403)
+    expect(mocks.updateSettings).not.toHaveBeenCalled()
+  })
+
   it('never shares settings between authenticated tenants', async () => {
     process.env.AUTH_MODE = 'credentials'
     mocks.getSession.mockResolvedValueOnce({ user: { id: 'tenant-b', name: 'B', email: 'b@example.com' } })
@@ -105,6 +120,25 @@ describe('settings API authentication', () => {
     }))
 
     expect(response.status).toBe(400)
+    expect(mocks.updateSettings).not.toHaveBeenCalled()
+  })
+
+  it('accepts only explicit chart-bound 19% §13b control accounts', async () => {
+    process.env.AUTH_MODE = 'none'
+    const valid = { incomingReverseChargeAccounts: { chart: 'SKR03', rateBasisPoints: 1900, inputVatAccountNumber: 1577, outputVatAccountNumber: 1787 } }
+    expect((await PUT(new Request('http://localhost/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(valid) }))).status).toBe(200)
+    expect(mocks.updateSettings).toHaveBeenCalledWith(valid, 'local', 'local')
+    mocks.updateSettings.mockClear()
+    const invalid = { incomingReverseChargeAccounts: { chart: 'SKR03', rateBasisPoints: 700, inputVatAccountNumber: 1577, outputVatAccountNumber: 1787 } }
+    expect((await PUT(new Request('http://localhost/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(invalid) }))).status).toBe(400)
+    expect(mocks.updateSettings).not.toHaveBeenCalled()
+  })
+
+  it('returns a precise client error for malformed JSON without attempting a settings write', async () => {
+    process.env.AUTH_MODE = 'none'
+    const response = await PUT(new Request('http://localhost/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{not-json' }))
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ success: false, error: 'Invalid JSON body.' })
     expect(mocks.updateSettings).not.toHaveBeenCalled()
   })
 

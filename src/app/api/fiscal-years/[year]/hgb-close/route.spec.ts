@@ -12,7 +12,7 @@ const context = { params: Promise.resolve({ year: '2026' }) }
 const json = (body: unknown) => new Request('http://localhost/api/fiscal-years/2026/hgb-close', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 
 describe('HGB close run API', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'tenant-a' }); mocks.authorize.mockResolvedValue('tenant-a'); mocks.getRuns.mockResolvedValue({ runs: [] }); mocks.evaluate.mockResolvedValue({ id: 'run-1', status: 'BLOCKED' }) })
+  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'tenant-a', actorId: 'user-a', role: 'ADMIN' }); mocks.authorize.mockResolvedValue('tenant-a'); mocks.getRuns.mockResolvedValue({ runs: [] }); mocks.evaluate.mockResolvedValue({ id: 'run-1', status: 'BLOCKED' }) })
 
   it('requires authentication for reading and evaluating close runs', async () => {
     mocks.getCurrentUser.mockResolvedValue(null)
@@ -25,7 +25,7 @@ describe('HGB close run API', () => {
     const response = await POST(json({ ownerId: 'tenant-b', fiscalPeriodStart: '1999-01-01', reason: 'evaluate' }), context)
     expect(response.status).toBe(201)
     expect(mocks.getRuns).toHaveBeenCalledWith('tenant-a', 2026)
-    expect(mocks.evaluate).toHaveBeenCalledWith('tenant-a', 'tenant-a', 2026, expect.objectContaining({ ownerId: 'tenant-b' }))
+    expect(mocks.evaluate).toHaveBeenCalledWith('tenant-a', 'user-a', 2026, expect.objectContaining({ ownerId: 'tenant-b' }))
   })
 
   it('rejects non-object request bodies before persistence', async () => {

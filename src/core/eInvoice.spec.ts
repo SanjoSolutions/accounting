@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { zlibSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import { EInvoiceValidationError, InvoiceCorrectionChain, extractUncompressedStructuredInvoiceFromPdf, generateUblInvoice, preserveOriginal, receiveStructuredInvoice, renderInvoiceHtml, validateInvoice, type StructuredInvoiceData } from './eInvoice'
+import { EInvoiceValidationError, InvoiceCorrectionChain, extractUncompressedStructuredInvoiceFromPdf, generateUblInvoice, generateXRechnungUblInvoice, isValidLeitwegId, preserveOriginal, receiveStructuredInvoice, renderInvoiceHtml, validateInvoice, type StructuredInvoiceData } from './eInvoice'
 
 const fixture = (name: string) => readFile(path.join(process.cwd(), 'src/core/data_fixtures/eInvoice', name))
 const buildPdf = (objects: Array<{ id: number; body: Buffer }>, rootId = 3) => {
@@ -142,6 +142,38 @@ describe('structured e-invoices', () => {
     expect(roundTrip.data).toMatchObject({ invoiceNumber: input.invoiceNumber, issueDate: input.issueDate, supplyDate: input.supplyDate, netAmountCents: input.netAmountCents, taxAmountCents: input.taxAmountCents, grossAmountCents: input.grossAmountCents })
     expect(new TextDecoder().decode(generated)).toContain('<cbc:CustomizationID>urn:sanjo-solutions:accounting:ubl:1</cbc:CustomizationID>')
     expect(new TextDecoder().decode(generated)).not.toMatch(/peppol|en16931/i)
+  })
+
+  it('generates the mandatory XRechnung 3.0 business terms without relabelling incomplete UBL', async () => {
+    const base = receiveStructuredInvoice(await fixture('valid-ubl.xml')).data
+    const { syntax: _syntax, ...input } = base
+    const xml = new TextDecoder().decode(generateXRechnungUblInvoice({
+      ...input,
+      seller: { ...input.seller, vatId: 'DE123456789' }, buyer: { ...input.buyer, vatId: undefined },
+      buyerReference: '04011000-12345-03', buyerElectronicAddress: { schemeId: '0204', value: '04011000-12345-03' }, paymentTerms: 'Payable within 14 days.', paymentIban: 'DE89370400440532013000',
+      sellerContact: { name: 'Accounts receivable', telephone: '+49 30 123456', email: 'billing@example.de' },
+    }))
+    expect(xml).toContain('urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0')
+    expect(xml).toContain('urn:fdc:peppol.eu:2017:poacc:billing:01:1.0')
+    expect(xml).toContain('<cbc:BuyerReference>04011000-12345-03</cbc:BuyerReference>')
+    expect(xml.match(/<cbc:EndpointID schemeID="9930">/g)).toHaveLength(1)
+    expect(xml).toContain('<cbc:EndpointID schemeID="0204">04011000-12345-03</cbc:EndpointID>')
+    expect(xml).toContain('<cbc:ElectronicMail>billing@example.de</cbc:ElectronicMail>')
+    expect(() => generateXRechnungUblInvoice({ ...input, buyerReference: '', buyerElectronicAddress: { schemeId: '0204', value: '' }, sellerContact: { name: '', telephone: '', email: '' } })).toThrow(/XRechnung requires/)
+  })
+
+  it('Given supported electronic-address schemes, when XRechnung is generated, then each value is validated independently from the buyer VAT registration', async () => {
+    const { syntax: _syntax, ...input } = receiveStructuredInvoice(await fixture('valid-ubl.xml')).data
+    const base = { ...input, seller: { ...input.seller, vatId: 'DE123456789' }, buyer: { ...input.buyer, vatId: undefined }, buyerReference: 'ORDER-2026', paymentTerms: 'Payable within 14 days.', paymentIban: 'DE89370400440532013000', sellerContact: { name: 'Accounts receivable', telephone: '+49 30 123456', email: 'billing@example.de' } }
+    expect(new TextDecoder().decode(generateXRechnungUblInvoice({ ...base, buyerElectronicAddress: { schemeId: 'EM', value: 'office@example.de' } }))).toContain('schemeID="EM">office@example.de')
+    expect(() => generateXRechnungUblInvoice({ ...base, buyerElectronicAddress: { schemeId: 'EM', value: 'not-an-email' } })).toThrow(/email address/)
+    expect(() => generateXRechnungUblInvoice({ ...base, buyerElectronicAddress: { schemeId: '9930', value: 'DE123' } })).toThrow(/German VAT ID/)
+  })
+
+  it('Given an official or malformed Leitweg-ID, when its routing checksum is checked, then only the exact Modulo-97 format is accepted', () => {
+    expect(isValidLeitwegId('04011000-1234512345-06')).toBe(true)
+    expect(isValidLeitwegId('04011000-12345-03')).toBe(true)
+    for (const value of ['04011000-1234512345-07', '04011000-12345', '0401100012345-03', '04011000-ä-03', '1-02']) expect(isValidLeitwegId(value)).toBe(false)
   })
 
   it('models UBL prepayments and signed payable rounding in the payable formula', async () => {

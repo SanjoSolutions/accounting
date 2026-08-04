@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { getCurrentUser } from '@/server/authentication'
+import { forbiddenUnless } from '@/server/authorization'
 import { authorizeComplianceTenant, complianceError } from '@/server/compliance/runtime'
 import { getEBalanceLifecycleOverview, prepareEBalanceLifecycleReport, recordEBalanceReconciliation, registerEBalanceTaxonomy } from '@/server/compliance/eBilanzRepository'
 
@@ -13,13 +14,14 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const user = await getCurrentUser(request.headers); if (!user) return Response.json({ success: false }, { status: 401 })
+  const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   try {
     const value: unknown = await request.json(); if (!value || typeof value !== 'object' || Array.isArray(value)) return Response.json({ success: false, error: 'E-Bilanz lifecycle request must be an object' }, { status: 400 })
     const body = value as Record<string, unknown>; const ownerId = await authorizeComplianceTenant(user.id, body.tenantId); let data: unknown
     switch (body.action) {
-      case 'taxonomy.register': data = await registerEBalanceTaxonomy(user.id, body); break
-      case 'reconciliation.record': data = await recordEBalanceReconciliation(ownerId, user.id, body); break
-      case 'report.prepare': data = await prepareEBalanceLifecycleReport(ownerId, user.id, body); break
+      case 'taxonomy.register': data = await registerEBalanceTaxonomy(user.actorId, body); break
+      case 'reconciliation.record': data = await recordEBalanceReconciliation(ownerId, user.actorId, body); break
+      case 'report.prepare': data = await prepareEBalanceLifecycleReport(ownerId, user.actorId, body); break
       default: return Response.json({ success: false, error: 'Unsupported E-Bilanz lifecycle action' }, { status: 400 })
     }
     return Response.json({ success: true, data }, { status: 201 })

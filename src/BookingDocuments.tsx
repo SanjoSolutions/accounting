@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { api, getJSON } from './Requester'
+import { DocumentExtractionPanel } from './DocumentExtractionPanel'
 
 export type BookingDocument = {
   id: string
@@ -61,7 +62,7 @@ export function BookingDocuments({
 
   const upload = useCallback(async (fileList: ArrayLike<File>) => {
     if (uploadingRef.current) return
-    const files = acceptedPdfFiles(fileList)
+    const files = acceptedBookingDocumentFiles(fileList)
     if (!files.length) { setError(t('pdfOnly')); return }
     uploadingRef.current = true
     setUploading(true)
@@ -169,7 +170,7 @@ export function BookingDocuments({
           <button className="btn btn-outline-secondary" type="button" disabled={uploading} onClick={() => inputRef.current?.click()}>
             <i className="bi bi-plus-lg" /> {uploading ? t('uploadingDocuments') : t('chooseDocuments')}
           </button>
-          <input ref={inputRef} className="visually-hidden" type="file" accept="application/pdf,.pdf" multiple onChange={event => event.target.files && void upload(event.target.files)} />
+          <input ref={inputRef} className="visually-hidden" type="file" accept="application/pdf,application/xml,text/xml,.pdf,.xml" multiple onChange={event => event.target.files && void upload(event.target.files)} />
         </div>
       </div>
       {error && <div className="alert alert-danger" role="alert">{error}</div>}
@@ -194,7 +195,7 @@ export function BookingDocuments({
         ? <div className="preview-empty"><i className="bi bi-files" /><strong>{t('noSelectedDocuments')}</strong><p>{t('noSelectedDocumentsHelp')}</p></div>
         : <>
           <div className="document-tabs" role="tablist">{selectedDocuments.map(document => <button key={document.id} type="button" role="tab" aria-selected={document.id === activeDocument?.id} className={document.id === activeDocument?.id ? 'active' : ''} onClick={() => setActiveDocumentId(document.id)}>{document.fileName || t('unnamedDocument')}</button>)}</div>
-          {activeDocument && <iframe className="document-frame" src={activeDocument.url} title={activeDocument.fileName || t('documentPreview')} />}
+          {activeDocument && <><iframe className="document-frame" src={activeDocument.url} title={activeDocument.fileName || t('documentPreview')} /><DocumentExtractionPanel documentId={activeDocument.id} /></>}
         </>}
     </section>
       <div
@@ -318,7 +319,7 @@ export class LongTouchSelectionGesture {
 }
 
 export function documentDisplayName(fileName: string, fallbackName = fileName): string {
-  return fileName.replace(/\.pdf$/i, '') || fallbackName
+  return fileName.replace(/\.(?:pdf|xml)$/i, '') || fallbackName
 }
 
 export function selectionExtendsForActivation(shiftKey: boolean, longTouch: boolean): boolean {
@@ -344,6 +345,10 @@ export function availableBookingDocuments(documents: BookingDocument[], unavaila
 
 export function acceptedPdfFiles(files: ArrayLike<{ name: string; type: string }>): File[] {
   return Array.from(files).filter(file => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) as File[]
+}
+
+export function acceptedBookingDocumentFiles(files: ArrayLike<{ name: string; type: string }>): File[] {
+  return Array.from(files).filter(file => ['application/pdf', 'application/xml', 'text/xml'].includes(file.type) || /\.(?:pdf|xml)$/i.test(file.name)) as File[]
 }
 
 export function clampDocumentColumnPercent(percent: number): number {

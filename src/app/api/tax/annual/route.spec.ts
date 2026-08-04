@@ -7,7 +7,7 @@ vi.mock('@/server/tax/annualRepository', () => ({ annualTaxApplicability: mocks.
 import { GET, POST } from './route'
 
 describe('annual tax production routes', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.user.mockResolvedValue({ id: 'tenant-a' }) })
+  beforeEach(() => { vi.clearAllMocks(); mocks.user.mockResolvedValue({ id: 'tenant-a', actorId: 'user-a', role: 'ADMIN' }) })
   it('derives legal-form applicability and deadline from the authenticated company profile', async () => {
     mocks.applicability.mockResolvedValue({ kinds: ['KST', 'GEWST'], deadline: '2027-07-31' })
     const response = await GET(new Request('http://localhost/api/tax/annual?year=2026'))

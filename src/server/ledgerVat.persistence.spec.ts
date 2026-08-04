@@ -40,6 +40,11 @@ describe('taxable journal posting persistence', () => {
     expect(revenue).toMatchObject({ creditCents: 10000, taxCode: 'DE_STANDARD', netBaseCents: 10000, taxAmountCents: 1900, taxRuleVersion: 1, vatPosting: { ownerId: 'tenant-taxable', journalLineId: revenue.id, documentId: 'sale-document', outputTaxCents: 1900, ruleId: 'DE_STANDARD' } })
     expect(revenue.vatPosting?.sourceId).toBe(`journal:${entry.id}:line:${revenue.id}`)
     expect(await prisma.vatReversalMarker.count({ where: { ownerId: 'tenant-taxable' } })).toBeGreaterThan(0)
+    const auditEvents = await prisma.auditEvent.findMany({ where: { ownerId: 'tenant-taxable' }, orderBy: { occurredAt: 'asc' } })
+    const auditHead = await prisma.auditHead.findUnique({ where: { ownerId: 'tenant-taxable' } })
+    expect(auditEvents).toHaveLength(1)
+    expect(auditEvents[0]).toMatchObject({ actorId: 'tenant-taxable', action: 'JOURNAL_ENTRY_POSTED', objectType: 'JournalEntry', objectId: entry.id })
+    expect((await import('./compliance/auditPersistence')).verifyAuditChain(auditEvents, auditHead)).toBe(true)
   })
 
   it('rolls back the entire booking when its VAT control line does not reconcile', async () => {

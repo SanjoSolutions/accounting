@@ -1,13 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ getCurrentUser: vi.fn(), exportEBalance: vi.fn() }))
+const mocks = vi.hoisted(() => ({ getCurrentUser: vi.fn(), exportEBalance: vi.fn(), getMasterData: vi.fn() }))
 vi.mock('server-only', () => ({}))
 vi.mock('@/server/authentication', () => ({ getCurrentUser: mocks.getCurrentUser }))
-vi.mock('@/server/ledger', () => ({ exportEBalance: mocks.exportEBalance }))
-import { POST } from './route'
+vi.mock('@/server/ledger', () => ({ exportEBalance: mocks.exportEBalance, getEBalanceMasterData: mocks.getMasterData }))
+import { GET, POST } from './route'
 
 describe('E-Bilanz export API', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1' }) })
+  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1', actorId: 'user-1', role: 'ADMIN' }) })
+
+  it('loads the authoritative year-effective company profile for visible report setup', async () => {
+    const data = { masterData: { companyName: 'A GmbH' }, source: 'VERSIONED_COMPANY_PROFILE', profileVersionId: 'profile-1' }
+    mocks.getMasterData.mockResolvedValue(data)
+    const response = await GET(new Request('http://localhost/api/fiscal-years/2026/e-balance'), { params: Promise.resolve({ year: '2026' }) })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ success: true, data })
+    expect(mocks.getMasterData).toHaveBeenCalledWith('owner-1', 2026)
+  })
+
+  it('does not disclose year-effective master data without authentication', async () => {
+    mocks.getCurrentUser.mockResolvedValue(null)
+    const response = await GET(new Request('http://localhost/api/fiscal-years/2026/e-balance'), { params: Promise.resolve({ year: '2026' }) })
+    expect(response.status).toBe(401)
+    expect(mocks.getMasterData).not.toHaveBeenCalled()
+  })
 
   it('returns 400 for malformed JSON and missing string master data', async () => {
     const malformed = await POST(request('{'), { params: Promise.resolve({ year: '2026' }) })

@@ -53,8 +53,57 @@ export class BookingsPage extends ApplicationPage {
 export class SettingsPage extends ApplicationPage {
   async updateIssuer(name: string) {
     await this.page.getByLabel('Name').fill(name)
-    await this.page.getByLabel('Chart of accounts').selectOption('SKR04')
-    await this.page.getByRole('button', { name: 'Save' }).click()
+    await this.page.getByLabel(/Chart of accounts|Kontenrahmen/).selectOption('SKR04')
+    await this.page.getByRole('button', { name: /Save|Speichern/ }).click()
+  }
+
+  async configureDomesticReverseCharge(chart: 'SKR03' | 'SKR04', inputVatAccount: string, outputVatAccount: string) {
+    await this.open('/settings')
+    await this.page.getByLabel(/Chart of accounts|Kontenrahmen/).selectOption(chart)
+    await this.page.getByLabel(/§13b deductible input VAT account|§13b-Konto abziehbare Vorsteuer/).fill(inputVatAccount)
+    await this.page.getByLabel(/§13b output VAT liability account|§13b-Konto Umsatzsteuer/).fill(outputVatAccount)
+    await this.page.getByRole('button', { name: /Save|Speichern/, exact: true }).click()
+    await expect(this.page.getByText('Settings saved.', { exact: true })).toBeVisible()
+  }
+}
+
+export class AccessPage extends ApplicationPage {
+  async grant(email: string, role: 'ADMIN' | 'ACCOUNTANT' | 'READ_ONLY', reason: string) {
+    await this.open('/access')
+    await this.page.getByLabel('Registered user email').fill(email)
+    await this.page.getByLabel('Role').selectOption(role)
+    await this.page.getByLabel('Reason').fill(reason)
+    await this.page.getByRole('button', { name: 'Save access' }).click()
+    await expect(this.page.getByRole('status')).toContainText('audit trail')
+  }
+
+  async useCompany(ownerId: string) {
+    await this.open('/access')
+    const row = this.page.getByRole('listitem').filter({ hasText: ownerId })
+    await row.getByRole('button', { name: 'Use this company' }).click()
+    await expect(this.page.getByText(`Active company: ${ownerId}`, { exact: false })).toBeVisible()
+  }
+}
+
+export class SpecialistAuthorizationPage extends ApplicationPage {
+  async attemptCompliancePeriodMutation() {
+    await this.open('/compliance')
+    await this.expectHeading(/Compliance control center|Compliance-Leitstand/)
+    const panel = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: /Fiscal periods|Geschäftsjahresperioden/ }) })
+    await panel.getByLabel(/Label|Bezeichnung/).fill('Forbidden read-only period')
+    await panel.getByLabel(/Reason|Begründung/).fill('Read-only boundary browser proof')
+    const response = this.page.waitForResponse(item => new URL(item.url()).pathname === '/api/compliance' && item.request().method() === 'POST')
+    await panel.getByRole('button', { name: /Create stable period|Stabile Periode anlegen/ }).click()
+    expect((await response).status()).toBe(403)
+    await expect(this.page.getByRole('alert').filter({ hasText: 'role does not permit' })).toBeVisible()
+  }
+
+  async expectTaxMutationDeniedBeforeGateway() {
+    const result = await this.page.evaluate(async () => {
+      const response = await fetch('/api/tax/workflows', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{malformed' })
+      return { status: response.status, body: await response.json() }
+    })
+    expect(result).toMatchObject({ status: 403, body: { success: false, error: expect.stringMatching(/role/) } })
   }
 }
 

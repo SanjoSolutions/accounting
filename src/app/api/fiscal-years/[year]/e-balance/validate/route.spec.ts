@@ -3,7 +3,7 @@ const mocks = vi.hoisted(() => ({ getCurrentUser: vi.fn(), process: vi.fn() }))
 vi.mock('server-only', () => ({})); vi.mock('@/server/authentication', () => ({ getCurrentUser: mocks.getCurrentUser })); vi.mock('@/server/ledger', () => ({ processEBalanceWithEric: mocks.process }))
 import { POST } from './route'
 describe('ERiC validation API', () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'owner' }) })
+  beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'owner', actorId: 'user', role: 'ADMIN' }) })
   it('validates without ever accepting a PIN', async () => {
     mocks.process.mockResolvedValue({ statusCode: 0, statusText: 'ok' })
     const response = await POST(request(JSON.stringify(validData())), context())

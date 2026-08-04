@@ -134,7 +134,7 @@ async function buildAnnualTaxDatasets(ownerId: string, year: number, values: rea
 export function prepareAnnualTaxDatasets(ownerId: string, year: number, values: readonly AnnualTaxValue[]) { return buildAnnualTaxDatasets(ownerId, year, values, true) }
 
 export async function revalidatePreparedAnnualDataset(ownerId: string, dataset: DeclarationDataset) {
-  if (dataset.period === '2025' && ['KST', 'GEWST'].includes(dataset.kind)) {
+  if (['2025', '2026'].includes(dataset.period) && ['KST', 'GEWST'].includes(dataset.kind)) {
     const { revalidateNarrowUgAnnualDataset } = await import('./narrowUgAnnualRepository')
     if (await revalidateNarrowUgAnnualDataset(ownerId, dataset)) return
   }

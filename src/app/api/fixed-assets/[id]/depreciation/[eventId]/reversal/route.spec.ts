@@ -1,0 +1,10 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+const mocks = vi.hoisted(() => ({ user: vi.fn(), ensure: vi.fn(), reverse: vi.fn() }))
+vi.mock('server-only', () => ({})); vi.mock('@/server/authentication', () => ({ getCurrentUser: mocks.user })); vi.mock('@/server/ledger', () => ({ ensureLedger: mocks.ensure })); vi.mock('@/server/fixedAssetsRepository', () => ({ reverseFixedAssetDepreciation: mocks.reverse, FixedAssetError: class FixedAssetError extends Error { constructor(message: string, readonly status = 400) { super(message) } } }))
+import { POST } from './route'
+
+describe('fixed-asset depreciation reversal API', () => {
+  beforeEach(() => vi.clearAllMocks())
+  it('Given an accountant in an assigned company, when depreciation is reversed, then the append-only correction retains the human actor', async () => { mocks.user.mockResolvedValue({ id: 'tenant-a', actorId: 'accountant-a', role: 'ACCOUNTANT' }); mocks.reverse.mockResolvedValue({ event: { id: 'reverse-a' } }); const input = { effectiveDate: '2026-02-28', reason: 'Correction approved' }; const response = await POST(new Request('http://localhost/api/fixed-assets/asset-a/depreciation/event-a/reversal', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }), { params: Promise.resolve({ id: 'asset-a', eventId: 'event-a' }) }); expect(response.status).toBe(200); expect(mocks.reverse).toHaveBeenCalledWith('tenant-a', 'accountant-a', 'asset-a', 'event-a', '2026-02-28', 'Correction approved') })
+  it('Given read-only access, when a reversal is attempted, then it is forbidden before ledger or repository mutation', async () => { mocks.user.mockResolvedValue({ id: 'tenant-a', actorId: 'viewer-a', role: 'READ_ONLY' }); const response = await POST(new Request('http://localhost/api/fixed-assets/asset-a/depreciation/event-a/reversal', { method: 'POST', body: '{invalid' }), { params: Promise.resolve({ id: 'asset-a', eventId: 'event-a' }) }); expect(response.status).toBe(403); expect(mocks.ensure).not.toHaveBeenCalled(); expect(mocks.reverse).not.toHaveBeenCalled() })
+})

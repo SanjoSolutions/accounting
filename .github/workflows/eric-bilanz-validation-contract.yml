@@ -1,0 +1,50 @@
+name: ERiC Bilanz validation contract
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorization:
+        description: Confirm authorized non-submitting use of the installed ERiC TEST runtime and sample
+        required: true
+        type: choice
+        options:
+          - DO_NOT_RUN
+          - AUTHORIZED_VALIDATION_ONLY
+
+jobs:
+  eric-validation-contract:
+    if: inputs.authorization == 'AUTHORIZED_VALIDATION_ONLY'
+    runs-on: [self-hosted, Windows, X64, eric]
+    timeout-minutes: 15
+    environment: eric-test-qualification
+    env:
+      ERIC_QUALIFICATION_CONTRACT_ENABLED: 'true'
+      ERIC_QUALIFICATION_AUTHORIZED_TEST_MODE: 'true'
+      ERIC_QUALIFICATION_BRIDGE_PATH: ${{ vars.ERIC_QUALIFICATION_BRIDGE_PATH }}
+      ERIC_QUALIFICATION_RUNTIME_DIR: ${{ vars.ERIC_QUALIFICATION_RUNTIME_DIR }}
+      ERIC_QUALIFICATION_MANUFACTURER_ID: ${{ secrets.ERIC_QUALIFICATION_MANUFACTURER_ID }}
+      ERIC_QUALIFICATION_TEST_MARKER: ${{ secrets.ERIC_QUALIFICATION_TEST_MARKER }}
+      ERIC_QUALIFICATION_TEST_TAX_NUMBER: ${{ secrets.ERIC_QUALIFICATION_TEST_TAX_NUMBER }}
+      ERIC_QUALIFICATION_SAMPLE_XBRL: ${{ vars.ERIC_QUALIFICATION_SAMPLE_XBRL }}
+      ERIC_QUALIFICATION_EXPECTED_OUTCOME: ${{ vars.ERIC_QUALIFICATION_EXPECTED_OUTCOME }}
+      ERIC_QUALIFICATION_EXPECTED_STATUS_CODE: ${{ vars.ERIC_QUALIFICATION_EXPECTED_STATUS_CODE }}
+      ERIC_QUALIFICATION_EXPECTED_STATUS_TEXT: ${{ vars.ERIC_QUALIFICATION_EXPECTED_STATUS_TEXT }}
+      ERIC_QUALIFICATION_EVIDENCE_DIR: ${{ runner.temp }}\eric-bilanz-contract-evidence
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate an ELSTER envelope through the real Bilanz_6.9 plugin without submission
+        run: pnpm test:contract:eric
+      - name: Retain redacted validation-only protocols
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eric-bilanz-validation-protocol-${{ github.run_id }}
+          path: ${{ runner.temp }}\eric-bilanz-contract-evidence
+          if-no-files-found: warn
+          retention-days: 90

@@ -4,6 +4,9 @@ export class Address {
   zipCode: string = ''
   city: string = ''
   country: string = ''
+  contactName: string = ''
+  contactTelephone: string = ''
+  contactEmail: string = ''
 
   static createNullAddress(): Address {
     return new Address()

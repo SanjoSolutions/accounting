@@ -2,8 +2,8 @@ import { mkdir, open, rm } from 'node:fs/promises'
 import path from 'node:path'
 
 const workspaceRoot = path.resolve('.')
-const databasePath = path.resolve('playwright.db')
-const documentStoragePath = path.resolve('.playwright', 'documents')
+const databasePath = path.resolve(process.env.E2E_DATABASE_FILE ?? 'playwright.db')
+const documentStoragePath = path.resolve(process.env.E2E_DOCUMENT_STORAGE ?? path.join('.playwright', 'documents'))
 
 if (path.dirname(databasePath) !== workspaceRoot) {
   throw new Error('The Playwright database must be inside the workspace root.')

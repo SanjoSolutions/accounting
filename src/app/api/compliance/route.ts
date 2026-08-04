@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { getCurrentUser } from '@/server/authentication'
+import { forbiddenUnless } from '@/server/authorization'
 import {
   authorizeComplianceTenant, complianceError, configureCompliancePolicy, confirmHistoricalProfileAddress, correctPostedEntry, createDraft, createFilingAmendment,
   createFiscalPeriod, createTenantBackup, decidePeriodReopen, disposeArtifact, getComplianceOverview,
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getCurrentUser(request.headers)
   if (!user) return Response.json({ success: false }, { status: 401 })
+  const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   try {
     const parsed: unknown = await request.json()
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return Response.json({ success: false, error: 'Compliance request body must be an object' }, { status: 400 })
@@ -38,40 +40,40 @@ export async function POST(request: Request) {
     const ownerId = await authorizeComplianceTenant(user.id, body.tenantId)
     let data: unknown
     switch (body.action) {
-      case 'period.create': data = await createFiscalPeriod(ownerId, user.id, body); break
-      case 'draft.create': data = await createDraft(ownerId, user.id, body); break
-      case 'draft.revise': data = await reviseDraft(ownerId, user.id, String(body.draftId ?? ''), body); break
-      case 'draft.post': data = await postDraft(ownerId, user.id, String(body.draftId ?? ''), body.reason); break
-      case 'entry.correct': data = await correctPostedEntry(ownerId, user.id, String(body.entryId ?? ''), body); break
-      case 'period.reopen.request': data = await requestPeriodReopen(ownerId, user.id, String(body.periodId ?? ''), body.reason); break
+      case 'period.create': data = await createFiscalPeriod(ownerId, user.actorId, body); break
+      case 'draft.create': data = await createDraft(ownerId, user.actorId, body); break
+      case 'draft.revise': data = await reviseDraft(ownerId, user.actorId, String(body.draftId ?? ''), body); break
+      case 'draft.post': data = await postDraft(ownerId, user.actorId, String(body.draftId ?? ''), body.reason); break
+      case 'entry.correct': data = await correctPostedEntry(ownerId, user.actorId, String(body.entryId ?? ''), body); break
+      case 'period.reopen.request': data = await requestPeriodReopen(ownerId, user.actorId, String(body.periodId ?? ''), body.reason); break
       case 'period.reopen.decide': {
         if (typeof body.approve !== 'boolean') return Response.json({ success: false, error: 'approve must be a boolean' }, { status: 400 })
-        data = await decidePeriodReopen(ownerId, user.id, String(body.requestId ?? ''), body.approve, body.reason)
+        data = await decidePeriodReopen(ownerId, user.actorId, String(body.requestId ?? ''), body.approve, body.reason)
         break
       }
-      case 'filing.amend': data = await createFilingAmendment(ownerId, user.id, body); break
-      case 'profile.address-confirm': data = await confirmHistoricalProfileAddress(ownerId, user.id, String(body.profileVersionId ?? ''), body.address, body.reason); break
-      case 'policy.configure': data = await configureCompliancePolicy(ownerId, user.id, body); break
-      case 'retention.hold': data = await placeLegalHold(ownerId, user.id, String(body.artifactId ?? ''), String(body.until ?? ''), body.reason); break
-      case 'retention.reconcile': data = await reconcileDocumentArtifacts(ownerId, user.id, body.reason); break
-      case 'retention.fixity': data = await runFixityCheck(ownerId, user.id, String(body.artifactId ?? ''), body.reason); break
-      case 'retention.fixity-scan': data = await runDueFixityChecks(ownerId, user.id, String(body.before ?? ''), body.reason); break
-      case 'retention.dispose': data = await disposeArtifact(ownerId, user.id, String(body.artifactId ?? ''), String(body.onDate ?? ''), body.reason); break
-      case 'backup.create': data = await createTenantBackup(ownerId, user.id, String(body.region ?? ''), body.reason); break
+      case 'filing.amend': data = await createFilingAmendment(ownerId, user.actorId, body); break
+      case 'profile.address-confirm': data = await confirmHistoricalProfileAddress(ownerId, user.actorId, String(body.profileVersionId ?? ''), body.address, body.reason); break
+      case 'policy.configure': data = await configureCompliancePolicy(ownerId, user.actorId, body); break
+      case 'retention.hold': data = await placeLegalHold(ownerId, user.actorId, String(body.artifactId ?? ''), String(body.until ?? ''), body.reason); break
+      case 'retention.reconcile': data = await reconcileDocumentArtifacts(ownerId, user.actorId, body.reason); break
+      case 'retention.fixity': data = await runFixityCheck(ownerId, user.actorId, String(body.artifactId ?? ''), body.reason); break
+      case 'retention.fixity-scan': data = await runDueFixityChecks(ownerId, user.actorId, String(body.before ?? ''), body.reason); break
+      case 'retention.dispose': data = await disposeArtifact(ownerId, user.actorId, String(body.artifactId ?? ''), String(body.onDate ?? ''), body.reason); break
+      case 'backup.create': data = await createTenantBackup(ownerId, user.actorId, String(body.region ?? ''), body.reason); break
       case 'backup.verify-restore': {
         if (typeof body.measuredRestoreMinutes !== 'number' || !Number.isFinite(body.measuredRestoreMinutes)) return Response.json({ success: false, error: 'measuredRestoreMinutes must be a finite number' }, { status: 400 })
-        data = await verifyTenantRestore(ownerId, user.id, String(body.backupId ?? ''), body.measuredRestoreMinutes, body.reason)
+        data = await verifyTenantRestore(ownerId, user.actorId, String(body.backupId ?? ''), body.measuredRestoreMinutes, body.reason)
         break
       }
-      case 'reporting.audit-export.create': data = await createDomainReportingPackage(ownerId, user.id, 'AUDIT_EXPORT', body); break
-      case 'reporting.migration-export.create': data = await createDomainReportingPackage(ownerId, user.id, 'MIGRATION_EXPORT', body); break
-      case 'reporting.annual.create': data = await createDomainReportingPackage(ownerId, user.id, 'ANNUAL_ACCOUNTS', body); break
-      case 'reporting.disclosure.create': data = await createDomainReportingPackage(ownerId, user.id, 'DISCLOSURE_PACKAGE', body); break
-      case 'reporting.assets.create': data = await createDomainReportingPackage(ownerId, user.id, 'ASSET_SCHEDULE', body); break
-      case 'reporting.inventory.close': data = await createDomainReportingPackage(ownerId, user.id, 'INVENTORY_CLOSE', body); break
-      case 'reporting.cash-audit.create': data = await createDomainReportingPackage(ownerId, user.id, 'CASH_AUDIT', body); break
-      case 'reporting.package.approve': data = await approveReportingPackage(ownerId, user.id, String(body.packageId ?? ''), body.reason); break
-      case 'reporting.procedure.save': data = await saveProcedureDocument(ownerId, user.id, body); break
+      case 'reporting.audit-export.create': data = await createDomainReportingPackage(ownerId, user.actorId, 'AUDIT_EXPORT', body); break
+      case 'reporting.migration-export.create': data = await createDomainReportingPackage(ownerId, user.actorId, 'MIGRATION_EXPORT', body); break
+      case 'reporting.annual.create': data = await createDomainReportingPackage(ownerId, user.actorId, 'ANNUAL_ACCOUNTS', body); break
+      case 'reporting.disclosure.create': data = await createDomainReportingPackage(ownerId, user.actorId, 'DISCLOSURE_PACKAGE', body); break
+      case 'reporting.assets.create': data = await createDomainReportingPackage(ownerId, user.actorId, 'ASSET_SCHEDULE', body); break
+      case 'reporting.inventory.close': data = await createDomainReportingPackage(ownerId, user.actorId, 'INVENTORY_CLOSE', body); break
+      case 'reporting.cash-audit.create': data = await createDomainReportingPackage(ownerId, user.actorId, 'CASH_AUDIT', body); break
+      case 'reporting.package.approve': data = await approveReportingPackage(ownerId, user.actorId, String(body.packageId ?? ''), body.reason); break
+      case 'reporting.procedure.save': data = await saveProcedureDocument(ownerId, user.actorId, body); break
       default: return Response.json({ success: false, error: 'Unsupported compliance action' }, { status: 400 })
     }
     return Response.json({ success: true, data }, { status: 201 })

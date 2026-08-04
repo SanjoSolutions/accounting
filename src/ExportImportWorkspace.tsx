@@ -9,6 +9,7 @@ export function ExportImportWorkspace() {
   const [busy, setBusy] = useState(false)
   const [issues, setIssues] = useState<string[]>([])
   const [success, setSuccess] = useState('')
+  const [exportYear, setExportYear] = useState(new Date().getFullYear())
   const formRef = useRef<HTMLFormElement>(null)
 
   const format = detectSelectedImportFormat(files)
@@ -30,10 +31,30 @@ export function ExportImportWorkspace() {
     finally { setBusy(false) }
   }
 
+  async function exportDatev() {
+    setBusy(true); setIssues([]); setSuccess('')
+    try {
+      const response = await fetch(`/api/datev-export/${exportYear}`, { method: 'POST' })
+      if (!response.ok) { const body = await response.json(); setIssues(body.issues ?? [t('datevExportFailed')]); return }
+      const blob = await response.blob(); const href = URL.createObjectURL(blob); const anchor = document.createElement('a')
+      anchor.href = href; anchor.download = `EXTF_Buchungsstapel_${exportYear}.csv`; anchor.click(); URL.revokeObjectURL(href)
+      setSuccess(t('datevExportSucceeded', { year: exportYear }))
+    } catch { setIssues([t('datevExportFailed')]) }
+    finally { setBusy(false) }
+  }
+
   return <div className="workspace pb-4">
     <header className="page-heading">
       <div><span className="eyebrow">{t('dataExchange')}</span><h1>{t('exportImport')}</h1><p>{t('exportImportSubtitle')}</p></div>
     </header>
+    <section className="card panel datev-panel">
+      <div className="panel-title"><div><span className="step">{t('dataExport')}</span><h2>{t('datevExport')}</h2></div><span className="badge text-bg-light hint">DATEV EXTF 700 / 13</span></div>
+      <p>{t('datevExportHelp')}</p>
+      <div className="datev-controls">
+        <label>{t('fiscalYear')}<input className="form-control" type="number" min="1900" max="2200" disabled={busy} value={exportYear} onChange={event => setExportYear(Number(event.target.value))} /></label>
+        <button className="btn btn-outline-primary" type="button" disabled={busy} onClick={exportDatev}>{busy ? t('datevExportBusy') : t('datevExportAction')}</button>
+      </div>
+    </section>
     <section className="card panel datev-panel">
       <div className="panel-title"><div><span className="step">{t('dataImport')}</span><h2>{t('accountingImport')}</h2></div><span className="badge text-bg-light hint">{formatLabel(format)}</span></div>
       <form ref={formRef} onSubmit={importAccountingData}>

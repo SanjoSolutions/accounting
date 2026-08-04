@@ -27,6 +27,7 @@ import { retentionDeadline, sha256 } from './compliance/retention'
 import { profilePayloadWithConfirmedAddress, validateCompanyProfile, type CompanyProfile } from './compliance/companyProfile'
 import { getDocumentStorage } from './storage'
 import { persistComplianceObject } from './compliance/objectStorage'
+import { complianceReferenceDate } from './compliance/referenceDate'
 import { VatValidationError, type VatPostingDetail, type VatSourceSplit } from '@/core/vatEngine'
 import { createFiscalCloseGeneration, requireCurrentFiscalCloseGeneration } from './fiscalCloseGeneration'
 import {
@@ -37,25 +38,43 @@ import {
 } from './tax/vatPostingCalculation'
 
 export const DEFAULT_ACCOUNTS = [
+  [300, 'Andere Anlagen, Betriebs- und Geschäftsausstattung', 'ASSET', 'bs.ass.fixAss.tan.otherEquipm'],
   [1000, 'Kasse', 'ASSET', 'bs.ass.currAss.cashEquiv.cash'],
   [1200, 'Bank', 'ASSET', 'bs.ass.currAss.cashEquiv.bank'],
   [1400, 'Forderungen aus Lieferungen und Leistungen', 'ASSET', 'bs.ass.currAss.receiv.trade'],
+  [1571, 'Abziehbare Vorsteuer 7 %', 'ASSET', 'bs.ass.currAss.receiv.other.vat'],
   [1576, 'Abziehbare Vorsteuer 19 %', 'ASSET', 'bs.ass.currAss.receiv.other.vat'],
   [1600, 'Verbindlichkeiten aus Lieferungen und Leistungen', 'LIABILITY', 'bs.eqLiab.liab.trade'],
+  [1771, 'Umsatzsteuer 7 %', 'LIABILITY', 'bs.eqLiab.liab.other.theroffTax.vat'],
   [1776, 'Umsatzsteuer 19 %', 'LIABILITY', 'bs.eqLiab.liab.other.theroffTax.vat'],
   [2900, 'Eigenkapital', 'EQUITY', 'bs.eqLiab.equity'],
+  [2310, 'Anlagenabgänge Sachanlagen (Restbuchwert bei Buchverlust)', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost'],
+  [2315, 'Anlagenabgänge Sachanlagen (Restbuchwert bei Buchgewinn)', 'REVENUE', 'is.netIncome.regular.operatingTC.otherOpRevenue'],
+  [4830, 'Abschreibungen auf Sachanlagen', 'EXPENSE', 'is.netIncome.regular.operatingTC.deprAmort.fixAss.tan'],
   [4930, 'Bürobedarf', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost'],
+  [8300, 'Erlöse 7 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput'],
   [8400, 'Erlöse 19 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput'],
+  [8801, 'Erlöse aus Verkäufen Sachanlagevermögen 19 % USt (bei Buchverlust)', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost'],
+  [8820, 'Erlöse aus Verkäufen Sachanlagevermögen 19 % USt (bei Buchgewinn)', 'REVENUE', 'is.netIncome.regular.operatingTC.otherOpRevenue'],
 ] as const
 
 export const DEFAULT_SKR04_ACCOUNTS = [
+  [500, 'Andere Anlagen, Betriebs- und Geschäftsausstattung', 'ASSET', 'bs.ass.fixAss.tan.otherEquipm'],
   [1600, 'Kasse', 'ASSET', 'bs.ass.currAss.cashEquiv.cash'],
   [1800, 'Bank', 'ASSET', 'bs.ass.currAss.cashEquiv.bank'],
   [1200, 'Forderungen aus Lieferungen und Leistungen', 'ASSET', 'bs.ass.currAss.receiv.trade'],
+  [1401, 'Abziehbare Vorsteuer 7 %', 'ASSET', 'bs.ass.currAss.receiv.other.vat'],
   [1406, 'Abziehbare Vorsteuer 19 %', 'ASSET', 'bs.ass.currAss.receiv.other.vat'],
   [3300, 'Verbindlichkeiten aus Lieferungen und Leistungen', 'LIABILITY', 'bs.eqLiab.liab.trade'],
+  [3801, 'Umsatzsteuer 7 %', 'LIABILITY', 'bs.eqLiab.liab.other.theroffTax.vat'],
   [3806, 'Umsatzsteuer 19 %', 'LIABILITY', 'bs.eqLiab.liab.other.theroffTax.vat'],
+  [4300, 'Erlöse 7 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput'],
   [4400, 'Erlöse 19 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput'],
+  [4845, 'Erlöse aus Verkäufen Sachanlagevermögen 19 % USt (bei Buchgewinn)', 'REVENUE', 'is.netIncome.regular.operatingTC.otherOpRevenue'],
+  [4855, 'Anlagenabgänge Sachanlagen (Restbuchwert bei Buchgewinn)', 'REVENUE', 'is.netIncome.regular.operatingTC.otherOpRevenue'],
+  [6885, 'Erlöse aus Verkäufen Sachanlagevermögen 19 % USt (bei Buchverlust)', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost'],
+  [6895, 'Anlagenabgänge Sachanlagen (Restbuchwert bei Buchverlust)', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost'],
+  [6220, 'Abschreibungen auf Sachanlagen', 'EXPENSE', 'is.netIncome.regular.operatingTC.deprAmort.fixAss.tan'],
 ] as const
 
 export function defaultAccountsForLedger(chart: string, accountLength: number | null) {
@@ -220,6 +239,14 @@ export async function ensureLedger(ownerId: string, year: number) {
   })
 }
 
+export async function getFiscalYearStatus(ownerId: string, year: number): Promise<string> {
+  if (!Number.isInteger(year) || year < 1900 || year > 2200) throw new AccountingValidationError(['Ungültiges Geschäftsjahr.'])
+  return (await prisma.fiscalYear.findUnique({
+    where: { ownerId_year: { ownerId, year } },
+    select: { status: true },
+  }))?.status ?? 'NOT_CREATED'
+}
+
 async function bootstrapLedgerForPosting(ownerId: string, year: number, bookingBoundary: Date) {
   if (!Number.isInteger(year) || year < 1900 || year > 2200) throw new AccountingValidationError(['Ungültiges Geschäftsjahr.'])
   const fiscalYear = await prisma.$transaction(async transaction => {
@@ -257,7 +284,7 @@ export async function getLedgerWorkspace(ownerId: string, year: number) {
   ])
   const statements = createFinancialStatements(balances)
   const closingIssues = validateClosing(statements)
-  try { validateClosingDate(fiscalYear.endsAt) } catch (error) { closingIssues.unshift((error as AccountingValidationError).issues[0]) }
+  try { validateClosingDate(fiscalYear.endsAt, new Date(`${complianceReferenceDate()}T12:00:00.000Z`)) } catch (error) { closingIssues.unshift((error as AccountingValidationError).issues[0]) }
   if (entries.length === 0) closingIssues.unshift('Das Geschäftsjahr enthält noch keine festgeschriebenen Buchungen.')
   const predecessors = await prisma.fiscalYear.findMany({
     where: { ownerId, year: { lt: year } }, select: { year: true, status: true, _count: { select: { journalEntries: true } } }, orderBy: { year: 'asc' },
@@ -431,6 +458,7 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
     const entry = await transaction.journalEntry.create({
       data: {
         id: entryId,
+        ownerId,
         sequenceNumber: (last?.sequenceNumber ?? 0) + 1,
         bookingDate: bookingInstant,
         documentNumber: validated.documentNumber.trim(),
@@ -463,6 +491,23 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
       })
     }
     await extendAttachedDocumentRetention(transaction, ownerId, documentIds, fiscalYear.endsAt)
+    if (source === 'MANUAL') await appendAuditEvent(transaction, {
+      ownerId,
+      actorId: ownerId,
+      action: 'JOURNAL_ENTRY_POSTED',
+      reason: 'Authenticated manual journal entry posted',
+      objectType: 'JournalEntry',
+      objectId: entry.id,
+      after: {
+        fiscalYearId: entry.fiscalYearId,
+        sequenceNumber: entry.sequenceNumber,
+        bookingDate: entry.bookingDate,
+        documentNumber: entry.documentNumber,
+        source: entry.source,
+        lineCount: entry.lines.length,
+        documentIds,
+      },
+    })
     return entry
   })
   try {
@@ -536,6 +581,7 @@ export async function postJournalCorrection(ownerId: string, actorId: string, or
         if (await transaction.journalEntry.findFirst({ where: { fiscalYearId: plan.fiscalYear.id, documentNumber: plan.validated.documentNumber.trim() } })) throw new AccountingValidationError(['Die Belegnummer ist in diesem Geschäftsjahr bereits vergeben.'])
         const last = await transaction.journalEntry.findFirst({ where: { fiscalYearId: plan.fiscalYear.id }, orderBy: { sequenceNumber: 'desc' }, select: { sequenceNumber: true } })
         const entry = await transaction.journalEntry.create({ data: {
+          ownerId,
           sequenceNumber: (last?.sequenceNumber ?? 0) + 1,
           bookingDate: new Date(`${plan.validated.bookingDate}T12:00:00.000Z`),
           documentNumber: plan.validated.documentNumber.trim(), description: plan.validated.description.trim(), fiscalYearId: plan.fiscalYear.id,
@@ -616,7 +662,7 @@ export async function closeFiscalYear(ownerId: string, year: number) {
     if (fiscalYear.closingSnapshot) return JSON.parse(fiscalYear.closingSnapshot)
     throw new AccountingValidationError(['Der Abschlusssnapshot wurde nach Ablauf der Aufbewahrungsfrist entsorgt.'])
   }
-  validateClosingDate(fiscalYear.endsAt)
+  validateClosingDate(fiscalYear.endsAt, new Date(`${complianceReferenceDate()}T12:00:00.000Z`))
   let snapshotStorageKey: string | undefined
   try { return await prisma.$transaction(async transaction => {
     const claimed = await transaction.fiscalYear.updateMany({
@@ -692,6 +738,7 @@ export async function closeFiscalYear(ownerId: string, year: number) {
       if (openingLines.length) {
         const lastOpening = await transaction.journalEntry.findFirst({ where: { fiscalYearId: nextFiscalYear.id }, orderBy: { sequenceNumber: 'desc' } })
         await transaction.journalEntry.create({ data: {
+          ownerId,
           fiscalYearId: nextFiscalYear.id, sequenceNumber: (lastOpening?.sequenceNumber ?? 0) + 1,
           bookingDate: new Date(nextFiscalYear.startsAt.getTime() + 12 * 60 * 60 * 1000), documentNumber: `SYS-EB-${nextYear}-${fiscalYear.id.slice(-6)}`,
           description: `Automatischer Saldenvortrag aus ${year}`, source: 'OPENING', externalKey: openingKey,
@@ -755,6 +802,26 @@ export async function exportEBalance(ownerId: string, year: number, masterData: 
     throw error
   }
   return archive
+}
+
+export async function getEBalanceMasterData(ownerId: string, year: number) {
+  const fiscalYear = await prisma.fiscalYear.findUnique({ where: { ownerId_year: { ownerId, year } }, select: { endsAt: true } })
+  if (!fiscalYear) throw new AccountingValidationError([`Das Geschäftsjahr ${year} ist nicht eingerichtet.`])
+  const reportDate = new Date(`${fiscalYear.endsAt.toISOString().slice(0, 10)}T23:59:59.999Z`)
+  const [settings, profileVersion, profileVersionCount] = await Promise.all([
+    prisma.accountRecord.findUnique({ where: { ownerId }, select: { payload: true } }),
+    prisma.companyProfileVersion.findFirst({ where: { ownerId, effectiveFrom: { lte: reportDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: reportDate } }] }, orderBy: { effectiveFrom: 'desc' }, select: { id: true, payload: true } }),
+    prisma.companyProfileVersion.count({ where: { ownerId } }),
+  ])
+  const addressConfirmation = profileVersion ? await prisma.companyProfileAddressConfirmation.findUnique({ where: { profileVersionId: profileVersion.id }, select: { payload: true } }) : null
+  const effectiveProfilePayload = profileVersion ? profilePayloadWithConfirmedAddress(profileVersion.payload, addressConfirmation?.payload) : undefined
+  const payload = reportingSettingsPayload(settings?.payload, effectiveProfilePayload, profileVersionCount > 0)
+  const empty: EBalanceMasterData = { companyName: '', street: '', postalCode: '', city: '', taxNumber: '', legalForm: 'GMBH' }
+  return {
+    masterData: authoritativeEBalanceMasterDataFromSettings(payload, empty),
+    source: profileVersion ? 'VERSIONED_COMPANY_PROFILE' as const : payload ? 'CURRENT_COMPANY_SETTINGS' as const : 'MANUAL_INPUT' as const,
+    profileVersionId: profileVersion?.id ?? null,
+  }
 }
 
 export async function processEBalanceWithEric(

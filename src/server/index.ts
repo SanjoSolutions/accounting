@@ -4,20 +4,17 @@ import { randomUUID } from 'node:crypto'
 import { BookingRecord } from '@/core/BookingRecord'
 import { isChartOfAccountsStandard } from '@/core/ChartOfAccounts'
 import { allocateProfileEffectiveInstant, CompanyProfileValidationError, isLatestIdempotentProfileRetry, legacyProfileBaseline, mergeInvoiceIssuerFields, profilesSemanticallyEqual, upgradeProfileRegisteredAddress, validateAtomicChartTransition, validateChartActivation, validateEffectiveDate, validateLiveEffectiveDate, validateProfileVersions, validateSettingsSnapshot, validateVersionedCompanyProfile } from './compliance/companyProfile'
-import { isIdempotentMappingCohort, resolveTargetChart, scaleMappingsForAccountLength, seedChart, shouldGuardActiveRevision, validateActiveChartRevision, validateActiveRevisionEffectiveDate, validateChartSwitch, validateImportedChart, type AccountMapping } from './compliance/chartLifecycle'
+import { availableCustomChartsForProfileUpdate, isIdempotentMappingCohort, resolveTargetChart, scaleMappingsForAccountLength, seedChart, shouldGuardActiveRevision, validateActiveChartRevision, validateActiveRevisionEffectiveDate, validateChartSwitch, validateImportedChart, type AccountMapping } from './compliance/chartLifecycle'
 import { prisma } from './persistence/client'
 import { Document } from '@/core/Document'
-import type { Invoice } from '@/core/Invoice'
-import { Tax } from '@/core/Tax'
-import { TaxAmount } from '@/core/TaxAmount'
 import { Account } from '@/core/authentication/Account'
-import fixture from './dataFixtures/results_11048337544652359545_0_Invoice_Example_English-0.json'
 import { generateDocumentThumbnail } from './documentThumbnail'
 import { createPrismaPersistence } from './persistence/prisma'
 import { getDocumentStorage } from './storage'
 import { requireLegacyLedgerProfile } from './ledger'
 import { appendAuditEvent } from './compliance/auditPersistence'
 import { registerRetainedArtifact } from './compliance/runtime'
+import { parseIncomingReverseChargeAccounts, requireIncomingReverseChargeAccountsForLedger } from '@/core/incomingReverseCharge'
 
 const persistence = createPrismaPersistence()
 const companySettingsId = (ownerId: string) => `company:${ownerId}`
@@ -66,8 +63,13 @@ export async function updateSettings(data: any, ownerId: string, actorId = owner
   const profileChanging = data.companyProfile !== undefined && !profilesSemanticallyEqual(data.companyProfile, account.companyProfile)
   const profileRetryRequested = data.companyProfile !== undefined && (data.companyProfileEffectiveFrom !== undefined || data.changeReason !== undefined)
   const profileVersionWrite = profileChanging || profileRetryRequested
-  const availableImportedCharts = [...new Set([...account.importedCharts, ...(importedChart ? [importedChart.id] : [])])]
+  const requestedChart = data.companyProfile?.chart
+  const persistedRequestedCohort = typeof requestedChart === 'string' && requestedChart.startsWith('CUSTOM:')
+    ? await prisma.accountMappingVersion.findFirst({ where: { ownerId, chartId: requestedChart }, select: { id: true } })
+    : null
+  const availableImportedCharts = [...new Set([...availableCustomChartsForProfileUpdate(account.importedCharts, requestedChart, Boolean(persistedRequestedCohort)), ...(importedChart ? [importedChart.id] : [])])]
   if (data.invoiceIssuer !== undefined) mergeInvoiceIssuerFields(account.invoiceIssuer, data.invoiceIssuer)
+  if (data.incomingReverseChargeAccounts !== undefined) account.incomingReverseChargeAccounts = parseIncomingReverseChargeAccounts(data.incomingReverseChargeAccounts) ?? undefined
   const versionedProfile = profileVersionWrite ? upgradeProfileRegisteredAddress(data.companyProfile, account.invoiceIssuer) as typeof data.companyProfile : data.companyProfile
   if (data.chartOfAccounts !== undefined) {
     account.chartOfAccounts = data.chartOfAccounts
@@ -126,8 +128,11 @@ export async function updateSettings(data: any, ownerId: string, actorId = owner
       }
     }
     await transaction.$executeRaw`UPDATE LedgerProfile SET ownerId = ownerId WHERE ownerId = ${ownerId}`
-    const explicitlyChangesChart = profileChanging || data.chartOfAccounts !== undefined
-    const targetChart = resolveTargetChart(explicitlyChangesChart ? activatedChart : undefined, profileChanging, currentLedgerProfile?.chart, account.activeChart)
+    // Versioning company/legal/tax master data must not silently become a
+    // ledger migration. Chart transitions require the dedicated standard-chart
+    // selection or an atomically imported custom cohort.
+    const explicitlyChangesChart = data.chartOfAccounts !== undefined || importedChart !== undefined
+    const targetChart = resolveTargetChart(explicitlyChangesChart ? activatedChart : undefined, explicitlyChangesChart, currentLedgerProfile?.chart, account.activeChart)
     const switchingChart = currentLedgerProfile?.chart !== targetChart
     const revisesActiveChart = shouldGuardActiveRevision(Boolean(importedChart && importedChart.id === currentLedgerProfile?.chart), importedCohortCreated)
     const activatesRevisionNow = revisesActiveChart && mappingEffectiveFrom <= today
@@ -155,6 +160,16 @@ export async function updateSettings(data: any, ownerId: string, actorId = owner
       for (const mapping of activatedMappings) await transaction.ledgerAccount.upsert({ where: { ownerId_number: { ownerId, number: mapping.accountNumber } }, create: { ownerId, number: mapping.accountNumber, name: mapping.name, category: mapping.accountType, eBilanzPosition: mapping.eBilanzPosition, active: mapping.active !== false }, update: { name: mapping.name, category: mapping.accountType, eBilanzPosition: mapping.eBilanzPosition, active: mapping.active !== false } })
     }
     await transaction.ledgerProfile.upsert({ where: { ownerId }, create: { ownerId, chart: targetChart, accountLength: 4 }, update: { chart: targetChart } })
+    if (account.incomingReverseChargeAccounts) {
+      let configured = account.incomingReverseChargeAccounts
+      try { configured = requireIncomingReverseChargeAccountsForLedger(configured, targetChart, currentLedgerProfile?.accountLength ?? 4) }
+      catch (error) { throw new CompanyProfileValidationError(error instanceof Error ? error.message : 'Invalid incoming §13b ledger controls') }
+      const existingControls = await transaction.ledgerAccount.findMany({ where: { ownerId, number: { in: [configured.inputVatAccountNumber, configured.outputVatAccountNumber] } } })
+      const wrong = existingControls.find(item => item.number === configured.inputVatAccountNumber ? item.category !== 'ASSET' : item.category !== 'LIABILITY')
+      if (wrong) throw new CompanyProfileValidationError(`Configured §13b control account ${wrong.number} has the wrong ledger category`)
+      await transaction.ledgerAccount.upsert({ where: { ownerId_number: { ownerId, number: configured.inputVatAccountNumber } }, create: { ownerId, number: configured.inputVatAccountNumber, name: 'Vorsteuer §13b 19 %', category: 'ASSET', eBilanzPosition: 'bs.ass.currAss.receiv.other.vat' }, update: { active: true } })
+      await transaction.ledgerAccount.upsert({ where: { ownerId_number: { ownerId, number: configured.outputVatAccountNumber } }, create: { ownerId, number: configured.outputVatAccountNumber, name: 'Umsatzsteuer §13b 19 %', category: 'LIABILITY', eBilanzPosition: 'bs.eqLiab.liab.other.theroffTax.vat' }, update: { active: true } })
+    }
     if (!explicitlyChangesChart) {
       account.activeChart = targetChart as typeof account.activeChart
       if (targetChart === 'SKR03' || targetChart === 'SKR04') account.chartOfAccounts = targetChart
@@ -311,30 +326,6 @@ export async function readDocumentThumbnail(documentId: string, ownerId: string)
   }
 }
 
-export async function requestDocumentParsing(
-  documentId: string,
-  ownerId: string,
-): Promise<Invoice | null> {
-  const document = await persistence.documents.findOne(documentId)
-
-  if (!document?.storageKey || document.ownerId !== ownerId) return null
-
-  const invoice = document as Invoice
-  const before = JSON.parse(JSON.stringify(document))
-  invoice.netAmount = getMoneyValue(fixture, 'net_amount')!
-  invoice.tax = new TaxAmount(
-    getTaxAmount(fixture)!,
-    new Tax('19% VAT', 0.19),
-  )
-  invoice.total = getMoneyValue(fixture, 'total_amount')!
-  await prisma.$transaction(async transaction => {
-    const updated = await transaction.documentRecord.updateMany({ where: { id: documentId, ownerId }, data: { payload: JSON.stringify(invoice) } })
-    if (updated.count !== 1) throw new Error('Document ownership changed during parsing')
-    await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'DOCUMENT_PARSED', reason: 'Authenticated document parsing request', objectType: 'Document', objectId: documentId, before, after: invoice })
-  })
-  return invoice
-}
-
 export function getMaxDocumentUploadBytes(): number {
   const maxSize = Number(process.env.DOCUMENT_STORAGE_MAX_UPLOAD_BYTES || 20 * 1024 * 1024)
   if (!Number.isSafeInteger(maxSize) || maxSize <= 0) {
@@ -366,23 +357,3 @@ function sanitizeFileName(fileName: string): string {
 }
 
 export class DocumentUploadError extends Error {}
-
-function getTaxAmount(data: any): number | null {
-  const tax = getObjectWithType(data.entities, 'vat')
-  const taxAmount = tax && getObjectWithType(tax.properties, 'vat/tax_amount')
-  return taxAmount ? normalizedMoneyValue(taxAmount) : null
-}
-
-function getMoneyValue(data: any, type: string): number | null {
-  const entity = getObjectWithType(data.entities, type)
-  return entity ? normalizedMoneyValue(entity) : null
-}
-
-function getObjectWithType(items: any[], type: string): any | null {
-  return items.find((item: any) => item.type === type) ?? null
-}
-
-function normalizedMoneyValue(entity: any): number {
-  const { units, nanos = 0 } = entity.normalizedValue.moneyValue
-  return Number(units) + Number(nanos) / 1_000_000_000
-}

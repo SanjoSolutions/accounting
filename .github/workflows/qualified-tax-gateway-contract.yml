@@ -1,0 +1,47 @@
+name: Qualified tax gateway contract
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorization:
+        description: Confirm that the configured gateway and taxpayer are authorized for non-binding TEST/STAGING submissions
+        required: true
+        type: choice
+        options:
+          - DO_NOT_RUN
+          - AUTHORIZED_TEST_OR_STAGING
+
+jobs:
+  qualified-contract:
+    if: inputs.authorization == 'AUTHORIZED_TEST_OR_STAGING'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: tax-gateway-qualification
+    env:
+      QUALIFIED_TAX_GATEWAY_CONTRACT_ENABLED: 'true'
+      QUALIFIED_TAX_GATEWAY_CONTRACT_URL: ${{ secrets.QUALIFIED_TAX_GATEWAY_CONTRACT_URL }}
+      QUALIFIED_TAX_GATEWAY_CONTRACT_CREDENTIAL: ${{ secrets.QUALIFIED_TAX_GATEWAY_CONTRACT_CREDENTIAL }}
+      QUALIFIED_TAX_GATEWAY_CONTRACT_TAXPAYER_ID: ${{ secrets.QUALIFIED_TAX_GATEWAY_CONTRACT_TAXPAYER_ID }}
+      QUALIFIED_TAX_GATEWAY_CONTRACT_GATEWAY_ID: ${{ vars.QUALIFIED_TAX_GATEWAY_CONTRACT_GATEWAY_ID }}
+      QUALIFIED_TAX_GATEWAY_CONTRACT_QUALIFICATION_ID: ${{ vars.QUALIFIED_TAX_GATEWAY_CONTRACT_QUALIFICATION_ID }}
+      QUALIFIED_TAX_GATEWAY_CONTRACT_FORM_VERSIONS: USTVA-2025.1,UST_ANNUAL-2025.1,KST-2025.1,GEWST-2025.1,USTVA-2026.1,UST_ANNUAL-2026.1,KST-2026.1,GEWST-2026.1
+      QUALIFIED_TAX_GATEWAY_CONTRACT_ALLOW_SUBMISSION: 'true'
+      QUALIFIED_TAX_GATEWAY_CONTRACT_PROTOCOL_DIR: ${{ runner.temp }}/qualified-tax-protocols
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Execute authorized TEST/STAGING validation, rejection, and acceptance contracts
+        run: pnpm test:contract:qualified-tax
+      - name: Retain redacted machine-readable protocols
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualified-tax-gateway-protocols-${{ github.run_id }}
+          path: ${{ runner.temp }}/qualified-tax-protocols
+          if-no-files-found: warn
+          retention-days: 90

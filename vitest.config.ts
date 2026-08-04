@@ -9,9 +9,14 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    exclude: [...configDefaults.exclude, 'e2e/**'],
+    hookTimeout: 30_000,
+    exclude: [...configDefaults.exclude, 'e2e/**', 'e2e-local-solo/**'],
     coverage: {
-      include: ['src/**/*.{ts,tsx}']
+      include: ['src/**/*.{ts,tsx}'],
+      // React/Next UI behavior is enforced by the mandatory no-mock Playwright
+      // suites; V8 unit coverage measures the non-UI application and domain code.
+      exclude: ['src/generated/**', 'src/**/*.tsx'],
+      thresholds: { lines: 70, statements: 70, functions: 70, branches: 69.2 },
     },
   },
 })

@@ -55,6 +55,7 @@ export interface HgbWorkpaperEvidence {
   reviewedBy: string
   reviewedAt: string
   reason?: string
+  section5aReserveApplicable?: boolean
 }
 
 export interface HgbCloseReadinessInput {
@@ -191,6 +192,10 @@ export function evaluateHgbClose(input: HgbCloseReadinessInput): HgbCloseReadine
     if (workpaper.conclusion !== 'COMPLETE') add(blockers, 'REQUIRED_WORKPAPER_INCOMPLETE', `${kind} must have a COMPLETE conclusion.`, authority.recognition)
     if (!hasEvidence(workpaper)) add(blockers, 'WORKPAPER_EVIDENCE_MISSING', `${kind} requires retained evidence references.`, authority.recognition)
     if (!validReview(workpaper)) add(blockers, 'WORKPAPER_REVIEW_INVALID', `${kind} requires a dated review by a person distinct from its preparer.`, authority.statements)
+  }
+  const equityWorkpaper = (byKind.get('GMBH_EQUITY_AND_RESULT') ?? [])[0]
+  if (equityWorkpaper && (typeof equityWorkpaper.section5aReserveApplicable !== 'boolean' || equityWorkpaper.section5aReserveApplicable !== profile.section5aApplies)) {
+    add(blockers, 'SECTION_5A_APPLICABILITY_MISMATCH', 'The reviewed equity workpaper must agree with the company profile on whether the UG statutory reserve under GmbHG § 5a applies.', authority.approval)
   }
   if (!input.annualAccountsPackageId?.trim() || !/^[a-f0-9]{64}$/i.test(input.annualAccountsChecksum ?? '')) add(blockers, 'ANNUAL_ACCOUNTS_PACKAGE_MISSING', 'A validated immutable annual-accounts package and checksum are required.', authority.statements)
   if (!/^[a-f0-9]{64}$/i.test(input.ledgerFingerprint ?? '')) add(blockers, 'LEDGER_FINGERPRINT_MISSING', 'The approved close must be bound to the current ledger, mappings, profile, and evidence fingerprint.', authority.statements)

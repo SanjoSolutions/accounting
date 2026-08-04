@@ -2,6 +2,7 @@ import 'server-only'
 import { TaxDeclarationError } from '@/core/taxDeclarations'
 import { parseAnnualTaxValues, parseAnnualTaxYear, type AnnualTaxValue } from '@/core/annualTax'
 import { getCurrentUser } from '@/server/authentication'
+import { forbiddenUnless } from '@/server/authorization'
 import { annualTaxApplicability, prepareAnnualTaxDatasets } from '@/server/tax/annualRepository'
 import { requireTaxJsonObject, taxError } from '@/server/tax/http'
 
@@ -17,6 +18,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getCurrentUser(request.headers)
   if (!user) return Response.json({ success: false }, { status: 401 })
+  const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   try {
     const body = requireTaxJsonObject(await request.json(), 'Annual tax request') as { year?: number; values?: AnnualTaxValue[] }
     const year = parseAnnualTaxYear(body.year)

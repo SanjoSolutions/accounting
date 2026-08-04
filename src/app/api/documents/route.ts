@@ -7,6 +7,7 @@ import {
   listDocuments,
 } from '@/server'
 import { getCurrentUser } from '@/server/authentication'
+import { forbiddenUnless } from '@/server/authorization'
 import { EInvoiceValidationError } from '@/core/eInvoice'
 import { parseStructuredUpload, storeStructuredInvoice, StructuredInvoiceConflictError } from '@/server/tax/structuredInvoices'
 
@@ -23,6 +24,7 @@ export async function POST(request: Request) {
   if (!user) {
     return Response.json({ success: false }, { status: 401 })
   }
+  const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
 
   try {
     const content = await readDocumentBody(request, getMaxDocumentUploadBytes())
@@ -31,7 +33,9 @@ export async function POST(request: Request) {
     const structured = parseStructuredUpload(content, contentType, fileName)
     if (structured) {
       const invoice = await storeStructuredInvoice(user.id, structured, fileName)
-      return Response.json({ success: true, data: { id: invoice.documentId, structuredInvoice: invoice } }, { status: 201 })
+      const document = (await listDocuments(user.id)).find(item => item.id === invoice.documentId)
+      if (!document) throw new Error('Stored structured invoice document is unavailable.')
+      return Response.json({ success: true, data: { ...document, structuredInvoice: invoice } }, { status: 201 })
     }
     const document = await createDocument({
       content,

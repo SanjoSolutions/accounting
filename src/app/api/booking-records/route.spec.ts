@@ -20,7 +20,7 @@ describe('posting API', () => {
   })
 
   it('returns all accounting validation issues', async () => {
-    mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1' })
+    mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1', actorId: 'user-1', role: 'ADMIN' })
     mocks.postJournalEntry.mockRejectedValue(new AccountingValidationError(['Soll und Haben stimmen nicht überein.']))
     const response = await POST(request({ lines: [] }))
     expect(response.status).toBe(400)
@@ -28,7 +28,7 @@ describe('posting API', () => {
   })
 
   it('creates a valid immutable journal entry for the owner', async () => {
-    mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1' })
+    mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1', actorId: 'user-1', role: 'ADMIN' })
     mocks.postJournalEntry.mockResolvedValue({ id: 'entry-1' })
     const body = { bookingDate: '2026-01-01', description: 'Test', lines: [], documentIds: ['document-1', 'document-2'] }
     const response = await POST(request(body))
@@ -37,7 +37,7 @@ describe('posting API', () => {
   })
 
   it('returns 400 for malformed JSON instead of an internal error', async () => {
-    mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1' })
+    mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1', actorId: 'user-1', role: 'ADMIN' })
     const response = await POST(new Request('http://localhost/api/booking-records', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: '{',
     }))

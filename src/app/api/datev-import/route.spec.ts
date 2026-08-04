@@ -17,7 +17,7 @@ describe('DATEV import API', () => {
   })
 
   it('passes uploaded bytes to the tenant-scoped importer', async () => {
-    mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1' })
+    mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1', actorId: 'user-1', role: 'ADMIN' })
     mocks.importDatev.mockResolvedValue({ imported: 2, skipped: 0 })
     const response = await POST(requestWith(new File(['EXTF;700'], 'bookings.csv', { type: 'text/csv' })))
     expect(response.status).toBe(201)
@@ -25,7 +25,7 @@ describe('DATEV import API', () => {
   })
 
   it('returns validation details and rejects an empty upload', async () => {
-    mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1' })
+    mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1', actorId: 'user-1', role: 'ADMIN' })
     expect((await POST(requestWith())).status).toBe(400)
     mocks.importDatev.mockRejectedValue(new AccountingValidationError(['Ungültige DATEV-Datei.']))
     const response = await POST(requestWith(new File(['bad'], 'bad.csv')))

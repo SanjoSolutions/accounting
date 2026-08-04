@@ -16,26 +16,38 @@ export function Settings(): any {
   const [isLoading, setIsLoading] = useState(true)
   const [isFirstRender, setIsFirstRender] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [saveError, setSaveError] = useState('')
+  const [saveStatus, setSaveStatus] = useState('')
   const [name, setName, onNameChange] = useInputStateHandler('')
   const [streetAndHouseNumber, setStreetAndHouseNumber, onStreetAndHouseNumberChange] = useInputStateHandler('')
   const [zipCode, setZipCode, onZipCodeChange] = useInputStateHandler('')
   const [city, setCity, onCityChange] = useInputStateHandler('')
   const [country, setCountry, onCountryChange] = useInputStateHandler('')
+  const [contactName, setContactName, onContactNameChange] = useInputStateHandler('')
+  const [contactTelephone, setContactTelephone, onContactTelephoneChange] = useInputStateHandler('')
+  const [contactEmail, setContactEmail, onContactEmailChange] = useInputStateHandler('')
   const [chartOfAccounts, setChartOfAccounts, onChartOfAccountsChange] =
     useInputStateHandler<ChartOfAccountsStandard>('SKR03')
+  const [reverseChargeInputAccount, setReverseChargeInputAccount, onReverseChargeInputAccountChange] = useInputStateHandler('')
+  const [reverseChargeOutputAccount, setReverseChargeOutputAccount, onReverseChargeOutputAccountChange] = useInputStateHandler('')
   const nameElement = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     async function loadData() {
       try {
         const data = await readSettingsResponse(await api.get('/api/settings'))
-        const { name, streetAndHouseNumber, zipCode, city, country } = data.invoiceIssuer
+        const { name, streetAndHouseNumber, zipCode, city, country, contactName, contactTelephone, contactEmail } = data.invoiceIssuer
         setName(name)
         setStreetAndHouseNumber(streetAndHouseNumber)
         setZipCode(zipCode)
         setCity(city)
         setCountry(country)
+        setContactName(contactName ?? '')
+        setContactTelephone(contactTelephone ?? '')
+        setContactEmail(contactEmail ?? '')
         setChartOfAccounts(data.chartOfAccounts ?? 'SKR03')
+        setReverseChargeInputAccount(data.incomingReverseChargeAccounts ? String(data.incomingReverseChargeAccounts.inputVatAccountNumber) : '')
+        setReverseChargeOutputAccount(data.incomingReverseChargeAccounts ? String(data.incomingReverseChargeAccounts.outputVatAccountNumber) : '')
       } catch {
         setLoadError(t('Load failed'))
       } finally {
@@ -54,17 +66,16 @@ export function Settings(): any {
   const onSubmit = useCallback(
     async (event: any) => {
       event.preventDefault()
-
-      await api.put('/api/settings', {
-        invoiceIssuer: {
-          name,
-          streetAndHouseNumber,
-          zipCode,
-          city,
-          country,
-        },
-        chartOfAccounts,
-      })
+      setSaveError(''); setSaveStatus('')
+      try {
+        const response = await api.put('/api/settings', {
+          invoiceIssuer: { name, streetAndHouseNumber, zipCode, city, country, contactName, contactTelephone, contactEmail },
+          chartOfAccounts,
+          ...(reverseChargeInputAccount || reverseChargeOutputAccount ? { incomingReverseChargeAccounts: { chart: chartOfAccounts, rateBasisPoints: 1900, inputVatAccountNumber: Number(reverseChargeInputAccount), outputVatAccountNumber: Number(reverseChargeOutputAccount) } } : {}),
+        })
+        if (!response.ok) throw new Error(response.status === 403 ? 'Your role does not permit changes.' : 'Settings could not be saved.')
+        setSaveStatus('Settings saved.')
+      } catch (error) { setSaveError(error instanceof Error ? error.message : 'Settings could not be saved.') }
     },
     [
       name,
@@ -72,7 +83,12 @@ export function Settings(): any {
       zipCode,
       city,
       country,
+      contactName,
+      contactTelephone,
+      contactEmail,
       chartOfAccounts,
+      reverseChargeInputAccount,
+      reverseChargeOutputAccount,
     ],
   )
 
@@ -85,6 +101,8 @@ export function Settings(): any {
           </div> :
           loadError ? <div className="alert alert-danger" role="alert">{loadError}</div> :
           <form onSubmit={ onSubmit }>
+            {saveError && <p className="alert alert-danger" role="alert">{saveError}</p>}
+            {saveStatus && <p className="alert alert-success" role="status">{saveStatus}</p>}
             <fieldset>
               <legend>{ t('Invoice issuer') }</legend>
 
@@ -99,6 +117,9 @@ export function Settings(): any {
                   onChange={ onNameChange }
                 />
               </div>
+              <div className="mb-3"><label htmlFor="contactName" className="form-label">{ t('Contact name') }</label><input type="text" className="form-control" id="contactName" value={contactName} onChange={onContactNameChange} /></div>
+              <div className="mb-3"><label htmlFor="contactTelephone" className="form-label">{ t('Contact telephone') }</label><input type="tel" className="form-control" id="contactTelephone" value={contactTelephone} onChange={onContactTelephoneChange} /></div>
+              <div className="mb-3"><label htmlFor="contactEmail" className="form-label">{ t('Contact email') }</label><input type="email" className="form-control" id="contactEmail" value={contactEmail} onChange={onContactEmailChange} /></div>
 
               <div className="mb-3">
                 <label htmlFor="streetAndHouseNumber" className="form-label">{ t('Street and house number') }</label>
@@ -155,6 +176,12 @@ export function Settings(): any {
                   </option>
                 )) }
               </select>
+              <div className="mt-3"><p className="form-text">{t('Reverse charge hint')}</p>
+                <label htmlFor="reverseChargeInputAccount" className="form-label">{t('Reverse charge input account')}</label>
+                <input id="reverseChargeInputAccount" className="form-control" inputMode="numeric" pattern="[0-9]+" value={reverseChargeInputAccount} onChange={onReverseChargeInputAccountChange} />
+                <label htmlFor="reverseChargeOutputAccount" className="form-label mt-2">{t('Reverse charge output account')}</label>
+                <input id="reverseChargeOutputAccount" className="form-control" inputMode="numeric" pattern="[0-9]+" value={reverseChargeOutputAccount} onChange={onReverseChargeOutputAccountChange} />
+              </div>
             </fieldset>
 
             <div className="text-end">
@@ -167,8 +194,9 @@ export function Settings(): any {
 }
 
 export async function readSettingsResponse(response: Response): Promise<{
-  invoiceIssuer: { name: string; streetAndHouseNumber: string; zipCode: string; city: string; country: string }
+  invoiceIssuer: { name: string; streetAndHouseNumber: string; zipCode: string; city: string; country: string; contactName?: string; contactTelephone?: string; contactEmail?: string }
   chartOfAccounts?: ChartOfAccountsStandard
+  incomingReverseChargeAccounts?: { chart: ChartOfAccountsStandard; rateBasisPoints: 1900; inputVatAccountNumber: number; outputVatAccountNumber: number }
 }> {
   const body = await getJSON(response)
   if (!response.ok || !body?.data || typeof body.data !== 'object' || !body.data.invoiceIssuer) {

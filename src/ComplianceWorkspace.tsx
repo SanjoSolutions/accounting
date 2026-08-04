@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useTranslations } from 'next-intl'
 
 type Profile = {
@@ -17,17 +17,20 @@ type Overview = {
   chart: { chart: string; mappings: unknown[] } | null
   audit: { verified: boolean; events: unknown[] }
   operations: { policy: unknown; profileAddressMigrations?: Array<{ id: string; effectiveFrom: string; confirmed: boolean }>; artifacts: Array<{ id: string; objectType: string; objectId: string; retainUntil: string; legalHoldUntil?: string; disposedAt?: string }>; drafts: Array<{ id: string; status: string; version: number }>; reopenRequests: Array<{ id: string; status: string; fiscalYearId: string }>; amendments: Array<{ id: string; kind: string; status: string }>; backups: Array<{ id: string; status: string; storageRegion: string; recoveryPointAt: string }> }
+  reportingPackages: Array<{ id: string; kind: string; fiscalPeriodId?: string | null; version: number; status: string; checksum: string }>
 }
 
 export const complianceHref = '/compliance'
 export const EMPTY_PROFILE: Profile = { companyName: '', legalForm: 'SOLE_TRADER', taxNumber: '', taxOffice: '', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: '', sizeClass: 'MICRO', chart: 'SKR03', elections: [], eBilanz: { accountingStandard: 'HGB', incomeStatementMethod: 'GKV', statementType: 'E', reportStatus: 'E', consolidationRange: 'EA', incomeClassification: 'trade' } }
-const EMPTY_UG_TAX_PROFILE: NonNullable<Profile['annualTaxProfile']> = { tradeBusiness: true, establishments: 1, adviserExtension: false, municipalityCode: '', tradeTaxMultiplierBasisPoints: 40000, foreignIncome: false, groupOrConsolidation: false, lossCarry: false, specialRegime: false, withholdingOrCredits: false, payroll: false }
+const EMPTY_CAPITAL_COMPANY_TAX_PROFILE: NonNullable<Profile['annualTaxProfile']> = { tradeBusiness: true, establishments: 1, adviserExtension: false, municipalityCode: '', tradeTaxMultiplierBasisPoints: 40000, foreignIncome: false, groupOrConsolidation: false, lossCarry: false, specialRegime: false, withholdingOrCredits: false, payroll: false }
 
 export function parseJsonObject(value: string): Record<string, unknown> {
   const parsed = JSON.parse(value) as unknown
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new TypeError('JSON object required')
   return parsed as Record<string, unknown>
 }
+export function requireEffectiveDate(value: string) { if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())) throw new TypeError('Valid effective date required'); return value }
+export function supportsCapitalCompanyTaxProfile(legalForm: string) { return legalForm === 'UG' || legalForm === 'GMBH' }
 
 export async function requestComplianceAction(payload: Record<string, unknown>) {
   const response = await fetch('/api/compliance', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
@@ -41,32 +44,55 @@ export function ComplianceWorkspace() {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE)
   const [reason, setReason] = useState('')
+  const [profileEffectiveFrom, setProfileEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10))
+  const [mappingEffectiveFrom, setMappingEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10))
   const [overridesText, setOverridesText] = useState('{}')
   const [period, setPeriod] = useState({ referenceYear: new Date().getFullYear(), label: '', startsAt: `${new Date().getFullYear()}-01-01`, endsAt: `${new Date().getFullYear()}-12-31`, reason: '' })
   const [customChartId, setCustomChartId] = useState('CUSTOM:')
   const [customMappings, setCustomMappings] = useState('[\n  {"accountNumber": 1000, "name": "Cash", "accountType": "ASSET", "normalBalance": "DEBIT", "hgbPosition": "HGB.266", "eBilanzPosition": "bs.ass.currAss.cashEquiv.cash"}\n]')
+  const [historicalHgbYears, setHistoricalHgbYears] = useState(String(new Date().getFullYear()))
+  const [historicalHgbEvidenceId, setHistoricalHgbEvidenceId] = useState('')
+  const [annualPackagePeriodId, setAnnualPackagePeriodId] = useState('')
+  const [annualPackageReason, setAnnualPackageReason] = useState('')
+  const [approvalPackageId, setApprovalPackageId] = useState('')
+  const [approvalReason, setApprovalReason] = useState('')
+  const [policyOperators, setPolicyOperators] = useState('')
+  const [policyRegions, setPolicyRegions] = useState('DE')
+  const [policyRpo, setPolicyRpo] = useState(60)
+  const [policyRto, setPolicyRto] = useState(60)
+  const [policyKeyId, setPolicyKeyId] = useState('')
+  const [policyReason, setPolicyReason] = useState('')
   const [operation, setOperation] = useState('draft.create')
   const [operationPayload, setOperationPayload] = useState('{}')
   const [busy, setBusy] = useState(false)
+  const [refreshing, setRefreshing] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const refreshSequence = useRef(0)
+  const profileEditRevision = useRef(0)
 
   const operationExamples = useMemo(() => complianceOperationExamples(overview), [overview])
   useEffect(() => { setOperationPayload(JSON.stringify(operationExamples[operation] ?? {}, null, 2)) }, [operation, operationExamples])
   useEffect(() => { void refresh() }, [])
 
   async function refresh() {
+    const sequence = ++refreshSequence.current
+    const profileRevisionAtStart = profileEditRevision.current
+    setRefreshing(true)
     setError('')
     try {
-      const [settingsResponse, overviewResponse] = await Promise.all([fetch('/api/settings'), fetch('/api/compliance')])
-      const settingsBody = await settingsResponse.json(); const overviewBody = await overviewResponse.json()
-      if (!settingsResponse.ok || !overviewResponse.ok) throw new Error(overviewBody.error ?? t('loadFailed'))
-      const next = overviewBody.data as Overview
+      const [settingsResponse, overviewResponse, reportingResponse] = await Promise.all([fetch('/api/settings'), fetch('/api/compliance'), fetch('/api/compliance?view=reporting')])
+      const settingsBody = await settingsResponse.json(); const overviewBody = await overviewResponse.json(); const reportingBody = await reportingResponse.json()
+      if (!settingsResponse.ok || !overviewResponse.ok || !reportingResponse.ok) throw new Error(overviewBody.error ?? reportingBody.error ?? t('loadFailed'))
+      const next = { ...overviewBody.data, reportingPackages: reportingBody.data.packages ?? [] } as Overview
       setOverview(next)
+      setAnnualPackagePeriodId(current => next.periods.some(item => item.id === current) ? current : next.periods.at(-1)?.id ?? '')
+      setApprovalPackageId(current => next.reportingPackages.some(item => item.id === current && item.status === 'CREATED') ? current : next.reportingPackages.find(item => item.kind === 'ANNUAL_ACCOUNTS' && item.status === 'CREATED')?.id ?? '')
       const nextProfile = next.profile?.value ?? settingsBody.data.companyProfile ?? EMPTY_PROFILE
-      setProfile(nextProfile)
+      if (profileRefreshMayApply(profileRevisionAtStart, profileEditRevision.current)) setProfile(nextProfile)
       setOverridesText(JSON.stringify(nextProfile.applicabilityOverrides ?? {}, null, 2))
     } catch (caught) { setError(caught instanceof Error ? caught.message : t('loadFailed')) }
+    finally { if (sequence === refreshSequence.current) setRefreshing(false) }
   }
 
   async function execute(task: () => Promise<unknown>, message: string) {
@@ -83,7 +109,7 @@ export function ComplianceWorkspace() {
       const applicabilityOverrides = parseJsonObject(overridesText)
       if (Object.values(applicabilityOverrides).some(value => typeof value !== 'boolean')) throw new Error(t('overrideBooleanRequired'))
       const profileToSave = { ...profile, applicabilityOverrides }
-      const response = await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companyProfile: profileToSave, companyProfileEffectiveFrom: new Date().toISOString().slice(0, 10), changeReason: reason }) })
+      const response = await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companyProfile: profileToSave, companyProfileEffectiveFrom: requireEffectiveDate(profileEffectiveFrom), changeReason: reason }) })
       const body = await response.json(); if (!response.ok) throw new Error(body.error ?? t('actionFailed'))
       setReason('')
     }, t('profileSaved'))
@@ -99,58 +125,84 @@ export function ComplianceWorkspace() {
       const mappings = JSON.parse(customMappings) as unknown
       if (!Array.isArray(mappings)) throw new Error(t('mappingArrayRequired'))
       const nextProfile = { ...profile, chart: customChartId }
-      const today = new Date().toISOString().slice(0, 10)
-      const response = await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ importedChart: { id: customChartId, mappings }, mappingEffectiveFrom: today, companyProfile: nextProfile, companyProfileEffectiveFrom: today, changeReason: reason }) })
+      const effectiveFrom = requireEffectiveDate(mappingEffectiveFrom)
+      const response = await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ importedChart: { id: customChartId, mappings }, mappingEffectiveFrom: effectiveFrom, companyProfile: nextProfile, companyProfileEffectiveFrom: effectiveFrom, changeReason: reason }) })
       const body = await response.json(); if (!response.ok) throw new Error(body.error ?? t('actionFailed'))
       setProfile(nextProfile); setReason('')
     }, t('chartActivated'))
+  }
+
+  async function onboardHistoricalHgb(event: FormEvent) {
+    event.preventDefault(); await execute(async () => {
+      const years = historicalHgbYears.split(',').map(value => Number(value.trim())).filter(value => Number.isFinite(value))
+      if (!years.length || new Set(years).size !== years.length) throw new TypeError('One or more unique historical fiscal years are required')
+      const requests = years.flatMap(year => historicalHgbOnboardingRequests({ year, profile, chartId: customChartId, mappings: JSON.parse(customMappings) as unknown, evidenceId: historicalHgbEvidenceId, reason }))
+      for (const request of requests) {
+        const response = await fetch(request.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request.body) })
+        const body = await response.json(); if (!response.ok) throw new Error(body.error ?? t('actionFailed'))
+      }
+      setReason('')
+    }, 'The evidence-qualified historical HGB profile and mappings were onboarded.')
   }
 
   async function runOperation(event: FormEvent) {
     event.preventDefault(); await execute(() => requestComplianceAction({ action: operation, ...parseJsonObject(operationPayload) }), t('operationCompleted'))
   }
 
+  async function createAnnualPackage(event: FormEvent) {
+    event.preventDefault(); await execute(() => requestComplianceAction({ action: 'reporting.annual.create', fiscalPeriodId: annualPackagePeriodId, reason: annualPackageReason }), 'The annual-accounts package was prepared.'); setAnnualPackageReason('')
+  }
+
+  async function approveAnnualPackage(event: FormEvent) {
+    event.preventDefault(); await execute(() => requestComplianceAction({ action: 'reporting.package.approve', packageId: approvalPackageId, reason: approvalReason }), 'The annual-accounts package was independently approved.'); setApprovalReason('')
+  }
+
+  async function saveOperatorPolicy(event: FormEvent) {
+    event.preventDefault(); await execute(() => requestComplianceAction(compliancePolicyRequest({ operatorIds: policyOperators, regions: policyRegions, rpo: policyRpo, rto: policyRto, keyId: policyKeyId, reason: policyReason })), 'The jurisdiction and recovery policy was saved.'); setPolicyReason('')
+  }
+
   const applicability = overview?.profile?.applicability ?? {}
-  return <div className="workspace pb-4 compliance-workspace">
+  return <div className="workspace pb-4 compliance-workspace" aria-busy={busy || refreshing} data-compliance-ready={!busy && !refreshing ? 'true' : 'false'}>
     <header className="page-heading"><div><span className="eyebrow">{t('eyebrow')}</span><h1>{t('title')}</h1><p>{t('subtitle')}</p></div><button type="button" className="btn btn-outline-secondary" disabled={busy} onClick={() => void refresh()}>{t('refresh')}</button></header>
     {error && <div className="alert alert-danger" role="alert">{error}</div>}
     {success && <p className="alert alert-success" role="status">{success}</p>}
 
     <section className="card panel"><div className="panel-title"><div><span className="step">1</span><h2>{t('profile')}</h2></div><span className={`badge status ${overview?.audit.verified ? 'closed' : 'open'}`}>{overview?.audit.verified ? t('auditVerified') : t('auditUnverified')}</span></div>
-      <form onSubmit={saveProfile}>
+      <form onSubmit={saveProfile} onChange={() => { profileEditRevision.current++ }}>
         <div className="form-grid">
-          <Text label={t('companyName')} value={profile.companyName} onChange={companyName => setProfile({ ...profile, companyName })} />
-          <Text label={t('street')} value={profile.registeredAddress?.streetAndHouseNumber ?? ''} onChange={streetAndHouseNumber => setProfile({ ...profile, registeredAddress: { streetAndHouseNumber, zipCode: profile.registeredAddress?.zipCode ?? '', city: profile.registeredAddress?.city ?? '', country: profile.registeredAddress?.country ?? 'DE' } })} />
-          <Text label={t('postalCode')} value={profile.registeredAddress?.zipCode ?? ''} onChange={zipCode => setProfile({ ...profile, registeredAddress: { streetAndHouseNumber: profile.registeredAddress?.streetAndHouseNumber ?? '', zipCode, city: profile.registeredAddress?.city ?? '', country: profile.registeredAddress?.country ?? 'DE' } })} />
-          <Text label={t('city')} value={profile.registeredAddress?.city ?? ''} onChange={city => setProfile({ ...profile, registeredAddress: { streetAndHouseNumber: profile.registeredAddress?.streetAndHouseNumber ?? '', zipCode: profile.registeredAddress?.zipCode ?? '', city, country: profile.registeredAddress?.country ?? 'DE' } })} />
-          <Text label={t('country')} value={profile.registeredAddress?.country ?? ''} onChange={country => setProfile({ ...profile, registeredAddress: { streetAndHouseNumber: profile.registeredAddress?.streetAndHouseNumber ?? '', zipCode: profile.registeredAddress?.zipCode ?? '', city: profile.registeredAddress?.city ?? '', country } })} />
-          <Select label={t('legalForm')} value={profile.legalForm} values={['SOLE_TRADER', 'GMBH', 'UG', 'AG', 'OHG', 'KG', 'GBR', 'PARTNERSHIP', 'OTHER']} onChange={legalForm => setProfile({ ...profile, legalForm, ...(legalForm === 'UG' ? { annualTaxProfile: profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE } : {}) })} />
-          <Text label={t('registerCourt')} value={profile.registerCourt ?? ''} onChange={registerCourt => setProfile({ ...profile, registerCourt: registerCourt || undefined })} />
-          <Text label={t('registerNumber')} value={profile.registerNumber ?? ''} onChange={registerNumber => setProfile({ ...profile, registerNumber: registerNumber || undefined })} />
-          <Text label={t('taxNumber')} value={profile.taxNumber} onChange={taxNumber => setProfile({ ...profile, taxNumber })} />
+          <Text label={t('companyName')} value={profile.companyName} onChange={companyName => setProfile(current => ({ ...current, companyName }))} />
+          <Text label={t('street')} value={profile.registeredAddress?.streetAndHouseNumber ?? ''} onChange={streetAndHouseNumber => setProfile(current => ({ ...current, registeredAddress: { streetAndHouseNumber, zipCode: current.registeredAddress?.zipCode ?? '', city: current.registeredAddress?.city ?? '', country: current.registeredAddress?.country ?? 'DE' } }))} />
+          <Text label={t('postalCode')} value={profile.registeredAddress?.zipCode ?? ''} onChange={zipCode => setProfile(current => ({ ...current, registeredAddress: { streetAndHouseNumber: current.registeredAddress?.streetAndHouseNumber ?? '', zipCode, city: current.registeredAddress?.city ?? '', country: current.registeredAddress?.country ?? 'DE' } }))} />
+          <Text label={t('city')} value={profile.registeredAddress?.city ?? ''} onChange={city => setProfile(current => ({ ...current, registeredAddress: { streetAndHouseNumber: current.registeredAddress?.streetAndHouseNumber ?? '', zipCode: current.registeredAddress?.zipCode ?? '', city, country: current.registeredAddress?.country ?? 'DE' } }))} />
+          <Text label={t('country')} value={profile.registeredAddress?.country ?? ''} onChange={country => setProfile(current => ({ ...current, registeredAddress: { streetAndHouseNumber: current.registeredAddress?.streetAndHouseNumber ?? '', zipCode: current.registeredAddress?.zipCode ?? '', city: current.registeredAddress?.city ?? '', country } }))} />
+          <Select label={t('legalForm')} value={profile.legalForm} values={['SOLE_TRADER', 'GMBH', 'UG', 'AG', 'OHG', 'KG', 'GBR', 'PARTNERSHIP', 'OTHER']} onChange={legalForm => setProfile(current => ({ ...current, legalForm, ...(supportsCapitalCompanyTaxProfile(legalForm) ? { annualTaxProfile: current.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE } : {}) }))} />
+          <Text label={t('registerCourt')} value={profile.registerCourt ?? ''} onChange={registerCourt => setProfile(current => ({ ...current, registerCourt: registerCourt || undefined }))} />
+          <Text label={t('registerNumber')} value={profile.registerNumber ?? ''} onChange={registerNumber => setProfile(current => ({ ...current, registerNumber: registerNumber || undefined }))} />
+          <Text label={t('taxNumber')} value={profile.taxNumber} onChange={taxNumber => setProfile(current => ({ ...current, taxNumber }))} />
           <Text label={t('vatId')} value={profile.vatId ?? ''} onChange={vatId => setProfile({ ...profile, vatId: vatId || undefined })} />
-          <Text label={t('taxOffice')} value={profile.taxOffice} onChange={taxOffice => setProfile({ ...profile, taxOffice })} />
+          <Text label={t('taxOffice')} value={profile.taxOffice} onChange={taxOffice => setProfile(current => ({ ...current, taxOffice }))} />
           <Select label={t('vatRegime')} value={profile.vatRegime} values={['STANDARD', 'SMALL_BUSINESS', 'EXEMPT']} onChange={vatRegime => setProfile({ ...profile, vatRegime })} />
           <Select label={t('filingFrequency')} value={profile.vatFilingFrequency} values={['MONTHLY', 'QUARTERLY', 'ANNUAL']} onChange={vatFilingFrequency => setProfile({ ...profile, vatFilingFrequency })} />
-          <Text label={t('activity')} value={profile.activity} onChange={activity => setProfile({ ...profile, activity })} />
+          <Text label={t('activity')} value={profile.activity} onChange={activity => setProfile(current => ({ ...current, activity }))} />
           <Select label={t('sizeClass')} value={profile.sizeClass} values={['MICRO', 'SMALL', 'MEDIUM', 'LARGE']} onChange={sizeClass => setProfile({ ...profile, sizeClass })} />
-          <Text label={t('chart')} value={profile.chart} onChange={chart => setProfile({ ...profile, chart })} />
+          <Text label={t('chart')} value={profile.chart} onChange={chart => setProfile(current => ({ ...current, chart }))} />
           <Text label={t('elections')} value={profile.elections.join(', ')} onChange={value => setProfile({ ...profile, elections: value.split(',').map(item => item.trim()).filter(Boolean) })} />
+          <Text label={t('profileEffectiveFrom')} type="date" value={profileEffectiveFrom} onChange={setProfileEffectiveFrom} required />
           <Select label={t('eBilanzAccountingStandard')} value={profile.eBilanz?.accountingStandard ?? 'HGB'} values={['HGB', 'OTHER']} onChange={accountingStandard => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), accountingStandard: accountingStandard as 'HGB' | 'OTHER' } })} />
           <Select label={t('eBilanzIncomeStatement')} value={profile.eBilanz?.incomeStatementMethod ?? 'GKV'} values={['GKV', 'UKV']} onChange={incomeStatementMethod => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), incomeStatementMethod: incomeStatementMethod as 'GKV' | 'UKV' } })} />
           <Select label={t('eBilanzStatementType')} value={profile.eBilanz?.statementType ?? 'E'} values={['E', 'K', 'PB']} onChange={statementType => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), statementType: statementType as 'E' | 'K' | 'PB' } })} />
           <Select label={t('eBilanzReportStatus')} value={profile.eBilanz?.reportStatus ?? 'E'} values={['E', 'F']} onChange={reportStatus => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), reportStatus: reportStatus as 'E' | 'F' } })} />
           <Select label={t('eBilanzConsolidation')} value={profile.eBilanz?.consolidationRange ?? 'EA'} values={['EA', 'KA']} onChange={consolidationRange => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), consolidationRange: consolidationRange as 'EA' | 'KA' } })} />
           <Text label={t('eBilanzIncomeClassification')} value={profile.eBilanz?.incomeClassification ?? ''} onChange={incomeClassification => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), incomeClassification } })} required />
-          {profile.legalForm === 'UG' && <>
-            <Text label="Amtlicher Gemeindeschlüssel (8 Stellen)" value={profile.annualTaxProfile?.municipalityCode ?? ''} onChange={municipalityCode => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), municipalityCode } })} required />
-            <Text label="Gewerbesteuer-Hebesatz (%)" type="number" value={String((profile.annualTaxProfile?.tradeTaxMultiplierBasisPoints ?? 40000) / 100)} onChange={value => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), tradeTaxMultiplierBasisPoints: Math.round(Number(value) * 100) } })} required />
-            <BooleanFact label="Auslandseinkünfte vorhanden" checked={profile.annualTaxProfile?.foreignIncome ?? false} onChange={foreignIncome => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), foreignIncome } })} />
-            <BooleanFact label="Organschaft/Konzern vorhanden" checked={profile.annualTaxProfile?.groupOrConsolidation ?? false} onChange={groupOrConsolidation => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), groupOrConsolidation } })} />
-            <BooleanFact label="Verlustvortrag oder laufender Verlust vorhanden" checked={profile.annualTaxProfile?.lossCarry ?? false} onChange={lossCarry => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), lossCarry } })} />
-            <BooleanFact label="Sonderregime vorhanden" checked={profile.annualTaxProfile?.specialRegime ?? false} onChange={specialRegime => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), specialRegime } })} />
-            <BooleanFact label="Anrechnungen/Quellensteuern vorhanden" checked={profile.annualTaxProfile?.withholdingOrCredits ?? false} onChange={withholdingOrCredits => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), withholdingOrCredits } })} />
-            <BooleanFact label="Lohnabrechnung vorhanden" checked={profile.annualTaxProfile?.payroll ?? false} onChange={payroll => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_UG_TAX_PROFILE), payroll } })} />
+          {supportsCapitalCompanyTaxProfile(profile.legalForm) && <>
+            <Text label="Amtlicher Gemeindeschlüssel (8 Stellen)" value={profile.annualTaxProfile?.municipalityCode ?? ''} onChange={municipalityCode => setProfile(current => ({ ...current, annualTaxProfile: { ...(current.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), municipalityCode } }))} required />
+            <Text label="Gewerbesteuer-Hebesatz (%)" type="number" value={String((profile.annualTaxProfile?.tradeTaxMultiplierBasisPoints ?? 40000) / 100)} onChange={value => setProfile(current => ({ ...current, annualTaxProfile: { ...(current.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), tradeTaxMultiplierBasisPoints: Math.round(Number(value) * 100) } }))} required />
+            <BooleanFact label="Auslandseinkünfte vorhanden" checked={profile.annualTaxProfile?.foreignIncome ?? false} onChange={foreignIncome => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), foreignIncome } })} />
+            <BooleanFact label="Organschaft/Konzern vorhanden" checked={profile.annualTaxProfile?.groupOrConsolidation ?? false} onChange={groupOrConsolidation => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), groupOrConsolidation } })} />
+            <BooleanFact label="Verlustvortrag oder laufender Verlust vorhanden" checked={profile.annualTaxProfile?.lossCarry ?? false} onChange={lossCarry => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), lossCarry } })} />
+            <BooleanFact label="Sonderregime vorhanden" checked={profile.annualTaxProfile?.specialRegime ?? false} onChange={specialRegime => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), specialRegime } })} />
+            <BooleanFact label="Anrechnungen/Quellensteuern vorhanden" checked={profile.annualTaxProfile?.withholdingOrCredits ?? false} onChange={withholdingOrCredits => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), withholdingOrCredits } })} />
+            <BooleanFact label="Lohnabrechnung vorhanden" checked={profile.annualTaxProfile?.payroll ?? false} onChange={payroll => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), payroll } })} />
           </>}
           <label className="full-width">{t('applicabilityOverrides')}<textarea rows={4} value={overridesText} onChange={event => setOverridesText(event.target.value)} /></label>
           <Text label={t('changeReason')} value={reason} onChange={setReason} required />
@@ -165,13 +217,18 @@ export function ComplianceWorkspace() {
     </section>
 
     <section className="card panel"><div className="panel-title"><div><span className="step">3</span><h2>{t('chartLifecycle')}</h2></div><span className="badge text-bg-light hint">{overview?.chart?.chart ?? '—'}</span></div>
-      <form onSubmit={activateCustomChart}><div className="form-grid"><Text label={t('customChartId')} value={customChartId} onChange={setCustomChartId} required /><label className="full-width">{t('mappingJson')}<textarea className="form-control" rows={8} value={customMappings} onChange={event => setCustomMappings(event.target.value)} /></label><Text label={t('changeReason')} value={reason} onChange={setReason} required /></div><button className="btn btn-primary" disabled={busy}>{t('activateChart')}</button></form>
+      <form onSubmit={activateCustomChart}><div className="form-grid"><Text label={t('customChartId')} value={customChartId} onChange={setCustomChartId} required /><Text label={t('mappingEffectiveFrom')} type="date" value={mappingEffectiveFrom} onChange={setMappingEffectiveFrom} required /><label className="full-width">{t('mappingJson')}<textarea className="form-control" rows={8} value={customMappings} onChange={event => setCustomMappings(event.target.value)} /></label><Text label={t('changeReason')} value={reason} onChange={setReason} required /></div><button className="btn btn-primary" disabled={busy}>{t('activateChart')}</button></form>
       <details><summary>{t('mappingHistory')} ({overview?.chart?.mappings.length ?? 0})</summary><pre>{JSON.stringify(overview?.chart?.mappings ?? [], null, 2)}</pre></details>
+      <form onSubmit={onboardHistoricalHgb} className="mt-4"><fieldset><legend>Evidence-qualified historical HGB onboarding</legend><p>Use this only for completed fiscal years. The company profile above and mapping JSON are copied into immutable, year-bounded HGB versions and must be supported by retained evidence. Multiple comma-separated years are processed from the same reviewed facts before the form refreshes.</p><div className="form-grid"><Text label="Historical HGB fiscal years" value={historicalHgbYears} onChange={setHistoricalHgbYears} required /><Text label="Retained evidence document ID" value={historicalHgbEvidenceId} onChange={setHistoricalHgbEvidenceId} required /><Text label={t('changeReason')} value={reason} onChange={setReason} required /></div><button className="btn btn-outline-primary" disabled={busy || refreshing}>Onboard historical HGB profile and mappings</button></fieldset></form>
     </section>
 
     <section className="card panel"><div className="panel-title"><div><span className="step">4</span><h2>{t('workflows')}</h2></div><span className="badge text-bg-light hint">{t('workflowHint')}</span></div>
+      <form onSubmit={saveOperatorPolicy} className="mb-4"><fieldset><legend>Jurisdiction, reviewers and recovery policy</legend><div className="form-grid"><Text label="Operator user IDs" value={policyOperators} onChange={setPolicyOperators} required /><Text label="Allowed storage regions" value={policyRegions} onChange={setPolicyRegions} required /><Text label="Recovery point objective (minutes)" type="number" value={String(policyRpo)} onChange={value => setPolicyRpo(Number(value))} required /><Text label="Recovery time objective (minutes)" type="number" value={String(policyRto)} onChange={value => setPolicyRto(Number(value))} required /><Text label="Backup key ID" value={policyKeyId} onChange={setPolicyKeyId} required /><Text label="Policy reason" value={policyReason} onChange={setPolicyReason} required /></div><button className="btn btn-outline-primary" disabled={busy}>Save jurisdiction and recovery policy</button></fieldset></form>
+      <div className="form-grid mb-4"><form onSubmit={createAnnualPackage}><fieldset><legend>Prepare annual-accounts package</legend><label>Fiscal period<select className="form-select" value={annualPackagePeriodId} onChange={event => setAnnualPackagePeriodId(event.target.value)} required><option value="">Select a period</option>{overview?.periods.map(item => <option key={item.id} value={item.id}>{item.label} · {item.startsAt}–{item.endsAt}</option>)}</select></label><Text label="Preparation reason" value={annualPackageReason} onChange={setAnnualPackageReason} required /><button className="btn btn-primary" disabled={busy || !annualPackagePeriodId}>Prepare annual accounts</button></fieldset></form>
+      <form onSubmit={approveAnnualPackage}><fieldset><legend>Independent annual-accounts approval</legend><label>Prepared annual-accounts package<select className="form-select" value={approvalPackageId} onChange={event => setApprovalPackageId(event.target.value)} required><option value="">Select a prepared package</option>{preparedAnnualPackages(overview?.reportingPackages ?? []).map(item => <option key={item.id} value={item.id}>Version {item.version} · {item.id}</option>)}</select></label><Text label="Approval reason" value={approvalReason} onChange={setApprovalReason} required /><button className="btn btn-primary" disabled={busy || !approvalPackageId}>Approve annual accounts independently</button></fieldset></form></div>
       <form onSubmit={runOperation}><div className="form-grid"><label>{t('operation')}<select className="form-select" value={operation} onChange={event => setOperation(event.target.value)}>{Object.keys(operationExamples).map(name => <option key={name}>{name}</option>)}</select></label><label className="full-width">{t('operationPayload')}<textarea className="form-control" rows={12} value={operationPayload} onChange={event => setOperationPayload(event.target.value)} /></label></div><button className="btn btn-primary" disabled={busy}>{t('execute')}</button></form>
       <div className="compliance-status-grid"><StatusList title={t('drafts')} items={overview?.operations.drafts ?? []} /><StatusList title={t('reopenRequests')} items={overview?.operations.reopenRequests ?? []} /><StatusList title={t('amendments')} items={overview?.operations.amendments ?? []} /><StatusList title={t('profileAddressMigrations')} items={overview?.operations.profileAddressMigrations ?? []} /><StatusList title={t('retainedArtifacts')} items={overview?.operations.artifacts ?? []} /><StatusList title={t('backups')} items={overview?.operations.backups ?? []} /></div>
+      {overview?.operations.backups[0] && <p><a className="btn btn-outline-secondary" href={`/api/compliance/backups/${overview.operations.backups[0].id}`} download>{t('downloadBackup')}</a></p>}
       <details><summary>{t('operatorPolicy')}</summary><pre>{JSON.stringify(overview?.operations.policy ?? null, null, 2)}</pre></details>
     </section>
   </div>
@@ -217,4 +274,31 @@ export function complianceOperationExamples(overview: Overview | null): Record<s
     'reporting.cash-audit.create': { fiscalPeriodId: periodId, cashBookId: 'cash-main', reason: 'Generated daily cash-book audit data' },
     'reporting.package.approve': { packageId: overview?.operations.artifacts.find(item => item.objectType === 'CompliancePackage')?.objectId ?? 'package-id', reason: 'Independent approval and establishment' },
   }
+}
+
+export function historicalHgbOnboardingRequests(input: { year: number; profile: Profile; chartId: string; mappings: unknown; evidenceId: string; reason: string }) {
+  if (!Number.isSafeInteger(input.year) || input.year < 1900 || input.year > 9999) throw new TypeError('Historical HGB fiscal year must be a four-digit integer')
+  if (!input.evidenceId.trim()) throw new TypeError('Retained evidence document ID is required')
+  if (!input.reason.trim()) throw new TypeError('A documented reason is required')
+  if (!input.chartId.startsWith('CUSTOM:')) throw new TypeError('A custom HGB chart ID is required')
+  if (!Array.isArray(input.mappings) || !input.mappings.length) throw new TypeError('At least one HGB mapping is required')
+  return [
+    { url: `/api/fiscal-years/${input.year}/hgb-close/profile`, body: { profile: input.profile, evidenceId: input.evidenceId.trim(), reason: input.reason.trim() } },
+    { url: `/api/fiscal-years/${input.year}/hgb-close/mappings`, body: { chartId: input.chartId, size: input.profile.sizeClass, method: input.profile.eBilanz?.incomeStatementMethod, mappings: input.mappings, evidenceId: input.evidenceId.trim(), reason: input.reason.trim() } },
+  ]
+}
+
+export function preparedAnnualPackages(packages: Array<{ id: string; kind: string; version: number; status: string }>) {
+  return packages.filter(item => item.kind === 'ANNUAL_ACCOUNTS' && item.status === 'CREATED')
+}
+
+export function compliancePolicyRequest(input: { operatorIds: string; regions: string; rpo: number; rto: number; keyId: string; reason: string }) {
+  const operatorIds = input.operatorIds.split(',').map(value => value.trim()).filter(Boolean)
+  const allowedStorageRegions = input.regions.split(',').map(value => value.trim()).filter(Boolean)
+  if (!operatorIds.length || !allowedStorageRegions.length || !Number.isSafeInteger(input.rpo) || input.rpo <= 0 || !Number.isSafeInteger(input.rto) || input.rto <= 0 || !input.keyId.trim() || !input.reason.trim()) throw new TypeError('Complete operator, jurisdiction, recovery, key and reason facts are required')
+  return { action: 'policy.configure', operatorIds, allowedStorageRegions, recoveryPointObjectiveMinutes: input.rpo, recoveryTimeObjectiveMinutes: input.rto, backupKeyId: input.keyId.trim(), reason: input.reason.trim() }
+}
+
+export function profileRefreshMayApply(revisionAtStart: number, currentRevision: number) {
+  return revisionAtStart === currentRevision
 }

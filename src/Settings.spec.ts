@@ -8,8 +8,9 @@ describe('settings loading', () => {
 
   it('returns valid settings data', async () => {
     const data = {
-      invoiceIssuer: { name: '', streetAndHouseNumber: '', zipCode: '', city: '', country: '' },
+      invoiceIssuer: { name: '', streetAndHouseNumber: '', zipCode: '', city: '', country: '', contactName: 'Accounts receivable', contactTelephone: '+49 30 123456', contactEmail: 'billing@example.de' },
       chartOfAccounts: 'SKR03',
+      incomingReverseChargeAccounts: { chart: 'SKR03', rateBasisPoints: 1900, inputVatAccountNumber: 1577, outputVatAccountNumber: 1787 },
     }
     await expect(readSettingsResponse(Response.json({ success: true, data }))).resolves.toEqual(data)
   })

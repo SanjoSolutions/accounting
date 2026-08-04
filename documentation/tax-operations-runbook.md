@@ -26,6 +26,71 @@ contract, not ERiC interoperability or acceptance by a Finanzamt. Retain the
 external gateway's redacted protocol and independent qualification evidence
 before enabling any production form version.
 
+## Qualified VAT, corporation-tax and trade-tax contract
+
+The repository also contains a stricter, opt-in contract for the currently
+supported `USTVA`, `UST_ANNUAL`, `KST` and `GEWST` paths for both `2025.1` and
+`2026.1`. Run it only against a gateway and synthetic taxpayer
+identity that the operator is authorized to use in the gateway's explicit
+`TEST` or `STAGING` environment:
+
+```sh
+pnpm test:contract:qualified-tax
+```
+
+The contract is disabled unless every `QUALIFIED_TAX_GATEWAY_CONTRACT_*`
+setting is supplied, the endpoint is HTTPS, the exact eight form versions are
+listed, an independent qualification-record ID is named, an absolute protocol
+directory is configured, and submission is separately acknowledged. For each
+form it requires all three outcomes from the real remote adapter: successful
+validation, rejection after removing a required field, and accepted staging
+submission with a nonblank receipt. Every response must carry a
+machine-readable protocol object whose gateway ID, qualification ID, form
+version, outcome, protocol ID, timestamp, and `TEST`/`STAGING` marker match the
+configured contract. Redacted evidence records retain request hashes and
+receipt hashes, not declaration payloads, taxpayer IDs, credentials, PINs, or
+raw receipts.
+
+The manual `Qualified tax gateway contract` GitHub workflow is intentionally
+absent from ordinary push and pull-request CI. It requires an environment
+approval plus repository secrets. A skipped workflow or test proves nothing.
+A passing run proves only the named gateway adapter and exact form versions
+against the named test environment and retained qualification record. It does
+not prove that this repository is listed by ELSTER as a software product, does
+not certify the gateway's independent qualification claim, and does not prove
+production acceptance by a Finanzamt.
+
+## Native ERiC Bilanz_6.9 validation contract
+
+The native bridge in `tools/eric-bridge` is narrower: it calls
+`EricBearbeiteVorgang` with `Bilanz_6.9` and the E-Bilanz check plugin. It is
+therefore E-Bilanz validation/submission plumbing only and is not evidence for
+UStVA, annual VAT, KSt, or GewSt. Direct ERiC evidence for those tax types
+requires the proprietary ERiC developer package, current official form/data
+type specifications, a manufacturer ID, and authorized test credentials from
+the ELSTER developer program. The [official ELSTER developer page](https://www.elster.de/eportal/infoseite/entwickler)
+describes registration, developer-area access, the ERiC download, and the
+manufacturer-ID application.
+
+The repository's `ERiC Bilanz validation contract` workflow is a manual,
+environment-approved validation-only gate for that narrow bridge. It requires a
+self-hosted Windows runner on which the authorized proprietary runtime,
+`ericapi.dll`, `checkBilanz_6_9.dll`, compiled bridge, manufacturer ID, test
+marker, authorized test tax number, and official sample XBRL are already
+installed. Configure the exact documented result as either `SUCCESS` with code
+`0`, or `TEST_MARKER_RESPONSE` with its exact nonzero code and a status-text
+fragment, then explicitly choose `AUTHORIZED_VALIDATION_ONLY`.
+
+The test always calls `runEric(..., { send: false })`; its contract rejects
+certificate and PIN inputs. It archives hashes of the envelope, sample, bridge,
+runtime API, plugin, result XML and server-response XML, plus bounded redacted
+previews. It never archives raw XBRL, tax numbers, manufacturer/test-marker
+values, certificates, PINs, or a submission receipt. A passing run proves only
+that the named local binaries produced the configured TEST validation outcome
+for the sample through `Bilanz_6.9`. It is not a submission and must not be
+described as Finanzamt acceptance. A local skip caused by missing proprietary
+software or configuration is explicitly non-evidence.
+
 ## Onboarding and release gate
 
 1. Reconcile imported outgoing invoice numbers for each tenant/year with `reconcile-number-sequence`. Supply the immutable imported numbers and explicitly confirm the first unused number. The service refuses duplicates, other formats, backward movement, and collisions with issued, reserved, or voided local numbers.

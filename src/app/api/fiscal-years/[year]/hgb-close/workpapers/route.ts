@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { getCurrentUser } from '@/server/authentication'
+import { forbiddenUnless } from '@/server/authorization'
 import { authorizeComplianceTenant, complianceError } from '@/server/compliance/runtime'
 import { listHgbWorkpapers, saveHgbWorkpaper } from '@/server/hgbWorkpaperRepository'
 import type { HgbWorkpaperDraft } from '@/core/hgbWorkpapers'
@@ -14,9 +15,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ year
 
 export async function PUT(request: Request, { params }: { params: Promise<{ year: string }> }) {
   const user = await getCurrentUser(request.headers); if (!user) return Response.json({ success: false }, { status: 401 })
+  const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   try {
     const value: unknown = await request.json(); if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Workpaper request must be an object')
     const body = value as Record<string, unknown>; const ownerId = await authorizeComplianceTenant(user.id, body.tenantId)
-    return Response.json({ success: true, data: await saveHgbWorkpaper(ownerId, user.id, await yearFrom(params), body.workpaper as HgbWorkpaperDraft, typeof body.expectedChecksum === 'string' ? body.expectedChecksum : undefined) })
+    return Response.json({ success: true, data: await saveHgbWorkpaper(ownerId, user.actorId, await yearFrom(params), body.workpaper as HgbWorkpaperDraft, typeof body.expectedChecksum === 'string' ? body.expectedChecksum : undefined) })
   } catch (error) { return complianceError(error) }
 }

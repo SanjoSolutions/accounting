@@ -6,10 +6,11 @@ import { prisma } from '@/server/persistence/client'
 import { validateMappings, type AccountMapping } from './chartLifecycle'
 import { appendAuditEvent } from './auditPersistence'
 import { ComplianceRuntimeError } from './runtime'
+import { complianceReferenceDate } from './referenceDate'
 
 const day = (date: Date) => date.toISOString().slice(0, 10)
 
-export async function createHistoricalMappingsForFiscalYear(ownerId: string, actorId: string, year: number, input: Record<string, unknown>, today = new Date().toISOString().slice(0, 10)) {
+export async function createHistoricalMappingsForFiscalYear(ownerId: string, actorId: string, year: number, input: Record<string, unknown>, today = complianceReferenceDate()) {
   const reason = typeof input.reason === 'string' ? input.reason.trim() : ''
   const evidenceId = typeof input.evidenceId === 'string' ? input.evidenceId.trim() : ''
   const chartId = typeof input.chartId === 'string' ? input.chartId.trim() : ''
