@@ -6,6 +6,7 @@ Never push (Git) unless explicitly asked for.
 
 Every requirement requires at least one automated test.
 Test efficiently (prefer faster unit tests over slower bigger scope test when sufficient).
+UI layout should not be tested with unit/E2E tests. Instead UI should be reviewed by Codex (5.6-Sol) regarding if it meets best practices (see Web design section).
 
 ## Unit Testing
 
@@ -20,6 +21,10 @@ Use Playwright. Use page models. Mostly focus on happy paths. Only add E2E tests
 For test coverage you can run `pnpm run coverage`.
 Run all unit tests.
 Run E2E tests only selectively.
+
+## Web design
+
+Use Bootstrap 5. Use Bootstrap patterns preferably. If Bootstrap has no pattern for what you require, you can introduce new UI components/elements/variants. Make sure to implement new UI components in a reusable way.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
