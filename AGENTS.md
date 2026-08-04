@@ -10,7 +10,7 @@ UI layout should not be tested with unit/E2E tests. Instead UI should be reviewe
 
 ## Unit Testing
 
-Use Vitest. Use behavior driven development (BDD) style test descriptions.
+Use Vitest. Use behavior driven development (BDD) style test descriptions. Use `test` (not `it`).
 
 ### E2E Testing
 
