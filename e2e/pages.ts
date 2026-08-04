@@ -57,11 +57,19 @@ export class SettingsPage extends ApplicationPage {
     await this.page.getByRole('button', { name: /Save|Speichern/ }).click()
   }
 
-  async configureDomesticReverseCharge(chart: 'SKR03' | 'SKR04', inputVatAccount: string, outputVatAccount: string) {
+  async configureDomesticReverseCharge(chart: 'SKR03' | 'SKR04', inputVatAccount: string, outputVatAccount: string, tenantVatId?: string) {
     await this.open('/settings')
     await this.page.getByLabel(/Chart of accounts|Kontenrahmen/).selectOption(chart)
     await this.page.getByLabel(/§13b deductible input VAT account|§13b-Konto abziehbare Vorsteuer/).fill(inputVatAccount)
     await this.page.getByLabel(/§13b output VAT liability account|§13b-Konto Umsatzsteuer/).fill(outputVatAccount)
+    if (tenantVatId) {
+      const result = await this.page.evaluate(async ({ vatId, chart }) => {
+        const profile = { companyName: 'Buyer GmbH', registeredAddress: { streetAndHouseNumber: 'Ring 2', zipCode: '10117', city: 'Berlin', country: 'DE' }, legalForm: 'GMBH', registerCourt: 'Berlin', registerNumber: 'HRB 1', taxNumber: '12/345/67890', vatId, taxOffice: 'Berlin', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: 'Software services', sizeClass: 'SMALL', chart, elections: [] }
+        const response = await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companyProfile: profile, companyProfileEffectiveFrom: new Date().toISOString().slice(0, 10), changeReason: 'Verified tenant VAT identity for EU supplier service' }) })
+        return { status: response.status, body: await response.json() }
+      }, { vatId: tenantVatId, chart })
+      expect(result).toMatchObject({ status: 200, body: { success: true } })
+    }
     await this.page.getByRole('button', { name: /Save|Speichern/, exact: true }).click()
     await expect(this.page.getByText('Settings saved.', { exact: true })).toBeVisible()
   }

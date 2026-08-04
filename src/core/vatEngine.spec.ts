@@ -113,6 +113,7 @@ describe('effective-dated VAT engine', () => {
     expect(calculateVat(split('DE_ZERO'), book).taxCents).toBe(0)
     expect(calculateVat(split('DE_EXEMPT'), book).deductibleTaxCents).toBe(0)
     expect(calculateVat({ ...split('DE_13B'), direction: 'purchase' }, book)).toMatchObject({ taxCents: 1_900, grossCents: 10_000, outputTaxCents: 1_900, inputTaxCents: 1_900 })
+    expect(calculateVat({ ...split('EU_13B_SERVICE_RECIPIENT'), direction: 'purchase' }, book)).toMatchObject({ taxCents: 1_900, grossCents: 10_000, outputTaxCents: 1_900, inputTaxCents: 1_900, returnBoxes: [{ box: '46' }, { box: '47' }, { box: '67' }] })
     expect(calculateVat({ ...split('EU_ACQUISITION'), direction: 'purchase' }, book)).toMatchObject({ outputTaxCents: 1_900, inputTaxCents: 1_900 })
     expect(calculateVat({ ...split('IMPORT_VAT'), direction: 'purchase' }, book)).toMatchObject({ outputTaxCents: 0, inputTaxCents: 1_900 })
     expect(calculateVat({ ...split('DE_13B_SUPPLIER'), direction: 'sale' }, book)).toMatchObject({ taxCents: 0, outputTaxCents: 0, inputTaxCents: 0, returnBoxes: [{ box: '60' }] })

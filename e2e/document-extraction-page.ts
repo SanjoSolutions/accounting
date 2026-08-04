@@ -147,6 +147,43 @@ export class DocumentExtractionPage {
     expect(JSON.parse(vatPosting.returnBoxes)).toEqual([{ box: '84', direction: 'purchase', value: 'net-base' }, { box: '85', direction: 'purchase', value: 'output-tax' }, { box: '67', direction: 'purchase', value: 'input-tax' }])
   }
 
+  async uploadReviewAndPostEuServiceReverseChargeUbl(xml: Buffer) {
+    await this.page.goto('/bookings')
+    const uploaded = this.page.waitForResponse(response => response.url().endsWith('/api/documents') && response.request().method() === 'POST')
+    await this.page.locator('.document-actions input[type="file"]').setInputFiles({ name: 'austrian-cloud-service.xml', mimeType: 'application/xml', buffer: xml })
+    const body = await (await uploaded).json(); this.structuredDocumentId = body.data.id
+    await expect(this.page.getByLabel('Extracted invoice number')).toHaveValue('EU-SVC-AT-E2E')
+    await expect(this.page.getByLabel('Extracted gross amount')).toHaveValue('100.00')
+    await this.page.getByRole('button', { name: 'Confirm reviewed invoice' }).click()
+    await expect(this.page.getByText('EU supplier service reverse charge', { exact: true })).toBeVisible()
+    await expect(this.page.getByText(/KZ 46\/47.*KZ 67/)).toBeVisible()
+    await expect(this.page.getByRole('button', { name: 'Confirm and post payable' })).toBeDisabled()
+    await this.page.getByLabel('Supply classification').selectOption('SERVICE')
+    await this.page.getByLabel('Recipient-assessed VAT rate').selectOption('1900')
+    await this.page.getByLabel('Due date').fill('2026-08-09')
+    await this.page.getByLabel('Posting confirmation reason').fill('Confirmed Austrian B2B cloud service under §13b(1) and Article 196 at 19%')
+    await this.page.getByRole('button', { name: 'Confirm and post payable' }).click()
+    await expect(this.page.getByRole('status')).toContainText('EU-SVC-AT-E2E')
+  }
+
+  async proveEuServiceReverseChargeAfterReload() {
+    await this.page.goto('/receivables')
+    const item = this.page.getByRole('row').filter({ hasText: 'EU-SVC-AT-E2E' })
+    await expect(item).toContainText('Vienna Cloud GmbH'); await expect(item).toContainText('100.00'); await expect(item).toContainText('OPEN')
+    await this.page.goto('/journal?year=2026')
+    const entry = this.page.locator('.journal-entry').filter({ hasText: 'Vienna Cloud GmbH: EU-SVC-AT-E2E' })
+    await expect(entry).toContainText('4930'); await expect(entry).toContainText('Soll 100,00')
+    await expect(entry).toContainText('1577'); await expect(entry).toContainText('Soll 19,00')
+    await expect(entry).toContainText('1787'); await expect(entry).toContainText('Haben 19,00')
+    await expect(entry).toContainText('1600'); await expect(entry).toContainText('Haben 100,00')
+    await expect(entry.getByRole('link', { name: 'austrian-cloud-service.xml' })).toBeVisible()
+    await this.page.reload(); await expect(this.page.locator('.journal-entry').filter({ hasText: 'EU-SVC-AT-E2E' })).toBeVisible()
+    const context = await this.page.evaluate(async documentId => (await fetch(`/api/documents/${documentId}/payable-posting`)).json(), this.structuredDocumentId)
+    const vat = context.data.posting.postingJournalEntry.lines.flatMap((line: { vatPosting: unknown }) => line.vatPosting ? [line.vatPosting] : [])[0]
+    expect(vat).toMatchObject({ ruleId: 'EU_13B_SERVICE_RECIPIENT', taxPoint: '2026-08-01T00:00:00.000Z', netBaseCents: 10_000, outputTaxCents: 1_900, inputTaxCents: 1_900, documentId: this.structuredDocumentId })
+    expect(JSON.parse(vat.returnBoxes)).toEqual([{ box: '46', direction: 'purchase', value: 'net-base' }, { box: '47', direction: 'purchase', value: 'output-tax' }, { box: '67', direction: 'purchase', value: 'input-tax' }])
+  }
+
   async proveStructuredPayableAfterReload(input: { invoiceNumber: string; supplier: string; gross: string; fileName: string; inputVatAccount: string; inputVat: string; vatRule: string }) {
     await this.page.goto('/receivables')
     const item = this.page.getByRole('row').filter({ hasText: input.invoiceNumber })

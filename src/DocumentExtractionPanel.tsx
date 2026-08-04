@@ -107,11 +107,11 @@ function IncomingSupplierCreditPosting({ documentId, initialContext }: { documen
   </div></section>
 }
 
-type ReverseChargeTreatment = null | { kind: 'DE_13B_DOMESTIC'; supportedAssessmentRatesBasisPoints: readonly [1900]; reason: string; configured: boolean }
+type ReverseChargeTreatment = null | { kind: 'DE_13B_DOMESTIC' | 'DE_13B_EU_SERVICE'; supportedAssessmentRatesBasisPoints: readonly [1900]; reason: string; configured: boolean }
 type PostingContext = { posting: null | { id: string; documentNumber: string; openItem: { id: string; originalAmountCents: number; status: string }; postingJournalEntry: { id: string; documentNumber: string } }; expenseAccounts: Array<{ id: string; number: number; name: string }>; recommendedExpenseAccountId: string | null; reverseChargeTreatment: ReverseChargeTreatment }
 
-export function canPostIncomingPayable(input: { busy: boolean; expenseAccountCount: number; reverseChargeTreatment: ReverseChargeTreatment; reverseChargeRate: string }) {
-  return !input.busy && input.expenseAccountCount > 0 && (!input.reverseChargeTreatment || (input.reverseChargeTreatment.configured && input.reverseChargeRate === '1900'))
+export function canPostIncomingPayable(input: { busy: boolean; expenseAccountCount: number; reverseChargeTreatment: ReverseChargeTreatment; reverseChargeRate: string; reverseChargeSupplyKind?: string }) {
+  return !input.busy && input.expenseAccountCount > 0 && (!input.reverseChargeTreatment || (input.reverseChargeTreatment.configured && input.reverseChargeRate === '1900' && (input.reverseChargeTreatment.kind !== 'DE_13B_EU_SERVICE' || input.reverseChargeSupplyKind === 'SERVICE')))
 }
 
 function IncomingPayablePosting({ documentId, issueDate }: { documentId: string; issueDate: string }) {
@@ -121,6 +121,7 @@ function IncomingPayablePosting({ documentId, issueDate }: { documentId: string;
   const [dueDate, setDueDate] = useState(() => plusDays(issueDate, 14))
   const [reason, setReason] = useState('Reviewed supplier invoice confirmed for posting')
   const [reverseChargeRate, setReverseChargeRate] = useState('')
+  const [reverseChargeSupplyKind, setReverseChargeSupplyKind] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const endpoint = `${path(documentId).replace('/parsing-requests', '')}/payable-posting`
@@ -138,7 +139,7 @@ function IncomingPayablePosting({ documentId, issueDate }: { documentId: string;
   async function post(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setError('')
     try {
-      const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expenseAccountId, dueDate, reason, ...(context?.reverseChargeTreatment ? { reverseChargeRateBasisPoints: Number(reverseChargeRate) } : {}) }) })
+      const response = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expenseAccountId, dueDate, reason, ...(context?.reverseChargeTreatment ? { reverseChargeRateBasisPoints: Number(reverseChargeRate) } : {}), ...(context?.reverseChargeTreatment?.kind === 'DE_13B_EU_SERVICE' ? { reverseChargeSupplyKind } : {}) }) })
       const body = await getJSON(response)
       if (!response.ok) throw new Error(body?.error || t('postingFailed'))
       setContext(current => current ? { ...current, posting: body.data } : current)
@@ -153,8 +154,8 @@ function IncomingPayablePosting({ documentId, issueDate }: { documentId: string;
       <label className="form-label d-block">{t('expenseAccount')}<select className="form-select" required value={expenseAccountId} onChange={event => setExpenseAccountId(event.target.value)}><option value="">{t('selectExpenseAccount')}</option>{context.expenseAccounts.map(account => <option key={account.id} value={account.id}>{account.number} {account.name}</option>)}</select></label>
       <label className="form-label d-block">{t('dueDate')}<input className="form-control" type="date" required min={issueDate} value={dueDate} onChange={event => setDueDate(event.target.value)} /></label>
       <label className="form-label d-block">{t('postingReason')}<input className="form-control" required value={reason} onChange={event => setReason(event.target.value)} /></label>
-      {context.reverseChargeTreatment && <div className="alert alert-warning"><strong>{t('reverseChargeTitle')}</strong><p>{t('reverseChargeHint')}</p><label>{t('reverseChargeRate')}<select className="form-select" required value={reverseChargeRate} onChange={event => setReverseChargeRate(event.target.value)}><option value="">{t('reverseChargeSelect')}</option><option value="1900">19 %</option></select></label>{!context.reverseChargeTreatment.configured && <p className="text-danger mt-2 mb-0">{t('reverseChargeAccountsMissing')}</p>}</div>}
-      <button className="btn btn-primary btn-sm" disabled={!canPostIncomingPayable({ busy, expenseAccountCount: context.expenseAccounts.length, reverseChargeTreatment: context.reverseChargeTreatment, reverseChargeRate })} type="submit">{busy ? t('posting') : t('postPayable')}</button>
+      {context.reverseChargeTreatment && <div className="alert alert-warning"><strong>{t(context.reverseChargeTreatment.kind === 'DE_13B_EU_SERVICE' ? 'euReverseChargeTitle' : 'reverseChargeTitle')}</strong><p>{t(context.reverseChargeTreatment.kind === 'DE_13B_EU_SERVICE' ? 'euReverseChargeHint' : 'reverseChargeHint')}</p>{context.reverseChargeTreatment.kind === 'DE_13B_EU_SERVICE' && <label className="d-block mb-2">{t('reverseChargeSupplyKind')}<select className="form-select" required value={reverseChargeSupplyKind} onChange={event => setReverseChargeSupplyKind(event.target.value)}><option value="">{t('reverseChargeSupplyKindSelect')}</option><option value="SERVICE">{t('reverseChargeSupplyKindService')}</option></select></label>}<label>{t('reverseChargeRate')}<select className="form-select" required value={reverseChargeRate} onChange={event => setReverseChargeRate(event.target.value)}><option value="">{t('reverseChargeSelect')}</option><option value="1900">19 %</option></select></label>{!context.reverseChargeTreatment.configured && <p className="text-danger mt-2 mb-0">{t('reverseChargeAccountsMissing')}</p>}</div>}
+      <button className="btn btn-primary btn-sm" disabled={!canPostIncomingPayable({ busy, expenseAccountCount: context.expenseAccounts.length, reverseChargeTreatment: context.reverseChargeTreatment, reverseChargeRate, reverseChargeSupplyKind })} type="submit">{busy ? t('posting') : t('postPayable')}</button>
       {!context.expenseAccounts.length && <p className="text-danger small mt-2 mb-0">{t('noExpenseAccount')}</p>}
     </form>}
     {error && <div className="alert alert-danger mt-2 mb-0" role="alert">{error}</div>}

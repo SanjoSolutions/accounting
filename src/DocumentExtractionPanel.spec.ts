@@ -17,4 +17,11 @@ describe('incoming payable posting controls', () => {
   it('Given configured domestic reverse-charge controls, when the user explicitly selects 19%, then posting becomes available', () => {
     expect(canPostIncomingPayable({ busy: false, expenseAccountCount: 1, reverseChargeTreatment: reverseCharge(true), reverseChargeRate: '1900' })).toBe(true)
   })
+
+  it('Given a configured EU-service reverse charge, when 19% is explicitly selected, then the same active-chart controls unlock posting', () => {
+    const treatment = { ...reverseCharge(true), kind: 'DE_13B_EU_SERVICE' as const }
+    expect(canPostIncomingPayable({ busy: false, expenseAccountCount: 1, reverseChargeTreatment: treatment, reverseChargeRate: '1900' })).toBe(false)
+    expect(canPostIncomingPayable({ busy: false, expenseAccountCount: 1, reverseChargeTreatment: treatment, reverseChargeRate: '1900', reverseChargeSupplyKind: 'GOODS' })).toBe(false)
+    expect(canPostIncomingPayable({ busy: false, expenseAccountCount: 1, reverseChargeTreatment: treatment, reverseChargeRate: '1900', reverseChargeSupplyKind: 'SERVICE' })).toBe(true)
+  })
 })

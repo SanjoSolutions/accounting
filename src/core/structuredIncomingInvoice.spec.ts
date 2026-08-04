@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import { receiveStructuredInvoice } from './eInvoice'
 import type { StructuredInvoiceData } from './eInvoice'
 import { structuredIncomingInvoiceFacts, structuredIncomingInvoiceReviewExtraction } from './structuredIncomingInvoice'
 
@@ -36,8 +39,36 @@ describe('structured incoming invoice payable facts', () => {
     const reverseCharge = { ...invoice([line]), reverseCharge: true, taxAmountCents: 0, grossAmountCents: 20_000 }
     expect(() => structuredIncomingInvoiceFacts(reverseCharge)).toThrow(/Confirm.*19%/)
     expect(() => structuredIncomingInvoiceFacts(reverseCharge, { reverseChargeRateBasisPoints: 700 })).toThrow(/19%/)
-    expect(() => structuredIncomingInvoiceFacts({ ...reverseCharge, seller: { ...reverseCharge.seller, countryCode: 'AT' } }, { reverseChargeRateBasisPoints: 1900 })).toThrow(/domestic German/)
+    expect(() => structuredIncomingInvoiceFacts({ ...reverseCharge, seller: { ...reverseCharge.seller, countryCode: 'AT' } }, { reverseChargeRateBasisPoints: 1900 })).toThrow(/German business/)
     expect(() => structuredIncomingInvoiceFacts({ ...reverseCharge, lines: [line, { ...line, taxCategoryCode: 'S', reverseCharge: false, taxRateBasisPoints: 1900, exemptionReason: undefined }] }, { reverseChargeRateBasisPoints: 1900 })).toThrow(/every line/)
     expect(() => structuredIncomingInvoiceFacts({ ...reverseCharge, lines: [{ ...line, exemptionReason: 'Reverse charge' }] }, { reverseChargeRateBasisPoints: 1900 })).toThrow(/§13b UStG/)
+  })
+
+  it('Given an EU supplier B2B service with exact AE and Article 196 evidence, when 19% is confirmed, then the distinct KZ 46/47 rule is selected and payable stays net', () => {
+    const base = invoice([{ description: 'Cloud service', quantity: 1, unitCode: 'C62', netAmountCents: 20_000, taxRateBasisPoints: 0, taxCategoryCode: 'AE', reverseCharge: true, exemptionReason: 'Reverse charge - Article 196 VAT Directive' }])
+    const euService = { ...base, seller: { ...base.seller, countryCode: 'AT', vatId: 'ATU12345678' }, buyer: { ...base.buyer, vatId: 'DE987654321' }, reverseCharge: true, taxAmountCents: 0, grossAmountCents: 20_000 }
+    expect(structuredIncomingInvoiceFacts(euService, { reverseChargeRateBasisPoints: 1900, reverseChargeSupplyKind: 'SERVICE' })).toMatchObject({
+      extraction: { grossAmountCents: 20_000, taxAmountCents: 0 }, reverseCharge: true,
+      vatGroups: [{ ruleId: 'EU_13B_SERVICE_RECIPIENT', invoiceRateBasisPoints: 0, rateBasisPoints: 1900, netAmountCents: 20_000, supplierTaxAmountCents: 0, taxAmountCents: 3_800 }],
+    })
+    expect(() => structuredIncomingInvoiceFacts(euService, { reverseChargeRateBasisPoints: 1900 })).toThrow(/confirm.*services/i)
+  })
+
+  it('Given the same supported facts encoded as CII, when parsed and explicitly classified as a service, then the EU recipient rule is derived from parsed evidence', async () => {
+    const original = await readFile(path.join(process.cwd(), 'src/core/data_fixtures/eInvoice/valid-cii.xml'), 'utf8')
+    const cii = original
+      .replace('<ram:Name>Wartung</ram:Name>', '<ram:Name>Subscription position 1</ram:Name>')
+      .replace('<ram:CountryID>DE</ram:CountryID></ram:PostalTradeAddress><ram:SpecifiedTaxRegistration><ram:ID schemeID="VA">DE123456789</ram:ID>', '<ram:CountryID>AT</ram:CountryID></ram:PostalTradeAddress><ram:SpecifiedTaxRegistration><ram:ID schemeID="VA">ATU12345678</ram:ID>')
+      .replace('</ram:BuyerTradeParty>', '<ram:SpecifiedTaxRegistration><ram:ID schemeID="VA">DE987654321</ram:ID></ram:SpecifiedTaxRegistration></ram:BuyerTradeParty>')
+      .replaceAll('<ram:CategoryCode>S</ram:CategoryCode>', '<ram:CategoryCode>AE</ram:CategoryCode>')
+      .replaceAll('<ram:RateApplicablePercent>19</ram:RateApplicablePercent>', '<ram:RateApplicablePercent>0</ram:RateApplicablePercent>')
+      .replaceAll('<ram:CategoryCode>AE</ram:CategoryCode><ram:RateApplicablePercent>0</ram:RateApplicablePercent>', '<ram:CategoryCode>AE</ram:CategoryCode><ram:RateApplicablePercent>0</ram:RateApplicablePercent><ram:ExemptionReason>Reverse charge under Article 196</ram:ExemptionReason>')
+      .replace('<ram:CalculatedAmount>19.00</ram:CalculatedAmount>', '<ram:CalculatedAmount>0.00</ram:CalculatedAmount>')
+      .replace('<ram:TaxTotalAmount>19.00</ram:TaxTotalAmount>', '<ram:TaxTotalAmount>0.00</ram:TaxTotalAmount>')
+      .replace('<ram:GrandTotalAmount currencyID="EUR">119.00</ram:GrandTotalAmount>', '<ram:GrandTotalAmount currencyID="EUR">100.00</ram:GrandTotalAmount>')
+      .replace('<ram:DuePayableAmount currencyID="EUR">119.00</ram:DuePayableAmount>', '<ram:DuePayableAmount currencyID="EUR">100.00</ram:DuePayableAmount>')
+    const parsed = receiveStructuredInvoice(Buffer.from(cii)).data
+    expect(parsed).toMatchObject({ syntax: 'CII', seller: { countryCode: 'AT', vatId: 'ATU12345678' }, buyer: { countryCode: 'DE', vatId: 'DE987654321' }, reverseCharge: true })
+    expect(structuredIncomingInvoiceFacts(parsed, { reverseChargeRateBasisPoints: 1900, reverseChargeSupplyKind: 'SERVICE' }).vatGroups).toMatchObject([{ ruleId: 'EU_13B_SERVICE_RECIPIENT', taxAmountCents: 1_900 }])
   })
 })

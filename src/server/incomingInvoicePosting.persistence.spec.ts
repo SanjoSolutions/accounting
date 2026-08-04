@@ -159,6 +159,82 @@ describe('persistent incoming supplier invoice posting', () => {
     await expect(prisma.vatPostingRecord.count({ where: { documentId: 'rc-missing' } })).resolves.toBe(0)
   })
 
+  it('Given an Austrian B2B service invoice and explicit active-chart controls, when 19% is confirmed and retried, then net payable, balanced recipient VAT, KZ 46/47/67 provenance, evidence, audit, and tenant isolation persist once', async () => {
+    const scenario = { chart: 'SKR03' as const, ownerId: 'tenant-eu-service', documentId: 'eu-service-doc', expense: 4930, payable: 1600, input: 1577, output: 1787, euService: true, issueDate: '2026-07-31', supplyDate: '2026-08-01' }
+    await createReverseChargeScenario(scenario)
+    await expect(api.getIncomingInvoicePostingContext(scenario.ownerId, scenario.documentId)).resolves.toMatchObject({ reverseChargeTreatment: { kind: 'DE_13B_EU_SERVICE', configured: true } })
+    const command = { expenseAccountId: `${scenario.ownerId}-expense`, dueDate: '2026-08-09', reason: 'Confirmed Austrian B2B service under §13b(1) and Article 196 at 19%', reverseChargeRateBasisPoints: 1900, reverseChargeSupplyKind: 'SERVICE' as const }
+    const first = await api.postConfirmedIncomingInvoice(scenario.ownerId, 'actor-eu', scenario.documentId, command)
+    await expect(api.postConfirmedIncomingInvoice(scenario.ownerId, 'actor-eu', scenario.documentId, command)).resolves.toMatchObject({ id: first.id })
+    await expect(api.postConfirmedIncomingInvoice(scenario.ownerId, 'actor-eu', scenario.documentId, { ...command, reverseChargeSupplyKind: undefined })).rejects.toThrow(/exact replay/)
+    for (const changed of [{ ...command, reverseChargeRateBasisPoints: 700 }, { ...command, expenseAccountId: 'changed-expense' }, { ...command, dueDate: '2026-08-10' }, { ...command, reason: 'Changed reason' }]) await expect(api.postConfirmedIncomingInvoice(scenario.ownerId, 'actor-eu', scenario.documentId, changed as typeof command)).rejects.toThrow(/exact replay/)
+    expect(first).toMatchObject({ issueDate: new Date('2026-07-31'), serviceDate: new Date('2026-08-01'), netAmountCents: 10_000, taxAmountCents: 0, grossAmountCents: 10_000, payableAmountCents: 10_000, businessPartner: { name: 'Vienna Cloud GmbH', vatId: 'ATU12345678', street: 'Ring 1', postalCode: '1010', city: 'Wien', countryCode: 'AT' }, openItem: { originalAmountCents: 10_000, status: 'OPEN' } })
+    expect(first.postingJournalEntry!.lines.map(line => ({ number: line.account.number, debit: line.debitCents, credit: line.creditCents, taxCode: line.taxCode }))).toEqual([
+      { number: 4930, debit: 10_000, credit: 0, taxCode: 'EU_13B_SERVICE_RECIPIENT' }, { number: 1577, debit: 1_900, credit: 0, taxCode: null },
+      { number: 1787, debit: 0, credit: 1_900, taxCode: null }, { number: 1600, debit: 0, credit: 10_000, taxCode: null },
+    ])
+    const vat = await prisma.vatPostingRecord.findFirstOrThrow({ where: { ownerId: scenario.ownerId, documentId: scenario.documentId } })
+    expect(vat).toMatchObject({ ruleId: 'EU_13B_SERVICE_RECIPIENT', vatCase: 'reverse-charge', taxPoint: new Date('2026-08-01'), netBaseCents: 10_000, outputTaxCents: 1_900, inputTaxCents: 1_900, documentId: scenario.documentId })
+    expect(JSON.parse(vat.returnBoxes)).toEqual([{ box: '46', direction: 'purchase', value: 'net-base' }, { box: '47', direction: 'purchase', value: 'output-tax' }, { box: '67', direction: 'purchase', value: 'input-tax' }])
+    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { ownerId: scenario.ownerId, actorId: 'actor-eu', action: 'INCOMING_INVOICE_POSTED' } })
+    expect(JSON.parse(audit.semanticDelta).after).toMatchObject({ reverseChargeSupplyKind: 'SERVICE', supplyDate: '2026-08-01', tenantBuyerVatId: 'DE987654321', supplierVatId: 'ATU12345678', vatRuleIds: ['EU_13B_SERVICE_RECIPIENT'] })
+    expect(first.postingJournalEntry!.bookingDate).toEqual(new Date('2026-08-01'))
+    await expect(api.postConfirmedIncomingInvoice('tenant-b', 'actor-b', scenario.documentId, command)).rejects.toThrow(/confirmed/i)
+    await expect(prisma.journalEntry.count({ where: { ownerId: scenario.ownerId, source: 'INCOMING_INVOICE' } })).resolves.toBe(1)
+    const reopened = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: `file:${databasePath}` }) })
+    await expect(reopened.commercialDocument.findUnique({ where: { id: first.id }, include: { openItem: true, postingJournalEntry: { include: { documents: true, lines: { include: { vatPosting: true } } } } } })).resolves.toMatchObject({ openItem: { originalAmountCents: 10_000 }, postingJournalEntry: { documents: [{ documentId: scenario.documentId }] } })
+    await reopened.$disconnect()
+  })
+
+  it('Given an EU invoice buyer VAT ID that differs from the tenant company profile, when posting is attempted, then no partner, journal, VAT, payable, or audit residue is created', async () => {
+    await createReverseChargeScenario({ chart: 'SKR03', ownerId: 'tenant-eu-buyer-mismatch', documentId: 'eu-buyer-mismatch', expense: 4930, payable: 1600, input: 1577, output: 1787, euService: true, tenantVatId: 'DE123456789' })
+    await expect(api.postConfirmedIncomingInvoice('tenant-eu-buyer-mismatch', 'actor', 'eu-buyer-mismatch', { expenseAccountId: 'tenant-eu-buyer-mismatch-expense', dueDate: '2026-08-09', reason: 'Should fail', reverseChargeRateBasisPoints: 1900, reverseChargeSupplyKind: 'SERVICE' })).rejects.toThrow(/exactly match.*tenant/i)
+    await expect(prisma.businessPartner.count({ where: { ownerId: 'tenant-eu-buyer-mismatch' } })).resolves.toBe(0)
+    await expect(prisma.journalEntry.count({ where: { ownerId: 'tenant-eu-buyer-mismatch' } })).resolves.toBe(0)
+    await expect(prisma.commercialDocument.count({ where: { ownerId: 'tenant-eu-buyer-mismatch' } })).resolves.toBe(0)
+    await expect(prisma.vatPostingRecord.count({ where: { ownerId: 'tenant-eu-buyer-mismatch' } })).resolves.toBe(0)
+    await expect(prisma.auditEvent.count({ where: { ownerId: 'tenant-eu-buyer-mismatch' } })).resolves.toBe(0)
+  })
+
+  it('Given an EU service invoice without an exact supply date, when posting is attempted, then tax-point selection fails before accounting residue', async () => {
+    const ownerId = 'tenant-eu-missing-supply'; const documentId = 'eu-missing-supply'
+    await createReverseChargeScenario({ chart: 'SKR03', ownerId, documentId, expense: 4930, payable: 1600, input: 1577, output: 1787, euService: true, supplyDate: '' })
+    await expect(api.postConfirmedIncomingInvoice(ownerId, 'actor', documentId, { expenseAccountId: `${ownerId}-expense`, dueDate: '2026-08-09', reason: 'Must fail without service date', reverseChargeRateBasisPoints: 1900, reverseChargeSupplyKind: 'SERVICE' })).rejects.toThrow(/supply date/i)
+    await expect(prisma.businessPartner.count({ where: { ownerId } })).resolves.toBe(0)
+    await expect(prisma.journalEntry.count({ where: { ownerId } })).resolves.toBe(0)
+    await expect(prisma.vatPostingRecord.count({ where: { ownerId } })).resolves.toBe(0)
+  })
+
+  it('Given supplier spelling changes and distinct VAT IDs, when EU service invoices post, then VAT identity reuses the former supplier and separates the latter despite the same name', async () => {
+    const ownerId = 'tenant-eu-supplier-identity'
+    const base = { chart: 'SKR03' as const, ownerId, expense: 4930, payable: 1600, input: 1577, output: 1787, euService: true }
+    await createReverseChargeScenario({ ...base, documentId: 'eu-id-1', invoiceNumber: 'EU-ID-1', sellerName: 'Vienna Cloud GmbH' })
+    await createReverseChargeScenario({ ...base, documentId: 'eu-id-2', invoiceNumber: 'EU-ID-2', sellerName: 'VIENNA CLOUD GMBH', reuseSetup: true })
+    await createReverseChargeScenario({ ...base, documentId: 'eu-id-3', invoiceNumber: 'EU-ID-3', sellerName: 'VIENNA CLOUD GMBH', sellerVatId: 'ATU87654321', reuseSetup: true })
+    await createReverseChargeScenario({ ...base, documentId: 'eu-id-duplicate', invoiceNumber: 'EU-ID-1', sellerName: 'Vienna Cloud G.m.b.H.', reuseSetup: true })
+    const command = { expenseAccountId: `${ownerId}-expense`, dueDate: '2026-08-09', reason: 'Confirmed exact supplier VAT identity', reverseChargeRateBasisPoints: 1900, reverseChargeSupplyKind: 'SERVICE' as const }
+    const first = await api.postConfirmedIncomingInvoice(ownerId, 'actor', 'eu-id-1', command)
+    const spelling = await api.postConfirmedIncomingInvoice(ownerId, 'actor', 'eu-id-2', command)
+    const distinct = await api.postConfirmedIncomingInvoice(ownerId, 'actor', 'eu-id-3', command)
+    await expect(api.postConfirmedIncomingInvoice(ownerId, 'actor', 'eu-id-duplicate', command)).rejects.toThrow(/already been posted/)
+    expect(spelling.businessPartnerId).toBe(first.businessPartnerId)
+    expect(distinct.businessPartnerId).not.toBe(first.businessPartnerId)
+    await expect(prisma.businessPartner.count({ where: { ownerId } })).resolves.toBe(2)
+    await expect(prisma.commercialDocument.count({ where: { ownerId } })).resolves.toBe(3)
+    expect(JSON.parse(spelling.counterpartySnapshot!)).toMatchObject({ name: 'VIENNA CLOUD GMBH', vatId: 'ATU12345678', street: 'Ring 1', postalCode: '1010', city: 'Wien', countryCode: 'AT' })
+  })
+
+  it('Given concurrent EU-service commands with different canonical facts, when they race, then only one exact command can win and the other cannot receive its posting', async () => {
+    const ownerId = 'tenant-eu-command-race'; const documentId = 'eu-command-race'
+    await createReverseChargeScenario({ chart: 'SKR03', ownerId, documentId, expense: 4930, payable: 1600, input: 1577, output: 1787, euService: true })
+    const common = { expenseAccountId: `${ownerId}-expense`, dueDate: '2026-08-09', reverseChargeRateBasisPoints: 1900, reverseChargeSupplyKind: 'SERVICE' as const }
+    const results = await Promise.allSettled([api.postConfirmedIncomingInvoice(ownerId, 'actor-a', documentId, { ...common, reason: 'Command A' }), api.postConfirmedIncomingInvoice(ownerId, 'actor-b', documentId, { ...common, reason: 'Command B' })])
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1)
+    await expect(prisma.journalEntry.count({ where: { ownerId } })).resolves.toBe(1)
+    await expect(prisma.commercialDocument.count({ where: { ownerId } })).resolves.toBe(1)
+  })
+
   it('Given another tenant or unsupported VAT, when posting is attempted, then no accounting rows are written', async () => {
     await expect(api.postConfirmedIncomingInvoice('tenant-b', 'user-b', 'invoice-a', { expenseAccountId: 'expense-a', dueDate: '2026-08-06', reason: 'Wrong tenant' })).rejects.toThrow(/confirmed/i)
     await expect(api.postConfirmedIncomingInvoice('tenant-a', 'user-a', 'invalid-a', { expenseAccountId: 'expense-a', dueDate: '2026-08-06', reason: 'Unsupported VAT' })).rejects.toThrow(/19%/)
@@ -183,18 +259,22 @@ async function createStructuredScenario(input: { ownerId: string; chart: 'SKR03'
   await prisma.structuredInvoice.create({ data: { ownerId: input.ownerId, documentId: input.documentId, syntax: 'UBL', kind: 'invoice', direction: 'INCOMING', issuerKey: `${input.ownerId}-issuer`, invoiceNumber: input.invoiceNumber, issueDate: new Date('2026-07-25'), structuredHash: input.ownerId.padEnd(64, 'y').slice(0, 64), originalMediaType: 'application/xml', structuredOriginal: Buffer.from('<Invoice/>'), provenance: '{}', renderedHtml: '<p>invoice</p>', data: JSON.stringify(data) } })
 }
 
-async function createReverseChargeScenario(input: { ownerId: string; chart: 'SKR03' | 'SKR04'; documentId: string; expense: number; payable: number; input: number; output: number; configured?: boolean }) {
-  await prisma.fiscalYear.create({ data: { id: `${input.ownerId}-fy`, ownerId: input.ownerId, year: 2026, startsAt: new Date('2026-01-01'), endsAt: new Date('2026-12-31') } })
-  await prisma.ledgerProfile.create({ data: { ownerId: input.ownerId, chart: input.chart, accountLength: 4 } })
-  await prisma.ledgerAccount.createMany({ data: [
+async function createReverseChargeScenario(input: { ownerId: string; chart: 'SKR03' | 'SKR04'; documentId: string; expense: number; payable: number; input: number; output: number; configured?: boolean; euService?: boolean; issueDate?: string; supplyDate?: string; sellerName?: string; sellerVatId?: string; invoiceNumber?: string; tenantVatId?: string; reuseSetup?: boolean }) {
+  if (!input.reuseSetup) {
+    await prisma.fiscalYear.create({ data: { id: `${input.ownerId}-fy`, ownerId: input.ownerId, year: 2026, startsAt: new Date('2026-01-01'), endsAt: new Date('2026-12-31') } })
+    await prisma.ledgerProfile.create({ data: { ownerId: input.ownerId, chart: input.chart, accountLength: 4 } })
+    await prisma.ledgerAccount.createMany({ data: [
     { id: `${input.ownerId}-expense`, ownerId: input.ownerId, number: input.expense, name: 'Operating expense', category: 'EXPENSE' },
     { id: `${input.ownerId}-payable`, ownerId: input.ownerId, number: input.payable, name: 'Trade payables', category: 'LIABILITY' },
     { id: `${input.ownerId}-rc-input`, ownerId: input.ownerId, number: input.input, name: 'Input VAT §13b 19%', category: 'ASSET' },
     { id: `${input.ownerId}-rc-output`, ownerId: input.ownerId, number: input.output, name: 'Output VAT §13b 19%', category: 'LIABILITY' },
-  ] })
-  if (input.configured !== false) await prisma.accountRecord.create({ data: { id: `company:${input.ownerId}`, ownerId: input.ownerId, payload: JSON.stringify({ incomingReverseChargeAccounts: { chart: input.chart, rateBasisPoints: 1900, inputVatAccountNumber: input.input, outputVatAccountNumber: input.output } }) } })
-  const data = { syntax: 'UBL', kind: 'invoice', invoiceNumber: `RC-${input.chart}`, issueDate: '2026-07-26', supplyDate: '2026-07-26', seller: { name: 'German Construction Supplier GmbH', street: 'A 1', city: 'Berlin', postalCode: '10115', countryCode: 'DE', vatId: 'DE123456789' }, buyer: { name: 'Buyer GmbH', street: 'B 2', city: 'Berlin', postalCode: '10115', countryCode: 'DE', vatId: 'DE987654321' }, lines: [{ description: 'Domestic construction service', quantity: 1, unitCode: 'C62', netAmountCents: 10_000, taxRateBasisPoints: 0, taxCategoryCode: 'AE', exemptionReason: 'Steuerschuldnerschaft des Leistungsempfängers gemäß § 13b UStG', reverseCharge: true }], netAmountCents: 10_000, taxAmountCents: 0, grossAmountCents: 10_000, payableAmountCents: 10_000, currency: 'EUR', reverseCharge: true }
+    ] })
+    if (input.configured !== false) await prisma.accountRecord.create({ data: { id: `company:${input.ownerId}`, ownerId: input.ownerId, payload: JSON.stringify({ incomingReverseChargeAccounts: { chart: input.chart, rateBasisPoints: 1900, inputVatAccountNumber: input.input, outputVatAccountNumber: input.output }, ...(input.euService ? { companyProfile: { vatId: input.tenantVatId ?? 'DE987654321' } } : {}) }) } })
+  }
+  const data = { syntax: 'UBL', kind: 'invoice', invoiceNumber: input.invoiceNumber ?? (input.euService ? 'EU-SVC-AT-1' : `RC-${input.chart}`), issueDate: input.issueDate ?? '2026-07-26', supplyDate: input.supplyDate ?? '2026-07-26', seller: input.euService ? { name: input.sellerName ?? 'Vienna Cloud GmbH', street: 'Ring 1', city: 'Wien', postalCode: '1010', countryCode: 'AT', vatId: input.sellerVatId ?? 'ATU12345678' } : { name: 'German Construction Supplier GmbH', street: 'A 1', city: 'Berlin', postalCode: '10115', countryCode: 'DE', vatId: 'DE123456789' }, buyer: { name: 'Buyer GmbH', street: 'B 2', city: 'Berlin', postalCode: '10115', countryCode: 'DE', vatId: 'DE987654321' }, lines: [{ description: input.euService ? 'Cloud service' : 'Domestic construction service', quantity: 1, unitCode: 'C62', netAmountCents: 10_000, taxRateBasisPoints: 0, taxCategoryCode: 'AE', exemptionReason: input.euService ? 'Reverse charge - Article 196 VAT Directive' : 'Steuerschuldnerschaft des Leistungsempfängers gemäß § 13b UStG', reverseCharge: true }], netAmountCents: 10_000, taxAmountCents: 0, grossAmountCents: 10_000, payableAmountCents: 10_000, currency: 'EUR', reverseCharge: true }
   await prisma.documentRecord.create({ data: { id: input.documentId, ownerId: input.ownerId, payload: '{}' } })
   await prisma.documentExtraction.create({ data: { ownerId: input.ownerId, documentId: input.documentId, status: 'CONFIRMED', provider: 'structured-invoice', providerVersion: 'EN16931-parser-1', inputHash: input.ownerId.padEnd(64, 'r').slice(0, 64), extractedData: JSON.stringify({ supplierName: data.seller.name, invoiceNumber: data.invoiceNumber, issueDate: data.issueDate, netAmountCents: 10_000, taxAmountCents: 0, grossAmountCents: 10_000, currency: 'EUR', confidence: {}, provenance: 'STRUCTURED_INVOICE' }), reviewedBy: 'reviewer', reviewedAt: new Date('2026-08-04') } })
-  await prisma.structuredInvoice.create({ data: { id: `${input.documentId}-structured`, ownerId: input.ownerId, documentId: input.documentId, syntax: 'UBL', kind: 'invoice', direction: 'INCOMING', issuerKey: `${input.ownerId}-issuer`, invoiceNumber: data.invoiceNumber, issueDate: new Date(data.issueDate), structuredHash: input.ownerId.padEnd(64, 's').slice(0, 64), originalMediaType: 'application/xml', structuredOriginal: Buffer.from('<Invoice/>'), provenance: '{}', renderedHtml: '<p>§13b invoice</p>', data: JSON.stringify(data) } })
+  await prisma.structuredInvoice.create({ data: { id: `${input.documentId}-structured`, ownerId: input.ownerId, documentId: input.documentId, syntax: 'UBL', kind: 'invoice', direction: 'INCOMING', issuerKey: `${input.ownerId}:${input.documentId}:issuer`, invoiceNumber: data.invoiceNumber, issueDate: new Date(data.issueDate), structuredHash: createHashForTest(input.ownerId, input.documentId), originalMediaType: 'application/xml', structuredOriginal: Buffer.from('<Invoice/>'), provenance: '{}', renderedHtml: '<p>§13b invoice</p>', data: JSON.stringify(data) } })
 }
+
+function createHashForTest(ownerId: string, documentId: string) { return `${ownerId}:${documentId}`.padEnd(64, 's').slice(0, 64) }

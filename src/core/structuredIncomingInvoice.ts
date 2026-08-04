@@ -1,17 +1,18 @@
 import type { StructuredInvoiceData } from './eInvoice'
 import type { InvoiceExtractionData } from './documentExtraction'
-import { classifyDomesticGermanReverseCharge, requireDomesticReverseChargeRate } from './incomingReverseCharge'
+import { classifyIncomingGermanReverseCharge, requireIncomingReverseChargeRate } from './incomingReverseCharge'
 
-export type StructuredIncomingVatGroup = { rateBasisPoints: 0 | 700 | 1900; invoiceRateBasisPoints: 0 | 700 | 1900; netAmountCents: number; taxAmountCents: number; supplierTaxAmountCents: number; ruleId: 'DE_ZERO' | 'DE_REDUCED' | 'DE_STANDARD' | 'DE_13B' }
+export type StructuredIncomingVatGroup = { rateBasisPoints: 0 | 700 | 1900; invoiceRateBasisPoints: 0 | 700 | 1900; netAmountCents: number; taxAmountCents: number; supplierTaxAmountCents: number; ruleId: 'DE_ZERO' | 'DE_REDUCED' | 'DE_STANDARD' | 'DE_13B' | 'EU_13B_SERVICE_RECIPIENT' }
 
-export function structuredIncomingInvoiceFacts(data: StructuredInvoiceData, options: { reverseChargeRateBasisPoints?: number } = {}): { extraction: InvoiceExtractionData; vatGroups: StructuredIncomingVatGroup[]; reverseCharge: boolean } {
+export function structuredIncomingInvoiceFacts(data: StructuredInvoiceData, options: { reverseChargeRateBasisPoints?: number; reverseChargeSupplyKind?: 'SERVICE' } = {}): { extraction: InvoiceExtractionData; vatGroups: StructuredIncomingVatGroup[]; reverseCharge: boolean } {
   validateSupportedIncomingInvoice(data)
-  const reverseCharge = classifyDomesticGermanReverseCharge(data)
-  const reverseChargeRate = requireDomesticReverseChargeRate(reverseCharge, options.reverseChargeRateBasisPoints)
+  const reverseCharge = classifyIncomingGermanReverseCharge(data)
+  const reverseChargeRate = requireIncomingReverseChargeRate(reverseCharge, options.reverseChargeRateBasisPoints)
   if (reverseCharge) {
+    if (reverseCharge.kind === 'DE_13B_EU_SERVICE' && options.reverseChargeSupplyKind !== 'SERVICE') throw new TypeError('Explicitly confirm that the EU supplier invoice contains B2B services before posting.')
     const netAmountCents = reconciledReverseChargeNet(data)
     const assessedTaxAmountCents = roundVat(netAmountCents, reverseChargeRate!)
-    return { extraction: extraction(data), reverseCharge: true, vatGroups: [{ rateBasisPoints: 1900, invoiceRateBasisPoints: 0, netAmountCents, taxAmountCents: assessedTaxAmountCents, supplierTaxAmountCents: 0, ruleId: 'DE_13B' }] }
+    return { extraction: extraction(data), reverseCharge: true, vatGroups: [{ rateBasisPoints: 1900, invoiceRateBasisPoints: 0, netAmountCents, taxAmountCents: assessedTaxAmountCents, supplierTaxAmountCents: 0, ruleId: reverseCharge.kind === 'DE_13B_EU_SERVICE' ? 'EU_13B_SERVICE_RECIPIENT' : 'DE_13B' }] }
   }
 
   return ordinaryIncomingInvoiceFacts(data)
@@ -19,7 +20,7 @@ export function structuredIncomingInvoiceFacts(data: StructuredInvoiceData, opti
 
 export function structuredIncomingInvoiceReviewExtraction(data: StructuredInvoiceData) {
   validateSupportedIncomingInvoice(data)
-  if (classifyDomesticGermanReverseCharge(data)) {
+  if (classifyIncomingGermanReverseCharge(data)) {
     reconciledReverseChargeNet(data)
     return extraction(data)
   }
@@ -29,7 +30,8 @@ export function structuredIncomingInvoiceReviewExtraction(data: StructuredInvoic
 function validateSupportedIncomingInvoice(data: StructuredInvoiceData) {
   if (data.kind !== 'invoice') throw new TypeError('Only structured supplier invoices can enter payable posting; corrections require a dedicated linked workflow.')
   if (data.currency !== 'EUR') throw new TypeError('Only EUR structured supplier invoices can currently be posted.')
-  if (data.seller.countryCode !== 'DE' || data.buyer.countryCode !== 'DE') throw new TypeError('Only domestic German structured supplier invoices can currently be posted.')
+  if (data.buyer.countryCode !== 'DE') throw new TypeError('Only structured supplier invoices for a German buyer can currently be posted.')
+  if (data.seller.countryCode !== 'DE' && !data.reverseCharge && !data.lines.some(line => line.taxCategoryCode === 'AE' || line.reverseCharge)) throw new TypeError('Foreign ordinary supplier invoices require a dedicated posting workflow.')
   if (data.exemptionReason && !data.reverseCharge || (data.prepaidAmountCents ?? 0) !== 0 || (data.payableRoundingAmountCents ?? 0) !== 0 || (data.payableAmountCents ?? data.grossAmountCents) !== data.grossAmountCents) throw new TypeError('Exemptions, prepayments, rounding, and adjusted payable amounts require a dedicated payable workflow.')
   if (!data.lines.length) throw new TypeError('At least one structured supplier invoice line is required.')
 }
