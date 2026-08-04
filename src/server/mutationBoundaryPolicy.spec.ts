@@ -32,7 +32,7 @@ function sideEffectingReads() {
     const source = readFileSync(file, 'utf8'); const start = source.search(/export async function GET\b/)
     if (start < 0) return []
     const next = source.indexOf('export async function ', start + 24); const handler = source.slice(start, next < 0 ? undefined : next)
-    if (!/\b(?:ensureLedger|reconcilePendingOutgoingInvoiceAccounting|downloadTenantBackupPayload)\s*\(/.test(handler)) return []
+    if (!/\b(?:ensureLedger|reconcilePendingOutgoingInvoiceAccounting|downloadTenantBackupPayload|downloadReportingPackage)\s*\(/.test(handler)) return []
     const route = `/api/${relative(apiRoot, file).replaceAll('\\', '/').replace(/\/route\.ts$/, '')}`
     return [{ key: `${route}#GET`, source: handler }]
   })

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { taxFormRegistry, type DeclarationDataset } from '../src/core/taxDeclarations'
 import {
-  assertQualifiedGatewayProtocol, qualificationEvidence, qualifiedGatewayContractConfiguration, retainQualificationEvidence,
+  assertQualifiedGatewayProtocol, captureQualificationRemoteResponse, qualificationEvidence, qualifiedGatewayContractConfiguration, retainQualificationEvidence,
 } from '../src/server/tax/qualificationContract'
 
 const configuration = qualifiedGatewayContractConfiguration()
@@ -26,46 +26,57 @@ test.describe('qualified ELSTER gateway interoperability contract', () => {
   for (const dataset of datasets) test(`${dataset.formVersion} validates, rejects malformed facts, and returns staging acceptance evidence`, async ({ playwright }) => {
     const endpoint = configuration.endpoint!
     const credential = configuration.credential!
+    const secrets = [credential, taxpayerId]
     const context = await playwright.request.newContext({ extraHTTPHeaders: { authorization: `Bearer ${credential}`, 'content-type': 'application/json' } })
-    const retain = async (caseName: string, request: unknown, response: { status: number; body: any }, stage: 'VALIDATED' | 'REJECTED' | 'ACCEPTED', result: unknown) => {
-      await retainQualificationEvidence(configuration.protocolDirectory!, `${evidenceRunId}-${dataset.kind.toLowerCase()}-${caseName}.json`, qualificationEvidence({
+    const capture = async (response: { status(): number; text(): Promise<string>; headers(): Record<string, string> }) => {
+      const captured = captureQualificationRemoteResponse(await response.text(), response.headers()['content-type'], secrets)
+      const body = captured.parsed && typeof captured.parsed === 'object' && !Array.isArray(captured.parsed) ? captured.parsed as Record<string, any> : undefined
+      return { status: response.status(), body, evidence: captured.evidence }
+    }
+    const retain = async (caseName: string, request: unknown, response: Awaited<ReturnType<typeof capture>>, stage: 'VALIDATED' | 'REJECTED' | 'ACCEPTED', result: unknown) => {
+      await retainQualificationEvidence(configuration.protocolDirectory!, `${evidenceRunId}-${dataset.formVersion.toLowerCase().replace(/[^a-z0-9._-]/g, '-')}-${caseName}.json`, qualificationEvidence({
         config: { gatewayId: configuration.gatewayId!, qualificationId: configuration.qualificationId! },
-        dataset, caseName, request, httpStatus: response.status, result, protocol: response.body.protocol, secrets: [credential, taxpayerId],
+        dataset, caseName, request, httpStatus: response.status, result: { response: response.evidence, contractResult: result }, protocol: response.body?.protocol, secrets,
       }))
-      return assertQualifiedGatewayProtocol(response.body.protocol, {
+      return assertQualifiedGatewayProtocol(response.body?.protocol, {
         gatewayId: configuration.gatewayId!, qualificationId: configuration.qualificationId!, formVersion: dataset.formVersion, stage,
       })
     }
 
     try {
       const validationRequest = { dataset }
-      const validationResponse = await context.post(`${endpoint}/validate`, { data: validationRequest })
-      const validationBody = await validationResponse.json()
-      await retain('validation', validationRequest, { status: validationResponse.status(), body: validationBody }, 'VALIDATED', validationBody)
-      expect(validationResponse.status()).toBe(200)
+      const validationResponse = await context.post(`${endpoint}/validate`, { data: validationRequest }); const validation = await capture(validationResponse); const validationBody = validation.body
+      await retain('validation', validationRequest, validation, 'VALIDATED', validationBody)
+      expect(validation.status).toBe(200)
       expect(validationBody).toMatchObject({ valid: true, errors: [] })
 
       const requiredField = Object.keys(dataset.fields)[0]
       const invalidDataset = { ...dataset, fields: Object.fromEntries(Object.entries(dataset.fields).filter(([field]) => field !== requiredField)) }
       const rejectionRequest = { dataset: invalidDataset }
-      const rejectionResponse = await context.post(`${endpoint}/validate`, { data: rejectionRequest })
-      const rejectionBody = await rejectionResponse.json()
-      await retain('rejection', rejectionRequest, { status: rejectionResponse.status(), body: rejectionBody }, 'REJECTED', rejectionBody)
-      expect(rejectionResponse.status()).toBe(200)
+      const rejectionResponse = await context.post(`${endpoint}/validate`, { data: rejectionRequest }); const rejection = await capture(rejectionResponse); const rejectionBody = rejection.body ?? {}
+      await retain('rejection', rejectionRequest, rejection, 'REJECTED', rejectionBody)
+      expect(rejection.status).toBe(200)
       expect(rejectionBody.valid).toBe(false)
       expect(rejectionBody.errors).toEqual(expect.arrayContaining([expect.any(String)]))
       expect(rejectionBody.errors.every((error: unknown) => typeof error === 'string' && error.trim())).toBe(true)
 
       const submissionRequest = { dataset, idempotencyKey: createHash('sha256').update(`qualified-contract:${dataset.kind}:${dataset.period}`).digest('hex') }
-      const submissionResponse = await context.post(`${endpoint}/submit`, { data: submissionRequest })
-      const submissionBody = await submissionResponse.json()
+      const submissionResponse = await context.post(`${endpoint}/submit`, { data: submissionRequest }); const submission = await capture(submissionResponse); const submissionBody = submission.body ?? {}
       const receiptSha256 = typeof submissionBody.receipt === 'string' ? createHash('sha256').update(submissionBody.receipt).digest('hex') : null
-      await retain('acceptance', submissionRequest, { status: submissionResponse.status(), body: submissionBody }, 'ACCEPTED', { ...submissionBody, receiptSha256 })
-      expect(submissionResponse.status()).toBe(200)
+      const acceptedProtocol = await retain('acceptance', submissionRequest, submission, 'ACCEPTED', { ...submissionBody, receiptSha256 })
+      expect(submission.status).toBe(200)
       expect(submissionBody.outcome).toBe('accepted')
       expect(submissionBody.errors ?? []).toEqual([])
       expect(submissionBody.receipt).toEqual(expect.any(String))
       expect(submissionBody.receipt.trim()).not.toBe('')
+
+      const replayResponse = await context.post(`${endpoint}/submit`, { data: submissionRequest }); const replay = await capture(replayResponse); const replayBody = replay.body
+      const replayReceiptSha256 = typeof replayBody?.receipt === 'string' ? createHash('sha256').update(replayBody.receipt).digest('hex') : null
+      const replayProtocol = await retain('acceptance-replay', submissionRequest, replay, 'ACCEPTED', { ...replayBody, receiptSha256: replayReceiptSha256 })
+      expect(replay.status).toBe(200)
+      expect(replayBody).toMatchObject({ outcome: 'accepted', errors: [], receipt: expect.any(String) })
+      expect(replayReceiptSha256).toBe(receiptSha256)
+      expect(replayProtocol.protocolId).toBe(acceptedProtocol.protocolId)
     } finally { await context.dispose() }
   })
 })

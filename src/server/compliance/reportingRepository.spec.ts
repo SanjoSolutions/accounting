@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => {
     compliancePackage, procedureDocumentRecord: { create: vi.fn(), findMany: vi.fn() }, retainedArtifact: { create: vi.fn() },
     fixedAssetRecord: { findMany: vi.fn() }, assetEventRecord: { findMany: vi.fn() }, inventoryItemRecord: { findMany: vi.fn() }, inventoryCountSnapshot: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
     cashBookRecord: { findMany: vi.fn(), findFirst: vi.fn() }, cashEntryRecord: { findMany: vi.fn() }, cashCloseRecord: { findMany: vi.fn() },
+    journalEntry: { findMany: vi.fn() }, documentRecord: { findMany: vi.fn() }, businessPartner: { findMany: vi.fn() }, commercialDocument: { findMany: vi.fn() }, openItem: { findMany: vi.fn() }, paymentSettlement: { findMany: vi.fn() }, settlementAllocation: { findMany: vi.fn() }, correctionNetting: { findMany: vi.fn() }, bankAccount: { findMany: vi.fn() }, bankStatement: { findMany: vi.fn() }, bankTransaction: { findMany: vi.fn() }, bankTransactionMatch: { findMany: vi.fn() },
     fiscalYear: { findFirst: vi.fn() }, companyProfileVersion: { findFirst: vi.fn(), findMany: vi.fn() }, accountMappingVersion: { findMany: vi.fn() }, hgbWorkpaperRecord: { findMany: vi.fn() }, hgbAdjustmentRecord: { findMany: vi.fn() }, auditEvent: { findMany: vi.fn() }, taxWorkflowRecord: { findMany: vi.fn() },
   }
   return { transaction, compliancePackage, prismaTransaction: vi.fn(), persist: vi.fn(), remove: vi.fn(), audit: vi.fn() }
@@ -34,6 +35,7 @@ describe('reporting compliance repository', () => {
     mocks.transaction.fiscalYear.findFirst.mockResolvedValue({ id: 'fy', ownerId: 'tenant-a', year: 2026, startsAt: new Date('2026-01-01T00:00:00Z'), endsAt: new Date('2026-12-31T00:00:00Z') })
     mocks.transaction.fixedAssetRecord.findMany.mockResolvedValue([])
     mocks.transaction.assetEventRecord.findMany.mockResolvedValue([])
+    for (const repository of [mocks.transaction.journalEntry, mocks.transaction.documentRecord, mocks.transaction.businessPartner, mocks.transaction.commercialDocument, mocks.transaction.openItem, mocks.transaction.paymentSettlement, mocks.transaction.settlementAllocation, mocks.transaction.correctionNetting, mocks.transaction.bankAccount, mocks.transaction.bankStatement, mocks.transaction.bankTransaction, mocks.transaction.bankTransactionMatch, mocks.transaction.auditEvent, mocks.transaction.taxWorkflowRecord, mocks.transaction.cashBookRecord, mocks.transaction.cashEntryRecord, mocks.transaction.cashCloseRecord]) repository.findMany.mockResolvedValue([])
     mocks.transaction.inventoryCountSnapshot.findUnique.mockResolvedValue(null)
     mocks.prismaTransaction.mockImplementation(async (work: unknown) => typeof work === 'function' ? (work as (tx: typeof mocks.transaction) => unknown)(mocks.transaction) : Promise.all(work as Promise<unknown>[]))
   })

@@ -180,4 +180,37 @@ export class DocumentExtractionPage {
     await expect(entry.getByRole('link', { name: 'mixed-input.xml' })).toBeVisible()
     await this.page.reload(); await expect(this.page.locator('.journal-entry').filter({ hasText: 'UBL-MIXED-E2E' })).toBeVisible()
   }
+
+  async uploadAndPostSupplierCredit(xml: Buffer) {
+    await this.page.goto('/bookings')
+    const uploaded = this.page.waitForResponse(response => response.url().endsWith('/api/documents') && response.request().method() === 'POST')
+    await this.page.locator('.document-actions input[type="file"]').setInputFiles({ name: 'supplier-credit.xml', mimeType: 'application/xml', buffer: xml })
+    const body = await (await uploaded).json(); this.structuredDocumentId = body.data.id
+    await expect(this.page.getByRole('heading', { name: 'Post supplier credit note' })).toBeVisible()
+    await expect(this.page.getByText('UBL GS-MIXED-E2E')).toBeVisible()
+    await expect(this.page.getByText(/ER-MIXED-E2E.*Mixed Credit Supplier GmbH/)).toBeVisible()
+    await this.page.getByLabel('Adjustment-effective date').fill('2026-08-04')
+    await this.page.getByLabel('Posting confirmation reason').fill('Reviewed exact UBL supplier credit and effective date')
+    await this.page.getByRole('button', { name: 'Confirm and post supplier credit' }).click()
+    await expect(this.page.getByRole('status')).toContainText('GS-MIXED-E2E')
+    await expect(this.page.getByRole('status')).toContainText('unapplied supplier credit: €0.00')
+  }
+
+  async proveSupplierCreditAfterReload() {
+    await this.page.goto('/receivables')
+    const credit = this.page.getByRole('row').filter({ hasText: 'GS-MIXED-E2E' })
+    await expect(credit).toContainText('Mixed Credit Supplier GmbH'); await expect(credit).toContainText('226.00'); await expect(credit).toContainText('SETTLED')
+    await this.page.reload(); await expect(this.page.getByRole('row').filter({ hasText: 'GS-MIXED-E2E' })).toBeVisible()
+    await this.page.goto('/journal?year=2026')
+    const entry = this.page.locator('.journal-entry').filter({ hasText: 'Supplier credit note GS-MIXED-E2E for ER-MIXED-E2E' })
+    await expect(entry).toContainText('1600'); await expect(entry).toContainText('Soll 226,00')
+    await expect(entry).toContainText('4930'); await expect(entry).toContainText('Haben 100,00')
+    await expect(entry).toContainText('1571'); await expect(entry).toContainText('Haben 7,00')
+    await expect(entry).toContainText('1576'); await expect(entry).toContainText('Haben 19,00')
+    await expect(entry.getByRole('link', { name: 'supplier-credit.xml' })).toBeVisible()
+    await this.page.reload(); await expect(this.page.locator('.journal-entry').filter({ hasText: 'GS-MIXED-E2E' })).toBeVisible()
+    const context = await this.page.evaluate(async documentId => (await fetch(`/api/documents/${documentId}/payable-credit-note`)).json(), this.structuredDocumentId)
+    expect(context.data.correction).toMatchObject({ direction: 'PAYABLE', kind: 'CREDIT_NOTE', status: 'POSTED', openItem: { side: 'DEBIT', status: 'SETTLED' }, correctionNetting: { amountCents: 22_600 } })
+    expect(context.data.correction.postingJournalEntry.lines.flatMap((line: { vatPosting: null | { netBaseCents: number; inputTaxCents: number } }) => line.vatPosting ? [line.vatPosting] : [])).toEqual(expect.arrayContaining([expect.objectContaining({ netBaseCents: -10_000, inputTaxCents: -700 }), expect.objectContaining({ netBaseCents: -10_000, inputTaxCents: -1_900 })]))
+  }
 }

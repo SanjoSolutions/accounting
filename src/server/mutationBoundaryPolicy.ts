@@ -31,6 +31,7 @@ export const apiMutationBoundaryPolicy = {
   '/api/datev-import#POST': 'write',
   '/api/documents/[id]/parsing-requests#PATCH': 'write',
   '/api/documents/[id]/parsing-requests#POST': 'write',
+  '/api/documents/[id]/payable-credit-note#POST': 'write',
   '/api/documents/[id]/payable-posting#POST': 'write',
   '/api/documents#POST': 'write',
   '/api/fiscal-years/[year]/close#POST': 'write',
@@ -67,6 +68,7 @@ export const serverActionBoundaryPolicy = {
 
 export const sideEffectingReadBoundaryPolicy = {
   '/api/compliance/backups/[id]#GET': 'audited_read',
+  '/api/compliance/packages/[id]#GET': 'audited_read',
   '/api/fiscal-years/[year]/e-balance/eric-status#GET': 'conditional_maintenance',
   '/api/fixed-assets#GET': 'conditional_maintenance',
   '/api/tax/e-invoices#GET': 'conditional_maintenance',

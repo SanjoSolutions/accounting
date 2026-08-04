@@ -32,7 +32,17 @@ Each case must pass an official validation, reject a package with incomplete
 register identity, accept an idempotent non-binding submission, return a
 machine-readable TEST/STAGING protocol tied to the exact provider schema and
 qualification, and provide a nonblank receipt. Redacted protocols are retained
-as workflow artifacts. A disabled or skipped contract is not filing evidence.
+as workflow artifacts. The same request/key replay must return the same protocol
+identity and receipt SHA-256. Non-JSON failures retain status, media type, byte
+length, digest and a bounded redacted excerpt before failing closed. A disabled
+or skipped contract is not filing evidence.
+
+The provider XML/XBRL layout is intentionally not invented here. Until the
+provider-issued specification and credentials are available, the contract's
+deterministic disclosure dataset is an adapter-boundary fixture, not proof that
+an application-generated annual package has been transformed into the official
+wire schema. Qualification must replace or explicitly approve that transformer
+against retained application package bytes and the exact provider schema.
 
 Run locally only with an authorized environment:
 

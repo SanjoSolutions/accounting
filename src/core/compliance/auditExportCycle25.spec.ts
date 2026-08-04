@@ -75,6 +75,16 @@ describe('cycle 25 audit export hardening', () => {
     await expect(createAuditPackage(unmappedAccount, access, { record: vi.fn() })).rejects.toThrow('opening/closing fiscal-year or account relationships')
   })
 
+  it('rejects correction netting whose original or credit open item is absent from the exported OPOS graph', async () => {
+    const malformed = source()
+    malformed.businessPartners = [{ tenantId, id: 'partner-1' }]
+    malformed.commercialDocuments = [{ tenantId, id: 'credit-1', businessPartnerId: 'partner-1' }]
+    malformed.openItems = [{ tenantId, id: 'original-open-1', commercialDocumentId: 'credit-1', outstandingCents: 100 }]
+    malformed.correctionNettings = [{ tenantId, id: 'netting-1', correctionDocumentId: 'credit-1', originalOpenItemId: 'original-open-1', creditOpenItemId: 'missing-credit-open', journalEntryIncluded: false }]
+
+    await expect(createAuditPackage(malformed, access, { record: vi.fn() })).rejects.toThrow('Correction-netting export relationships are invalid')
+  })
+
   it.each([
     [{ format: 'other-format' }, 'Manifest format is not supported'],
     [{ version: 2 }, 'Manifest version is not supported'],

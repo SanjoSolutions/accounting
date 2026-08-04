@@ -6,6 +6,7 @@ import { getJSON } from './Requester'
 
 type ExtractionData = { supplierName: string; invoiceNumber: string; issueDate: string; netAmountCents: number; taxAmountCents: number; grossAmountCents: number; provenance: string }
 type Extraction = { documentId: string; status: string; provider: string; providerVersion: string; inputHash: string; data: ExtractionData | null; failureCode: string | null; failureMessage: string | null; retryable: boolean; reviewedAt: string | null }
+type SupplierCreditContext = { correction: null | { id: string; documentNumber: string; openItem: { originalAmountCents: number; allocatedAmountCents: number; status: string }; correctionNetting: { amountCents: number }; postingJournalEntry: { documentNumber: string } }; credit: { kind: string; documentNumber: string; issueDate: string; correctedInvoiceNumber: string; grossAmountCents: number; syntax: string }; original: { id: string; documentNumber: string; supplier: string; remainingAmountCents: number; currency: string } }
 
 export function DocumentExtractionPanel({ documentId }: { documentId: string }) {
   const t = useTranslations('DocumentExtraction')
@@ -13,16 +14,23 @@ export function DocumentExtractionPanel({ documentId }: { documentId: string }) 
   const [form, setForm] = useState<ExtractionData | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [supplierCredit, setSupplierCredit] = useState<SupplierCreditContext | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
-    setExtraction(null); setForm(null); setError('')
+    setExtraction(null); setForm(null); setSupplierCredit(null); setError('')
     void fetch(path(documentId), { signal: controller.signal }).then(async response => {
       if (response.status === 404) return
       const body = await getJSON(response)
       if (!response.ok) throw new Error(body?.error || t('loadFailed'))
       apply(body.data)
     }).catch(fetchError => { if (fetchError?.name !== 'AbortError') setError(fetchError instanceof Error ? fetchError.message : t('loadFailed')) })
+    void fetch(creditPath(documentId), { signal: controller.signal }).then(async response => {
+      if (response.status === 404) return
+      const body = await getJSON(response)
+      if (!response.ok) throw new Error(body?.error || t('creditLoadFailed'))
+      setSupplierCredit(body.data)
+    }).catch(fetchError => { if (fetchError?.name !== 'AbortError') setError(fetchError instanceof Error ? fetchError.message : t('creditLoadFailed')) })
     return () => controller.abort()
   }, [documentId, t])
 
@@ -53,7 +61,7 @@ export function DocumentExtractionPanel({ documentId }: { documentId: string }) 
 
   return <section className="document-extraction" aria-label={t('title')}>
     <div className="d-flex justify-content-between align-items-center gap-2 mt-3"><h3 className="h6 mb-0">{t('title')}</h3>{extraction && <span className="badge text-bg-light">{t(`status.${extraction.status}`)}</span>}</div>
-    {!extraction && <button className="btn btn-outline-primary btn-sm mt-2" type="button" disabled={busy} onClick={extract}>{busy ? t('extracting') : t('extract')}</button>}
+    {!extraction && !supplierCredit && <button className="btn btn-outline-primary btn-sm mt-2" type="button" disabled={busy} onClick={extract}>{busy ? t('extracting') : t('extract')}</button>}
     {extraction?.status === 'FAILED' && <div className="alert alert-warning mt-2 mb-0"><strong>{extraction.failureCode}</strong><div>{extraction.failureMessage}</div>{extraction.retryable && <button className="btn btn-outline-primary btn-sm mt-2" type="button" disabled={busy} onClick={extract}>{t('retry')}</button>}</div>}
     {form && <form className="mt-2" onSubmit={confirm}>
       <div className="form-grid">
@@ -68,8 +76,35 @@ export function DocumentExtractionPanel({ documentId }: { documentId: string }) 
       <small className="d-block text-muted mt-2">{t('provenance', { provider: extraction?.provider ?? '', version: extraction?.providerVersion ?? '', hash: extraction?.inputHash.slice(0, 12) ?? '' })}</small>
     </form>}
     {extraction?.status === 'CONFIRMED' && form && <IncomingPayablePosting documentId={documentId} issueDate={form.issueDate} />}
+    {supplierCredit && <IncomingSupplierCreditPosting documentId={documentId} initialContext={supplierCredit} />}
     {error && <div className="alert alert-danger mt-2 mb-0" role="alert">{error}</div>}
   </section>
+}
+
+function IncomingSupplierCreditPosting({ documentId, initialContext }: { documentId: string; initialContext: SupplierCreditContext }) {
+  const t = useTranslations('DocumentExtraction')
+  const [context, setContext] = useState(initialContext)
+  const [effectiveDate, setEffectiveDate] = useState('')
+  const [reason, setReason] = useState('Reviewed structured supplier credit note and exact original reference')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [requestKey] = useState(() => `supplier-credit-ui-${crypto.randomUUID()}`)
+  async function post(event: React.FormEvent) {
+    event.preventDefault(); setBusy(true); setError('')
+    try {
+      const response = await fetch(creditPath(documentId), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ effectiveDate, requestKey, reason }) })
+      const body = await getJSON(response); if (!response.ok) throw new Error(body?.error || t('creditPostingFailed'))
+      setContext(current => ({ ...current, correction: body.data }))
+    } catch (postingError) { setError(postingError instanceof Error ? postingError.message : t('creditPostingFailed')) }
+    finally { setBusy(false) }
+  }
+  if (context.correction) return <div className="alert alert-success mt-3 mb-0" role="status">{t('creditPosted', { credit: context.correction.documentNumber, journal: context.correction.postingJournalEntry.documentNumber, unapplied: ((context.correction.openItem.originalAmountCents - context.correction.openItem.allocatedAmountCents) / 100).toFixed(2) })}</div>
+  return <section className="card mt-3" aria-label={t('creditPostingTitle')}><div className="card-body">
+    <h4 className="h6">{t('creditPostingTitle')}</h4><p className="small text-muted">{t('creditPostingHint')}</p>
+    <dl className="row small"><dt className="col-sm-4">{t('creditDocument')}</dt><dd className="col-sm-8">{context.credit.syntax} {context.credit.documentNumber}</dd><dt className="col-sm-4">{t('creditOriginal')}</dt><dd className="col-sm-8">{context.original.documentNumber} · {context.original.supplier}</dd><dt className="col-sm-4">{t('creditAmount')}</dt><dd className="col-sm-8">{(context.credit.grossAmountCents / 100).toFixed(2)} {context.original.currency}</dd></dl>
+    <form onSubmit={post}><label className="form-label d-block">{t('creditEffectiveDate')}<input className="form-control" type="date" required value={effectiveDate} onChange={event => setEffectiveDate(event.target.value)} /></label><label className="form-label d-block">{t('postingReason')}<input className="form-control" required value={reason} onChange={event => setReason(event.target.value)} /></label><button className="btn btn-primary btn-sm" type="submit" disabled={busy || !effectiveDate}>{busy ? t('posting') : t('postCredit')}</button></form>
+    {error && <div className="alert alert-danger mt-2 mb-0" role="alert">{error}</div>}
+  </div></section>
 }
 
 type ReverseChargeTreatment = null | { kind: 'DE_13B_DOMESTIC'; supportedAssessmentRatesBasisPoints: readonly [1900]; reason: string; configured: boolean }
@@ -131,5 +166,6 @@ function Money({ label, value, disabled, onChange }: { label: string; value: num
 }
 
 function path(documentId: string) { return `/api/documents/${encodeURIComponent(documentId)}/parsing-requests` }
+function creditPath(documentId: string) { return `/api/documents/${encodeURIComponent(documentId)}/payable-credit-note` }
 
 function plusDays(value: string, days: number) { const date = new Date(`${value}T00:00:00.000Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10) }

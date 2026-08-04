@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { assertQualifiedGatewayProtocol, qualificationEvidence, qualifiedContractFormVersions, qualifiedGatewayContractConfiguration, redactQualificationProtocol } from './qualificationContract'
+import { assertQualifiedGatewayProtocol, captureQualificationRemoteResponse, qualificationEvidence, qualifiedContractFormVersions, qualifiedGatewayContractConfiguration, redactQualificationProtocol } from './qualificationContract'
 
 const validEnvironment = (): NodeJS.ProcessEnv => ({
   NODE_ENV: 'test',
@@ -45,12 +45,25 @@ describe('qualified tax gateway contract configuration', () => {
 
 describe('qualified gateway evidence redaction', () => {
   it('Given secrets and taxpayer data in nested protocol output, when evidence is redacted, then credentials and identifying payloads are removed', () => {
+    const receiptSha256 = 'a'.repeat(64)
     const serialized = JSON.stringify(redactQualificationProtocol({
-      authorization: 'Bearer top-secret', nested: { taxpayerId: 'taxpayer-1', diagnostic: 'credential=top-secret', protocolId: 'safe-id' },
+      authorization: 'Bearer top-secret', receipt: 'secret-receipt', receiptSha256, malformedReceiptSha256: 'not-a-digest', nested: { taxpayerId: 'taxpayer-1', diagnostic: 'credential=top-secret', protocolId: 'safe-id' },
     }, ['top-secret']))
     expect(serialized).not.toContain('top-secret')
     expect(serialized).not.toContain('taxpayer-1')
     expect(serialized).toContain('safe-id')
+    expect(serialized).toContain(receiptSha256)
+    expect(serialized).not.toContain('secret-receipt')
+    expect(serialized).not.toContain('not-a-digest')
+  })
+
+  it('Given a non-JSON gateway failure, when the response is captured, then bounded redacted diagnostics and an exact response digest remain available', () => {
+    const body = `<html>credential=top-secret ${'x'.repeat(3_000)}</html>`
+    const captured = captureQualificationRemoteResponse(body, 'text/html; charset=utf-8', ['top-secret'])
+    expect(captured.parsed).toBeUndefined()
+    expect(captured.evidence).toMatchObject({ contentType: 'text/html', bodySha256: expect.stringMatching(/^[a-f0-9]{64}$/), bodyLength: Buffer.byteLength(body) })
+    expect(JSON.stringify(captured.evidence)).not.toContain('top-secret')
+    expect((captured.evidence as { textExcerpt: string }).textExcerpt.length).toBeLessThanOrEqual(2_048)
   })
 
   it('Given a declaration object with runtime-only taxpayer facts, when evidence is retained, then only non-identifying form coordinates survive', () => {

@@ -1,0 +1,12 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+const mocks = vi.hoisted(() => ({ user: vi.fn(), context: vi.fn(), post: vi.fn(), forbidden: vi.fn() }))
+vi.mock('server-only', () => ({})); vi.mock('@/server/authentication', () => ({ getCurrentUser: mocks.user })); vi.mock('@/server/authorization', () => ({ forbiddenUnless: mocks.forbidden })); vi.mock('@/server/incomingSupplierCreditNote', () => ({ getIncomingSupplierCreditContext: mocks.context, postIncomingSupplierCredit: mocks.post, IncomingSupplierCreditNoteError: class extends Error { constructor(message: string, readonly status = 400) { super(message) } } }))
+import { GET, POST } from './route'
+const args = { params: Promise.resolve({ id: 'credit-evidence' }) }
+
+describe('incoming supplier credit-note API authorization boundary', () => {
+  beforeEach(() => { vi.clearAllMocks(); mocks.user.mockResolvedValue({ id: 'tenant-a', actorId: 'user-a' }); mocks.forbidden.mockReturnValue(null) })
+  it('Given an authenticated tenant, when its linked credit-note context is requested, then only that tenant scope reaches the repository', async () => { mocks.context.mockResolvedValue({ credit: { documentNumber: 'GS-1' } }); expect(await (await GET(new Request('http://localhost/api'), args)).json()).toMatchObject({ success: true }); expect(mocks.context).toHaveBeenCalledWith('tenant-a', 'credit-evidence') })
+  it('Given a user without write permission, when posting is attempted, then authorization rejects before JSON parsing or persistence', async () => { mocks.forbidden.mockReturnValue(Response.json({ success: false }, { status: 403 })); const request = new Request('http://localhost/api', { method: 'POST', body: '{' }); expect((await POST(request, args)).status).toBe(403); expect(mocks.post).not.toHaveBeenCalled() })
+  it('Given an authorized posting request, when submitted, then tenant, actor, evidence, effective date and idempotency facts reach one boundary', async () => { const body = { effectiveDate: '2026-08-04', requestKey: 'credit-request-0001', reason: 'Reviewed credit' }; mocks.post.mockResolvedValue({ id: 'correction' }); expect(await (await POST(new Request('http://localhost/api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), args)).json()).toMatchObject({ success: true }); expect(mocks.post).toHaveBeenCalledWith('tenant-a', 'user-a', 'credit-evidence', body) })
+})

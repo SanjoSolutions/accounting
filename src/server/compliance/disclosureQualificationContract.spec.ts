@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  assertQualifiedDisclosureProtocol, disclosureQualificationEvidence, qualifiedDisclosureCases,
+  assertQualifiedDisclosureProtocol, captureDisclosureRemoteResponse, disclosureQualificationEvidence, qualifiedDisclosureCases,
   qualifiedDisclosureContractConfiguration, redactDisclosureProtocol, retainDisclosureQualificationEvidence,
 } from './disclosureQualificationContract'
 
@@ -46,10 +46,23 @@ describe('qualified Unternehmensregister disclosure contract configuration', () 
 
 describe('qualified Unternehmensregister disclosure evidence', () => {
   it('Given identifying data and credentials, when a protocol is retained, then sensitive material is redacted while stable protocol identity remains', () => {
-    const serialized = JSON.stringify(redactDisclosureProtocol({ authorization: 'Bearer top-secret', companyName: 'Example GmbH', nested: { diagnostic: 'credential=top-secret', protocolId: 'safe-id' } }, ['top-secret']))
+    const receiptSha256 = 'b'.repeat(64)
+    const serialized = JSON.stringify(redactDisclosureProtocol({ authorization: 'Bearer top-secret', receipt: 'secret-receipt', receiptSha256, malformedReceiptSha256: 'not-a-digest', companyName: 'Example GmbH', nested: { diagnostic: 'credential=top-secret', protocolId: 'safe-id' } }, ['top-secret']))
     expect(serialized).not.toContain('top-secret')
     expect(serialized).not.toContain('Example GmbH')
     expect(serialized).toContain('safe-id')
+    expect(serialized).toContain(receiptSha256)
+    expect(serialized).not.toContain('secret-receipt')
+    expect(serialized).not.toContain('not-a-digest')
+  })
+
+  it('Given a non-JSON provider failure, when the response is captured, then bounded redacted diagnostics and an exact response digest remain available', () => {
+    const body = `<html>credential=top-secret ${'x'.repeat(3_000)}</html>`
+    const captured = captureDisclosureRemoteResponse(body, 'text/html; charset=utf-8', ['top-secret'])
+    expect(captured.parsed).toBeUndefined()
+    expect(captured.evidence).toMatchObject({ contentType: 'text/html', bodySha256: expect.stringMatching(/^[a-f0-9]{64}$/), bodyLength: Buffer.byteLength(body) })
+    expect(JSON.stringify(captured.evidence)).not.toContain('top-secret')
+    expect((captured.evidence as { textExcerpt: string }).textExcerpt.length).toBeLessThanOrEqual(2_048)
   })
 
   it('Given a contract request, when evidence is constructed, then only non-identifying coordinates and a request digest remain', () => {

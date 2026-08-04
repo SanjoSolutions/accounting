@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { generateXRechnungUblInvoice, type StructuredInvoiceData, type XRechnungElectronicAddress } from './eInvoice'
+import { assertKositXRechnungAcceptance, assertKositXRechnungRejection } from './kositValidationReport'
 
 const validatorJar = process.env.KOSIT_VALIDATOR_JAR
 const scenarios = process.env.KOSIT_XRECHNUNG_SCENARIOS
@@ -44,6 +45,17 @@ const variants: Array<{
   },
 ]
 
+function invoiceFor(variant: typeof variants[number], index: number) {
+  return generateXRechnungUblInvoice({
+    kind: 'invoice', invoiceNumber: `2026-${String(index + 1).padStart(6, '0')}`, issueDate: '2026-08-04', supplyDate: '2026-08-04', currency: 'EUR',
+    seller: { name: 'Beispiel UG (haftungsbeschränkt)', street: 'Musterstraße 1', postalCode: '10115', city: 'Berlin', countryCode: 'DE', taxId: '12/345/67890', vatId: 'DE123456789' },
+    buyer: variant.buyer, buyerReference: variant.buyerReference, buyerElectronicAddress: variant.buyerElectronicAddress,
+    sellerContact: { name: 'Accounts receivable', telephone: '+49 30 123456', email: 'billing@example.de' },
+    lines: variant.lines, netAmountCents: variant.netAmountCents, taxAmountCents: variant.taxAmountCents,
+    grossAmountCents: variant.netAmountCents + variant.taxAmountCents, paymentTerms: 'Payable within 14 days.', paymentIban: 'DE89370400440532013000',
+  })
+}
+
 describe('official KoSIT XRechnung contract', () => {
   for (const [index, variant] of variants.entries()) {
     it.skipIf(!configured)(`Given the ${variant.name} profile, when KoSIT XRechnung 3.0.2 validates it, then official XML and HTML acceptance reports are retained`, () => {
@@ -51,19 +63,33 @@ describe('official KoSIT XRechnung contract', () => {
       const directory = join(root, variant.name)
       mkdirSync(directory, { recursive: true })
       const invoicePath = join(directory, 'invoice.xml')
-      writeFileSync(invoicePath, generateXRechnungUblInvoice({
-        kind: 'invoice', invoiceNumber: `2026-${String(index + 1).padStart(6, '0')}`, issueDate: '2026-08-04', supplyDate: '2026-08-04', currency: 'EUR',
-        seller: { name: 'Beispiel UG (haftungsbeschränkt)', street: 'Musterstraße 1', postalCode: '10115', city: 'Berlin', countryCode: 'DE', taxId: '12/345/67890', vatId: 'DE123456789' },
-        buyer: variant.buyer, buyerReference: variant.buyerReference, buyerElectronicAddress: variant.buyerElectronicAddress,
-        sellerContact: { name: 'Accounts receivable', telephone: '+49 30 123456', email: 'billing@example.de' },
-        lines: variant.lines, netAmountCents: variant.netAmountCents, taxAmountCents: variant.taxAmountCents,
-        grossAmountCents: variant.netAmountCents + variant.taxAmountCents, paymentTerms: 'Payable within 14 days.', paymentIban: 'DE89370400440532013000',
-      }))
+      const invoice = invoiceFor(variant, index)
+      writeFileSync(invoicePath, invoice)
       const validation = spawnSync('java', ['-jar', validatorJar!, '-s', scenarios!, '-r', dirname(scenarios!), '-o', directory, '-h', invoicePath], { encoding: 'utf8' })
       expect(validation.status, `${validation.stdout}\n${validation.stderr}`).toBe(0)
       const reports = readdirSync(directory).filter(name => /report\.(?:xml|html)$/.test(name))
       expect(reports).toEqual(expect.arrayContaining([expect.stringMatching(/\.xml$/), expect.stringMatching(/\.html$/)]))
-      expect(reports.some(name => readFileSync(join(directory, name), 'utf8').includes('accept'))).toBe(true)
+      const xmlReports = reports.filter(name => name.endsWith('.xml'))
+      expect(xmlReports).toHaveLength(1)
+      expect(assertKositXRechnungAcceptance(readFileSync(join(directory, xmlReports[0]), 'utf8'), invoice)).toMatchObject({ reportValid: 'true', accepts: 1, rejects: 0 })
     }, 60_000)
   }
+
+  it.skipIf(!configured)('Given an app-generated invoice with a required business term removed, when KoSIT validates it, then the retained report proves exact rejection semantics', () => {
+    const root = process.env.KOSIT_REPORT_DIR || mkdtempSync(join(tmpdir(), 'xrechnung-contract-'))
+    const directory = join(root, 'invalid-missing-buyer-reference')
+    mkdirSync(directory, { recursive: true })
+    const validInvoice = Buffer.from(invoiceFor(variants[0], 99)).toString('utf8')
+    const invalidInvoice = validInvoice.replace(/<cbc:BuyerReference>[\s\S]*?<\/cbc:BuyerReference>/, '')
+    expect(invalidInvoice).not.toBe(validInvoice)
+    const invoicePath = join(directory, 'invoice.xml')
+    writeFileSync(invoicePath, invalidInvoice)
+    const validation = spawnSync('java', ['-jar', validatorJar!, '-s', scenarios!, '-r', dirname(scenarios!), '-o', directory, '-h', invoicePath], { encoding: 'utf8' })
+    expect(validation.error, `${validation.stdout}\n${validation.stderr}`).toBeUndefined()
+    const reports = readdirSync(directory).filter(name => /report\.(?:xml|html)$/.test(name))
+    expect(reports).toEqual(expect.arrayContaining([expect.stringMatching(/\.xml$/), expect.stringMatching(/\.html$/)]))
+    const xmlReports = reports.filter(name => name.endsWith('.xml'))
+    expect(xmlReports).toHaveLength(1)
+    expect(assertKositXRechnungRejection(readFileSync(join(directory, xmlReports[0]), 'utf8'), invalidInvoice)).toMatchObject({ reportValid: 'false', accepts: 0, rejects: 1 })
+  }, 60_000)
 })

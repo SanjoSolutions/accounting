@@ -49,15 +49,33 @@ export function qualifiedGatewayContractConfiguration(environment: NodeJS.Proces
 }
 
 const sensitiveKey = /(?:authorization|credential|token|secret|password|pin|certificate|taxpayer|steuernummer|taxnumber|iban|street|address|name|payload|dataset|xml|receipt)/i
+const retainedDigestKey = /^(?:request|response|receipt)Sha256$/
+const sha256 = /^[a-f0-9]{64}$/
 
 export function redactQualificationProtocol(input: unknown, secrets: readonly string[] = []): unknown {
   if (Array.isArray(input)) return input.map(item => redactQualificationProtocol(item, secrets))
-  if (input && typeof input === 'object') return Object.fromEntries(Object.entries(input).map(([key, item]) => [key, sensitiveKey.test(key) ? '[REDACTED]' : redactQualificationProtocol(item, secrets)]))
+  if (input && typeof input === 'object') return Object.fromEntries(Object.entries(input).map(([key, item]) => [
+    key,
+    retainedDigestKey.test(key) && typeof item === 'string' && sha256.test(item)
+      ? item
+      : sensitiveKey.test(key) ? '[REDACTED]' : redactQualificationProtocol(item, secrets),
+  ]))
   if (typeof input !== 'string') return input
   let redacted = input.replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]')
     .replace(/<(Steuernummer|taxpayerId|iban|Pin)>[\s\S]*?<\/\1>/gi, '<$1>[REDACTED]</$1>')
   for (const secret of secrets.filter(Boolean)) redacted = redacted.replaceAll(secret, '[REDACTED]')
   return redacted
+}
+
+export function captureQualificationRemoteResponse(bodyText: string, contentType: string | undefined, secrets: readonly string[] = []) {
+  const bodySha256 = createHash('sha256').update(bodyText).digest('hex')
+  const responseEvidence = { contentType: contentType?.split(';', 1)[0]?.trim().toLowerCase() || 'unknown', bodySha256, bodyLength: Buffer.byteLength(bodyText) }
+  try {
+    const parsed: unknown = JSON.parse(bodyText)
+    return { parsed, evidence: { ...responseEvidence, body: redactQualificationProtocol(parsed, secrets) } }
+  } catch {
+    return { parsed: undefined, evidence: { ...responseEvidence, textExcerpt: redactQualificationProtocol(bodyText.slice(0, 2_048), secrets) } }
+  }
 }
 
 export type QualifiedProtocolStage = 'VALIDATED' | 'REJECTED' | 'ACCEPTED'

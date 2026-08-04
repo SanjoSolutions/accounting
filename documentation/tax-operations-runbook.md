@@ -47,9 +47,20 @@ validation, rejection after removing a required field, and accepted staging
 submission with a nonblank receipt. Every response must carry a
 machine-readable protocol object whose gateway ID, qualification ID, form
 version, outcome, protocol ID, timestamp, and `TEST`/`STAGING` marker match the
-configured contract. Redacted evidence records retain request hashes and
-receipt hashes, not declaration payloads, taxpayer IDs, credentials, PINs, or
-raw receipts.
+configured contract. The exact same request and idempotency key is submitted a
+second time; only the same protocol identity and receipt digest count as an
+idempotent replay. Redacted evidence records retain request, response and
+receipt SHA-256 digests, not declaration payloads, taxpayer IDs, credentials,
+PINs, or raw receipts. A non-JSON remote failure is also retained as its status,
+media type, byte length, digest and a bounded redacted excerpt before the
+contract fails closed.
+
+The adapter request currently uses deterministic datasets produced by the
+application's versioned tax-form registry. Provider wire schemas remain a
+provider-owned boundary: this repository does not guess an ELSTER or gateway
+schema. Qualification is valid only when the authorized adapter explicitly
+accepts this documented JSON contract or is replaced by a reviewed transformer
+for the provider-issued schema.
 
 The manual `Qualified tax gateway contract` GitHub workflow is intentionally
 absent from ordinary push and pull-request CI. It requires an environment
