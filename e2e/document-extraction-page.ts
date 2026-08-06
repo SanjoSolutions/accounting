@@ -184,6 +184,43 @@ export class DocumentExtractionPage {
     expect(JSON.parse(vat.returnBoxes)).toEqual([{ box: '46', direction: 'purchase', value: 'net-base' }, { box: '47', direction: 'purchase', value: 'output-tax' }, { box: '67', direction: 'purchase', value: 'input-tax' }])
   }
 
+  async uploadReviewAndPostEuGoodsAcquisitionUbl(xml: Buffer) {
+    await this.page.goto('/bookings')
+    const uploaded = this.page.waitForResponse(response => response.url().endsWith('/api/documents') && response.request().method() === 'POST')
+    await this.page.locator('.document-actions input[type="file"]').setInputFiles({ name: 'dutch-goods-acquisition.xml', mimeType: 'application/xml', buffer: xml })
+    const body = await (await uploaded).json(); this.structuredDocumentId = body.data.id
+    await expect(this.page.getByLabel('Extracted invoice number')).toHaveValue('NL-2026-0042')
+    await expect(this.page.getByLabel('Extracted gross amount')).toHaveValue('100.00')
+    await this.page.getByRole('button', { name: 'Confirm reviewed invoice' }).click()
+    await expect(this.page.getByText('Intra-EU acquisition of goods', { exact: true })).toBeVisible()
+    await expect(this.page.getByText(/KZ 89.*KZ 61/)).toBeVisible()
+    await expect(this.page.getByRole('button', { name: 'Confirm and post payable' })).toBeDisabled()
+    await this.page.getByLabel('Supply classification').selectOption('STANDARD_GOODS')
+    await this.page.getByLabel('Recipient-assessed VAT rate').selectOption('1900')
+    await this.page.getByLabel('Due date').fill('2026-08-17')
+    await this.page.getByLabel('Posting confirmation reason').fill('Confirmed Dutch ordinary goods delivered to Germany and used wholly for taxable business activity at 19%')
+    await this.page.getByRole('button', { name: 'Confirm and post payable' }).click()
+    await expect(this.page.getByRole('status')).toContainText('NL-2026-0042')
+  }
+
+  async proveEuGoodsAcquisitionAfterReload() {
+    await this.page.goto('/receivables')
+    const item = this.page.getByRole('row').filter({ hasText: 'NL-2026-0042' })
+    await expect(item).toContainText('Holland Waren B.V.'); await expect(item).toContainText('100.00'); await expect(item).toContainText('OPEN')
+    await this.page.goto('/journal?year=2026')
+    const entry = this.page.locator('.journal-entry').filter({ hasText: 'Holland Waren B.V.: NL-2026-0042' })
+    await expect(entry).toContainText('4930'); await expect(entry).toContainText('Soll 100,00')
+    await expect(entry).toContainText('1574'); await expect(entry).toContainText('Soll 19,00')
+    await expect(entry).toContainText('1774'); await expect(entry).toContainText('Haben 19,00')
+    await expect(entry).toContainText('1600'); await expect(entry).toContainText('Haben 100,00')
+    await expect(entry.getByRole('link', { name: 'dutch-goods-acquisition.xml' })).toBeVisible()
+    await this.page.reload(); await expect(this.page.locator('.journal-entry').filter({ hasText: 'NL-2026-0042' })).toBeVisible()
+    const context = await this.page.evaluate(async documentId => (await fetch(`/api/documents/${documentId}/payable-posting`)).json(), this.structuredDocumentId)
+    const vat = context.data.posting.postingJournalEntry.lines.flatMap((line: { vatPosting: unknown }) => line.vatPosting ? [line.vatPosting] : [])[0]
+    expect(vat).toMatchObject({ ruleId: 'EU_ACQUISITION', taxPoint: '2026-08-03T00:00:00.000Z', netBaseCents: 10_000, outputTaxCents: 1_900, inputTaxCents: 1_900, documentId: this.structuredDocumentId })
+    expect(JSON.parse(vat.returnBoxes)).toEqual([{ box: '89', direction: 'purchase', value: 'net-base' }, { box: '61', direction: 'purchase', value: 'input-tax' }])
+  }
+
   async proveStructuredPayableAfterReload(input: { invoiceNumber: string; supplier: string; gross: string; fileName: string; inputVatAccount: string; inputVat: string; vatRule: string }) {
     await this.page.goto('/receivables')
     const item = this.page.getByRole('row').filter({ hasText: input.invoiceNumber })

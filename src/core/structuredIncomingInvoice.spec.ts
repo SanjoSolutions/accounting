@@ -71,4 +71,21 @@ describe('structured incoming invoice payable facts', () => {
     expect(parsed).toMatchObject({ syntax: 'CII', seller: { countryCode: 'AT', vatId: 'ATU12345678' }, buyer: { countryCode: 'DE', vatId: 'DE987654321' }, reverseCharge: true })
     expect(structuredIncomingInvoiceFacts(parsed, { reverseChargeRateBasisPoints: 1900, reverseChargeSupplyKind: 'SERVICE' }).vatGroups).toMatchObject([{ ruleId: 'EU_13B_SERVICE_RECIPIENT', taxAmountCents: 1_900 }])
   })
+
+  it('Given a category-K goods invoice delivered from another EU member state to Germany, when ordinary 19% business goods are confirmed, then acquisition VAT is assessed while the supplier payable stays net', () => {
+    const base = invoice([{ description: 'Office chairs', quantity: 4, unitCode: 'C62', netAmountCents: 20_000, taxRateBasisPoints: 0, taxCategoryCode: 'K', exemptionReason: 'Intra-community supply' }])
+    const acquisition = { ...base, deliveryCountryCode: 'DE', seller: { ...base.seller, countryCode: 'NL', vatId: 'NL123456789B01' }, buyer: { ...base.buyer, vatId: 'DE987654321' }, taxAmountCents: 0, grossAmountCents: 20_000 }
+    expect(structuredIncomingInvoiceFacts(acquisition, { assessmentRateBasisPoints: 1900, supplyClassification: 'STANDARD_GOODS' })).toMatchObject({
+      extraction: { grossAmountCents: 20_000, taxAmountCents: 0 }, reverseCharge: false, recipientAssessedVat: true,
+      vatGroups: [{ ruleId: 'EU_ACQUISITION', invoiceRateBasisPoints: 0, rateBasisPoints: 1900, netAmountCents: 20_000, supplierTaxAmountCents: 0, taxAmountCents: 3_800 }],
+    })
+    expect(() => structuredIncomingInvoiceFacts(acquisition, { assessmentRateBasisPoints: 1900 })).toThrow(/ordinary 19% goods/i)
+    expect(structuredIncomingInvoiceReviewExtraction(acquisition)).toMatchObject({ netAmountCents: 20_000, taxAmountCents: 0, grossAmountCents: 20_000 })
+  })
+
+  it('Given a genuine CII category-K invoice with German delivery evidence, when parsed and confirmed, then the acquisition rule comes from structured facts rather than description inference', async () => {
+    const parsed = receiveStructuredInvoice(await readFile(path.join(process.cwd(), 'src/core/data_fixtures/eInvoice/eu-goods-cii.xml'))).data
+    expect(parsed).toMatchObject({ syntax: 'CII', deliveryCountryCode: 'DE', lines: [{ taxCategoryCode: 'K' }] })
+    expect(structuredIncomingInvoiceFacts(parsed, { assessmentRateBasisPoints: 1900, supplyClassification: 'STANDARD_GOODS' }).vatGroups).toMatchObject([{ ruleId: 'EU_ACQUISITION', taxAmountCents: 1_900 }])
+  })
 })

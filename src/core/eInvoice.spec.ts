@@ -56,6 +56,36 @@ const buildObjectStreamPdf = (xml: Buffer) => {
 const embeddedXmlBody = (xml: Buffer, dictionary = `/Type /EmbeddedFile /Subtype /application#2Fxml /Length ${xml.length}`) => Buffer.concat([Buffer.from(`<< ${dictionary} >>\nstream\n`), xml, Buffer.from('\nendstream')])
 
 describe('structured e-invoices', () => {
+  it('Given K-category EU goods invoices, when UBL and CII delivery locations are parsed, then the German destination survives as structured evidence', async () => {
+    const ubl = receiveStructuredInvoice(await fixture('eu-goods-ubl.xml')).data
+    const cii = receiveStructuredInvoice(await fixture('eu-goods-cii.xml')).data
+
+    expect(ubl).toMatchObject({ syntax: 'UBL', deliveryCountryCode: 'DE', seller: { countryCode: 'NL' }, lines: [{ taxCategoryCode: 'K', taxRateBasisPoints: 0 }] })
+    expect(cii).toMatchObject({ syntax: 'CII', deliveryCountryCode: 'DE', seller: { countryCode: 'NL' }, lines: [{ taxCategoryCode: 'K', taxRateBasisPoints: 0 }] })
+  })
+
+  it('Given an optional delivery country, when it is validated and generated, then only canonical values are emitted without breaking invoices that omit it', async () => {
+    const existing = receiveStructuredInvoice(await fixture('valid-ubl.xml')).data
+    const existingCii = receiveStructuredInvoice(await fixture('valid-cii.xml')).data
+    const euGoods = receiveStructuredInvoice(await fixture('eu-goods-ubl.xml')).data
+
+    expect(existing.deliveryCountryCode).toBeUndefined()
+    expect(existingCii.deliveryCountryCode).toBeUndefined()
+    expect(validateInvoice({ ...euGoods, deliveryCountryCode: 'de' })).toContain('Delivery country code must be a two-letter uppercase ISO-like code when provided.')
+    expect(validateInvoice({ ...euGoods, deliveryCountryCode: 'DEU' })).toContain('Delivery country code must be a two-letter uppercase ISO-like code when provided.')
+
+    const malformed = (await fixture('eu-goods-ubl.xml')).toString('utf8').replace('<cbc:IdentificationCode>DE</cbc:IdentificationCode></cac:Country></cac:Address></cac:DeliveryLocation>', '<cbc:IdentificationCode>de</cbc:IdentificationCode></cac:Country></cac:Address></cac:DeliveryLocation>')
+    expect(() => receiveStructuredInvoice(Buffer.from(malformed))).toThrow(/two-letter uppercase ISO-like code/)
+    const malformedCii = (await fixture('eu-goods-cii.xml')).toString('utf8').replace('<ram:ShipToTradeParty><ram:PostalTradeAddress><ram:CountryID>DE</ram:CountryID>', '<ram:ShipToTradeParty><ram:PostalTradeAddress><ram:CountryID>DEU</ram:CountryID>')
+    expect(() => receiveStructuredInvoice(Buffer.from(malformedCii))).toThrow(/two-letter uppercase ISO-like code/)
+
+    const { syntax: _syntax, ...generatable } = euGoods
+    const generated = generateUblInvoice(generatable)
+    const xml = new TextDecoder().decode(generated)
+    expect(xml).toContain('<cac:DeliveryLocation><cac:Address><cac:Country><cbc:IdentificationCode>DE</cbc:IdentificationCode></cac:Country></cac:Address></cac:DeliveryLocation>')
+    expect(receiveStructuredInvoice(generated).data.deliveryCountryCode).toBe('DE')
+  })
+
   it('preserves and hashes the exact UBL original while extracting reviewed values with provenance', async () => {
     const original = await fixture('valid-ubl.xml')
     const result = receiveStructuredInvoice(original)

@@ -4,7 +4,7 @@ import { getSettings, updateSettings } from '@/server'
 import { CompanyProfileValidationError, deriveReportApplicability, validateCompanyProfile } from '@/server/compliance/companyProfile'
 import { getCurrentUser } from '@/server/authentication'
 import { forbiddenUnless } from '@/server/authorization'
-import { parseIncomingReverseChargeAccounts } from '@/core/incomingReverseCharge'
+import { parseIncomingEuAcquisitionAccounts, parseIncomingReverseChargeAccounts } from '@/core/incomingReverseCharge'
 
 export const runtime = 'nodejs'
 
@@ -39,6 +39,8 @@ export async function PUT(request: Request) {
   }
   try { if (data.incomingReverseChargeAccounts !== undefined) parseIncomingReverseChargeAccounts(data.incomingReverseChargeAccounts) }
   catch (error) { return Response.json({ success: false, error: error instanceof Error ? error.message : 'Invalid incoming §13b configuration.' }, { status: 400 }) }
+  try { if (data.incomingEuAcquisitionAccounts !== undefined) parseIncomingEuAcquisitionAccounts(data.incomingEuAcquisitionAccounts) }
+  catch (error) { return Response.json({ success: false, error: error instanceof Error ? error.message : 'Invalid intra-community acquisition configuration.' }, { status: 400 }) }
   try { await updateSettings(data, user.id, user.actorId ?? user.id) }
   catch (error) {
     if (error instanceof CompanyProfileValidationError) return Response.json({ success: false, error: error.message }, { status: 400 })

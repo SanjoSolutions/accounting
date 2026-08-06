@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyIncomingGermanReverseCharge, parseIncomingReverseChargeAccounts, requireIncomingReverseChargeAccountsForLedger } from './incomingReverseCharge'
+import { classifyIncomingGermanReverseCharge, isOtherEuCountry, matchesOtherEuVatId, normalizeVatId, parseIncomingEuAcquisitionAccounts, parseIncomingReverseChargeAccounts, requireIncomingEuAcquisitionAccountsForLedger, requireIncomingReverseChargeAccountsForLedger } from './incomingReverseCharge'
 
 describe('incoming §13b control-account configuration', () => {
   it('Given explicit distinct chart-bound 19% controls, when configuration is parsed, then exact account identities are retained without inferred mappings', () => {
@@ -20,6 +20,39 @@ describe('incoming §13b control-account configuration', () => {
     expect(() => requireIncomingReverseChargeAccountsForLedger(configuration, 'SKR04', 4)).toThrow(/active ledger chart/)
     expect(() => requireIncomingReverseChargeAccountsForLedger(configuration, 'SKR03', 5)).toThrow(/exactly 5 digits/)
     expect(requireIncomingReverseChargeAccountsForLedger(configuration, 'SKR03', 4)).toBe(configuration)
+  })
+})
+
+describe('incoming intra-community acquisition control-account configuration', () => {
+  it('Given explicit distinct chart-bound 19% controls, when configuration is parsed, then the acquisition accounts remain separate and are not inferred', () => {
+    expect(parseIncomingEuAcquisitionAccounts({ chart: 'SKR03', rateBasisPoints: 1900, inputVatAccountNumber: 1574, outputVatAccountNumber: 1774 })).toEqual({ chart: 'SKR03', rateBasisPoints: 1900, inputVatAccountNumber: 1574, outputVatAccountNumber: 1774 })
+    expect(parseIncomingEuAcquisitionAccounts(undefined)).toBeNull()
+  })
+
+  it('Given malformed, reduced-rate, same-account, or extra-field acquisition controls, when parsed, then configuration fails closed', () => {
+    for (const value of [
+      '1574/1774',
+      { chart: 'SKR03', rateBasisPoints: 700, inputVatAccountNumber: 1574, outputVatAccountNumber: 1774 },
+      { chart: 'SKR03', rateBasisPoints: 1900, inputVatAccountNumber: 1574, outputVatAccountNumber: 1574 },
+      { chart: 'SKR03', rateBasisPoints: 1900, inputVatAccountNumber: 1574, outputVatAccountNumber: 1774, inferred: true },
+    ]) expect(() => parseIncomingEuAcquisitionAccounts(value)).toThrow(/configuration/)
+  })
+
+  it('Given acquisition controls for another chart or account length, when activated, then they fail before ledger accounts are created', () => {
+    const configuration = parseIncomingEuAcquisitionAccounts({ chart: 'SKR04', rateBasisPoints: 1900, inputVatAccountNumber: 1404, outputVatAccountNumber: 3804 })!
+    expect(() => requireIncomingEuAcquisitionAccountsForLedger(configuration, 'SKR03', 4)).toThrow(/active ledger chart/)
+    expect(() => requireIncomingEuAcquisitionAccountsForLedger(configuration, 'SKR04', 5)).toThrow(/exactly 5 digits/)
+    expect(requireIncomingEuAcquisitionAccountsForLedger(configuration, 'SKR04', 4)).toBe(configuration)
+  })
+})
+
+describe('other-EU VAT identity helpers', () => {
+  it('Given current member-country identities, when normalized and validated, then Greece retains GR country and EL VAT-prefix semantics', () => {
+    expect(normalizeVatId(' el 123-456-789 ')).toBe('EL123456789')
+    expect(isOtherEuCountry('gr')).toBe(true)
+    expect(matchesOtherEuVatId('GR', 'EL 123 456 789')).toBe(true)
+    expect(matchesOtherEuVatId('GR', 'GR123456789')).toBe(false)
+    expect(isOtherEuCountry('DE')).toBe(false)
   })
 })
 

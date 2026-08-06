@@ -1,7 +1,7 @@
 import { Address } from "../Address";
 import type { ChartOfAccountsStandard } from '../ChartOfAccounts'
 import type { CompanyProfile } from '../../server/compliance/companyProfile'
-import type { IncomingReverseChargeAccounts } from '../incomingReverseCharge'
+import type { IncomingEuAcquisitionAccounts, IncomingReverseChargeAccounts } from '../incomingReverseCharge'
 
 export class Account {
   id: string
@@ -12,6 +12,7 @@ export class Account {
   importedCharts: string[] = []
   companyProfile?: CompanyProfile
   incomingReverseChargeAccounts?: IncomingReverseChargeAccounts
+  incomingEuAcquisitionAccounts?: IncomingEuAcquisitionAccounts
   persistencePayload?: string
 
   constructor(id: string) {

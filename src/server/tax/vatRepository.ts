@@ -12,6 +12,7 @@ import {
 import { prisma } from '@/server/persistence/client'
 import { annualVatDataset, declarationDatasetHash, taxFormRegistry, type DeclarationDataset } from '@/core/taxDeclarations'
 import { scaleMappingsForAccountLength, seedChart, type AccountMapping } from '@/server/compliance/chartLifecycle'
+import { parseIncomingEuAcquisitionAccounts, parseIncomingReverseChargeAccounts } from '@/core/incomingReverseCharge'
 import { companyProfileForPeriod } from './profileRepository'
 import { isPrismaInt } from './persistenceLimits'
 import { germanVatRuleBook, journalLineVatData, vatPostingCreateData, vatReversalContext, withVatOwnerLock, type VatReversalContext } from './vatPostingCalculation'
@@ -169,7 +170,7 @@ async function tenantVatControlAccounts(ownerId: string, from: string, to: strin
   })
   if (selectedStart) {
     if (starts.some(start => start > selectedStart && new Date(start) <= endsAt)) throw new VatValidationError(['Account-mapping transitions inside a filing period must be resolved before binding VAT reconciliation.'])
-    return vatControlAccountsFromMappings(rows.filter(row => row.effectiveFrom.toISOString() === selectedStart).map(row => ({ accountNumber: row.accountNumber, eBilanzPosition: row.eBilanzPosition, active: row.active })))
+    return mergeConfiguredRecipientAssessedControls(ownerId, profile.chart, vatControlAccountsFromMappings(rows.filter(row => row.effectiveFrom.toISOString() === selectedStart).map(row => ({ accountNumber: row.accountNumber, eBilanzPosition: row.eBilanzPosition, active: row.active }))))
   }
   if (rows.length) throw new VatValidationError(['No effective account-mapping cohort covers the complete VAT filing period for the tenant chart.'])
   if (profile.chart === 'SKR03' || profile.chart === 'SKR04') {
@@ -181,9 +182,29 @@ async function tenantVatControlAccounts(ownerId: string, from: string, to: strin
     ])
     const accounts = await prisma.ledgerAccount.findMany({ where: { ownerId, number: { in: [...expected.keys()] } }, select: { number: true, category: true, eBilanzPosition: true, active: true } })
     if (accounts.length !== expected.size || accounts.some(account => !account.active || account.category !== expected.get(account.number)?.category || account.eBilanzPosition !== expected.get(account.number)?.position)) throw new VatValidationError(['Persisted VAT control accounts conflict with the canonical tenant chart semantics. Configure a valid mapping cohort before binding reconciliation.'])
-    return controls
+    return mergeConfiguredRecipientAssessedControls(ownerId, profile.chart, controls)
   }
   throw new VatValidationError(['No effective account-mapping cohort covers the VAT filing period for the tenant chart.'])
+}
+
+async function mergeConfiguredRecipientAssessedControls(ownerId: string, chart: string, controls: { outputAccounts: number[]; inputAccounts: number[] }) {
+  const settings = await prisma.accountRecord.findUnique({ where: { ownerId }, select: { payload: true } })
+  if (!settings) return controls
+  let payload: Record<string, unknown>
+  try { payload = JSON.parse(settings.payload) as Record<string, unknown> } catch { throw new VatValidationError(['Tenant settings contain invalid VAT-control configuration JSON.']) }
+  let configured
+  try { configured = [parseIncomingReverseChargeAccounts(payload.incomingReverseChargeAccounts), parseIncomingEuAcquisitionAccounts(payload.incomingEuAcquisitionAccounts)].filter(item => item?.chart === chart) }
+  catch (error) { throw new VatValidationError([error instanceof Error ? error.message : 'Tenant recipient-assessed VAT controls are invalid.']) }
+  if (!configured.length) return controls
+  const inputAccounts = [...new Set([...controls.inputAccounts, ...configured.map(item => item!.inputVatAccountNumber)])]
+  const outputAccounts = [...new Set([...controls.outputAccounts, ...configured.map(item => item!.outputVatAccountNumber)])]
+  const expected = new Map<number, { category: 'ASSET' | 'LIABILITY'; position: string }>([
+    ...inputAccounts.map(number => [number, { category: 'ASSET' as const, position: INPUT_VAT_POSITION }] as const),
+    ...outputAccounts.map(number => [number, { category: 'LIABILITY' as const, position: OUTPUT_VAT_POSITION }] as const),
+  ])
+  const accounts = await prisma.ledgerAccount.findMany({ where: { ownerId, number: { in: [...expected.keys()] } }, select: { number: true, category: true, eBilanzPosition: true, active: true } })
+  if (accounts.length !== expected.size || accounts.some(account => !account.active || account.category !== expected.get(account.number)?.category || account.eBilanzPosition !== expected.get(account.number)?.position)) throw new VatValidationError(['Persisted recipient-assessed VAT control accounts conflict with the configured tenant chart semantics.'])
+  return { inputAccounts, outputAccounts }
 }
 
 async function reconciledVatDataset(ownerId: string, period: string, persist: boolean): Promise<{ reconciliation: Awaited<ReturnType<typeof reconcileTenantVat>>; dataset: DeclarationDataset }> {

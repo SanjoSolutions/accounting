@@ -134,6 +134,19 @@ describe('settings API authentication', () => {
     expect(mocks.updateSettings).not.toHaveBeenCalled()
   })
 
+  it('Given acquisition controls, when saving settings, then only explicit chart-bound 19% account pairs are accepted', async () => {
+    process.env.AUTH_MODE = 'none'
+    const valid = { incomingEuAcquisitionAccounts: { chart: 'SKR04', rateBasisPoints: 1900, inputVatAccountNumber: 1404, outputVatAccountNumber: 3804 } }
+    expect((await PUT(new Request('http://localhost/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(valid) }))).status).toBe(200)
+    expect(mocks.updateSettings).toHaveBeenCalledWith(valid, 'local', 'local')
+    mocks.updateSettings.mockClear()
+    const invalid = { incomingEuAcquisitionAccounts: { chart: 'SKR04', rateBasisPoints: 1900, inputVatAccountNumber: 1404, outputVatAccountNumber: 1404 } }
+    const response = await PUT(new Request('http://localhost/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(invalid) }))
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({ success: false, error: expect.stringContaining('Intra-community acquisition') })
+    expect(mocks.updateSettings).not.toHaveBeenCalled()
+  })
+
   it('returns a precise client error for malformed JSON without attempting a settings write', async () => {
     process.env.AUTH_MODE = 'none'
     const response = await PUT(new Request('http://localhost/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{not-json' }))

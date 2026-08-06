@@ -30,6 +30,8 @@ export function Settings(): any {
     useInputStateHandler<ChartOfAccountsStandard>('SKR03')
   const [reverseChargeInputAccount, setReverseChargeInputAccount, onReverseChargeInputAccountChange] = useInputStateHandler('')
   const [reverseChargeOutputAccount, setReverseChargeOutputAccount, onReverseChargeOutputAccountChange] = useInputStateHandler('')
+  const [euAcquisitionInputAccount, setEuAcquisitionInputAccount, onEuAcquisitionInputAccountChange] = useInputStateHandler('')
+  const [euAcquisitionOutputAccount, setEuAcquisitionOutputAccount, onEuAcquisitionOutputAccountChange] = useInputStateHandler('')
   const nameElement = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -48,6 +50,8 @@ export function Settings(): any {
         setChartOfAccounts(data.chartOfAccounts ?? 'SKR03')
         setReverseChargeInputAccount(data.incomingReverseChargeAccounts ? String(data.incomingReverseChargeAccounts.inputVatAccountNumber) : '')
         setReverseChargeOutputAccount(data.incomingReverseChargeAccounts ? String(data.incomingReverseChargeAccounts.outputVatAccountNumber) : '')
+        setEuAcquisitionInputAccount(data.incomingEuAcquisitionAccounts ? String(data.incomingEuAcquisitionAccounts.inputVatAccountNumber) : '')
+        setEuAcquisitionOutputAccount(data.incomingEuAcquisitionAccounts ? String(data.incomingEuAcquisitionAccounts.outputVatAccountNumber) : '')
       } catch {
         setLoadError(t('Load failed'))
       } finally {
@@ -72,6 +76,7 @@ export function Settings(): any {
           invoiceIssuer: { name, streetAndHouseNumber, zipCode, city, country, contactName, contactTelephone, contactEmail },
           chartOfAccounts,
           ...(reverseChargeInputAccount || reverseChargeOutputAccount ? { incomingReverseChargeAccounts: { chart: chartOfAccounts, rateBasisPoints: 1900, inputVatAccountNumber: Number(reverseChargeInputAccount), outputVatAccountNumber: Number(reverseChargeOutputAccount) } } : {}),
+          ...(euAcquisitionInputAccount || euAcquisitionOutputAccount ? { incomingEuAcquisitionAccounts: { chart: chartOfAccounts, rateBasisPoints: 1900, inputVatAccountNumber: Number(euAcquisitionInputAccount), outputVatAccountNumber: Number(euAcquisitionOutputAccount) } } : {}),
         })
         if (!response.ok) throw new Error(response.status === 403 ? 'Your role does not permit changes.' : 'Settings could not be saved.')
         setSaveStatus('Settings saved.')
@@ -89,6 +94,8 @@ export function Settings(): any {
       chartOfAccounts,
       reverseChargeInputAccount,
       reverseChargeOutputAccount,
+      euAcquisitionInputAccount,
+      euAcquisitionOutputAccount,
     ],
   )
 
@@ -182,6 +189,12 @@ export function Settings(): any {
                 <label htmlFor="reverseChargeOutputAccount" className="form-label mt-2">{t('Reverse charge output account')}</label>
                 <input id="reverseChargeOutputAccount" className="form-control" inputMode="numeric" pattern="[0-9]+" value={reverseChargeOutputAccount} onChange={onReverseChargeOutputAccountChange} />
               </div>
+              <div className="mt-3"><p className="form-text">{t('EU acquisition hint')}</p>
+                <label htmlFor="euAcquisitionInputAccount" className="form-label">{t('EU acquisition input account')}</label>
+                <input id="euAcquisitionInputAccount" className="form-control" inputMode="numeric" pattern="[0-9]+" value={euAcquisitionInputAccount} onChange={onEuAcquisitionInputAccountChange} />
+                <label htmlFor="euAcquisitionOutputAccount" className="form-label mt-2">{t('EU acquisition output account')}</label>
+                <input id="euAcquisitionOutputAccount" className="form-control" inputMode="numeric" pattern="[0-9]+" value={euAcquisitionOutputAccount} onChange={onEuAcquisitionOutputAccountChange} />
+              </div>
             </fieldset>
 
             <div className="text-end">
@@ -197,6 +210,7 @@ export async function readSettingsResponse(response: Response): Promise<{
   invoiceIssuer: { name: string; streetAndHouseNumber: string; zipCode: string; city: string; country: string; contactName?: string; contactTelephone?: string; contactEmail?: string }
   chartOfAccounts?: ChartOfAccountsStandard
   incomingReverseChargeAccounts?: { chart: ChartOfAccountsStandard; rateBasisPoints: 1900; inputVatAccountNumber: number; outputVatAccountNumber: number }
+  incomingEuAcquisitionAccounts?: { chart: ChartOfAccountsStandard; rateBasisPoints: 1900; inputVatAccountNumber: number; outputVatAccountNumber: number }
 }> {
   const body = await getJSON(response)
   if (!response.ok || !body?.data || typeof body.data !== 'object' || !body.data.invoiceIssuer) {

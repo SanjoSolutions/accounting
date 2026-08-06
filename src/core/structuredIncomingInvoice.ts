@@ -1,42 +1,52 @@
 import type { StructuredInvoiceData } from './eInvoice'
 import type { InvoiceExtractionData } from './documentExtraction'
 import { classifyIncomingGermanReverseCharge, requireIncomingReverseChargeRate } from './incomingReverseCharge'
+import { classifyIncomingEuGoodsAcquisition, isIncomingEuGoodsAcquisitionCandidate, requireIncomingEuGoodsAcquisitionSelection } from './incomingEuAcquisition'
 
-export type StructuredIncomingVatGroup = { rateBasisPoints: 0 | 700 | 1900; invoiceRateBasisPoints: 0 | 700 | 1900; netAmountCents: number; taxAmountCents: number; supplierTaxAmountCents: number; ruleId: 'DE_ZERO' | 'DE_REDUCED' | 'DE_STANDARD' | 'DE_13B' | 'EU_13B_SERVICE_RECIPIENT' }
+export type StructuredIncomingVatGroup = { rateBasisPoints: 0 | 700 | 1900; invoiceRateBasisPoints: 0 | 700 | 1900; netAmountCents: number; taxAmountCents: number; supplierTaxAmountCents: number; ruleId: 'DE_ZERO' | 'DE_REDUCED' | 'DE_STANDARD' | 'DE_13B' | 'EU_13B_SERVICE_RECIPIENT' | 'EU_ACQUISITION' }
+export type StructuredIncomingInvoiceOptions = { reverseChargeRateBasisPoints?: number; reverseChargeSupplyKind?: 'SERVICE'; assessmentRateBasisPoints?: number; supplyClassification?: 'SERVICE' | 'STANDARD_GOODS' }
 
-export function structuredIncomingInvoiceFacts(data: StructuredInvoiceData, options: { reverseChargeRateBasisPoints?: number; reverseChargeSupplyKind?: 'SERVICE' } = {}): { extraction: InvoiceExtractionData; vatGroups: StructuredIncomingVatGroup[]; reverseCharge: boolean } {
-  validateSupportedIncomingInvoice(data)
+export function structuredIncomingInvoiceFacts(data: StructuredInvoiceData, options: StructuredIncomingInvoiceOptions = {}): { extraction: InvoiceExtractionData; vatGroups: StructuredIncomingVatGroup[]; reverseCharge: boolean; recipientAssessedVat: boolean } {
+  const acquisition = isIncomingEuGoodsAcquisitionCandidate(data) ? classifyIncomingEuGoodsAcquisition(data) : null
+  validateSupportedIncomingInvoice(data, Boolean(acquisition))
+  if (acquisition) {
+    requireIncomingEuGoodsAcquisitionSelection(acquisition, { assessmentRateBasisPoints: options.assessmentRateBasisPoints, supplyClassification: options.supplyClassification })
+    const netAmountCents = reconciledRecipientAssessedNet(data)
+    return { extraction: extraction(data), reverseCharge: false, recipientAssessedVat: true, vatGroups: [{ rateBasisPoints: 1900, invoiceRateBasisPoints: 0, netAmountCents, taxAmountCents: roundVat(netAmountCents, 1900), supplierTaxAmountCents: 0, ruleId: 'EU_ACQUISITION' }] }
+  }
   const reverseCharge = classifyIncomingGermanReverseCharge(data)
-  const reverseChargeRate = requireIncomingReverseChargeRate(reverseCharge, options.reverseChargeRateBasisPoints)
+  const reverseChargeRate = requireIncomingReverseChargeRate(reverseCharge, options.assessmentRateBasisPoints ?? options.reverseChargeRateBasisPoints)
   if (reverseCharge) {
-    if (reverseCharge.kind === 'DE_13B_EU_SERVICE' && options.reverseChargeSupplyKind !== 'SERVICE') throw new TypeError('Explicitly confirm that the EU supplier invoice contains B2B services before posting.')
-    const netAmountCents = reconciledReverseChargeNet(data)
+    if (reverseCharge.kind === 'DE_13B_EU_SERVICE' && (options.supplyClassification ?? options.reverseChargeSupplyKind) !== 'SERVICE') throw new TypeError('Explicitly confirm that the EU supplier invoice contains B2B services before posting.')
+    const netAmountCents = reconciledRecipientAssessedNet(data)
     const assessedTaxAmountCents = roundVat(netAmountCents, reverseChargeRate!)
-    return { extraction: extraction(data), reverseCharge: true, vatGroups: [{ rateBasisPoints: 1900, invoiceRateBasisPoints: 0, netAmountCents, taxAmountCents: assessedTaxAmountCents, supplierTaxAmountCents: 0, ruleId: reverseCharge.kind === 'DE_13B_EU_SERVICE' ? 'EU_13B_SERVICE_RECIPIENT' : 'DE_13B' }] }
+    return { extraction: extraction(data), reverseCharge: true, recipientAssessedVat: true, vatGroups: [{ rateBasisPoints: 1900, invoiceRateBasisPoints: 0, netAmountCents, taxAmountCents: assessedTaxAmountCents, supplierTaxAmountCents: 0, ruleId: reverseCharge.kind === 'DE_13B_EU_SERVICE' ? 'EU_13B_SERVICE_RECIPIENT' : 'DE_13B' }] }
   }
 
   return ordinaryIncomingInvoiceFacts(data)
 }
 
 export function structuredIncomingInvoiceReviewExtraction(data: StructuredInvoiceData) {
-  validateSupportedIncomingInvoice(data)
+  const acquisition = isIncomingEuGoodsAcquisitionCandidate(data) ? classifyIncomingEuGoodsAcquisition(data) : null
+  validateSupportedIncomingInvoice(data, Boolean(acquisition))
+  if (acquisition) { reconciledRecipientAssessedNet(data); return extraction(data) }
   if (classifyIncomingGermanReverseCharge(data)) {
-    reconciledReverseChargeNet(data)
+    reconciledRecipientAssessedNet(data)
     return extraction(data)
   }
   return ordinaryIncomingInvoiceFacts(data).extraction
 }
 
-function validateSupportedIncomingInvoice(data: StructuredInvoiceData) {
+function validateSupportedIncomingInvoice(data: StructuredInvoiceData, acquisition = false) {
   if (data.kind !== 'invoice') throw new TypeError('Only structured supplier invoices can enter payable posting; corrections require a dedicated linked workflow.')
   if (data.currency !== 'EUR') throw new TypeError('Only EUR structured supplier invoices can currently be posted.')
   if (data.buyer.countryCode !== 'DE') throw new TypeError('Only structured supplier invoices for a German buyer can currently be posted.')
-  if (data.seller.countryCode !== 'DE' && !data.reverseCharge && !data.lines.some(line => line.taxCategoryCode === 'AE' || line.reverseCharge)) throw new TypeError('Foreign ordinary supplier invoices require a dedicated posting workflow.')
+  if (data.seller.countryCode !== 'DE' && !acquisition && !data.reverseCharge && !data.lines.some(line => line.taxCategoryCode === 'AE' || line.reverseCharge)) throw new TypeError('Foreign ordinary supplier invoices require a dedicated posting workflow.')
   if (data.exemptionReason && !data.reverseCharge || (data.prepaidAmountCents ?? 0) !== 0 || (data.payableRoundingAmountCents ?? 0) !== 0 || (data.payableAmountCents ?? data.grossAmountCents) !== data.grossAmountCents) throw new TypeError('Exemptions, prepayments, rounding, and adjusted payable amounts require a dedicated payable workflow.')
   if (!data.lines.length) throw new TypeError('At least one structured supplier invoice line is required.')
 }
 
-function ordinaryIncomingInvoiceFacts(data: StructuredInvoiceData): { extraction: InvoiceExtractionData; vatGroups: StructuredIncomingVatGroup[]; reverseCharge: false } {
+function ordinaryIncomingInvoiceFacts(data: StructuredInvoiceData): { extraction: InvoiceExtractionData; vatGroups: StructuredIncomingVatGroup[]; reverseCharge: false; recipientAssessedVat: false } {
   const grouped = new Map<number, number>()
   for (const line of data.lines) {
     if (![0, 700, 1900].includes(line.taxRateBasisPoints)) throw new TypeError('Only domestic 0%, 7%, and 19% input VAT are supported.')
@@ -59,12 +69,12 @@ function ordinaryIncomingInvoiceFacts(data: StructuredInvoiceData): { extraction
     supplierName: data.seller.name, invoiceNumber: data.invoiceNumber, issueDate: data.issueDate,
     netAmountCents, taxAmountCents, grossAmountCents: data.grossAmountCents, currency: 'EUR',
     confidence: { supplierName: 1, invoiceNumber: 1, issueDate: 1, netAmountCents: 1, taxAmountCents: 1, grossAmountCents: 1 }, provenance: 'STRUCTURED_INVOICE',
-  }, vatGroups, reverseCharge: false }
+  }, vatGroups, reverseCharge: false, recipientAssessedVat: false }
 }
 
-function reconciledReverseChargeNet(data: StructuredInvoiceData) {
+function reconciledRecipientAssessedNet(data: StructuredInvoiceData) {
   const netAmountCents = data.lines.reduce((total, line) => total + line.netAmountCents, 0)
-  if (netAmountCents !== data.netAmountCents) throw new TypeError('Structured §13b line amounts do not reconcile exactly to the authoritative invoice total.')
+  if (netAmountCents !== data.netAmountCents) throw new TypeError('Structured recipient-assessed VAT line amounts do not reconcile exactly to the authoritative invoice total.')
   return netAmountCents
 }
 

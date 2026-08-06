@@ -10,27 +10,52 @@ export type IncomingReverseChargeAccounts = {
   outputVatAccountNumber: number
 }
 
-export function parseIncomingReverseChargeAccounts(value: unknown): IncomingReverseChargeAccounts | null {
+export type IncomingEuAcquisitionAccounts = {
+  chart: 'SKR03' | 'SKR04'
+  rateBasisPoints: 1900
+  inputVatAccountNumber: number
+  outputVatAccountNumber: number
+}
+
+type IncomingVatControlAccounts = IncomingReverseChargeAccounts | IncomingEuAcquisitionAccounts
+
+function parseIncomingVatControlAccounts(value: unknown, subject: string): IncomingVatControlAccounts | null {
   if (value === undefined || value === null) return null
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Incoming §13b account configuration must be an object.')
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${subject} account configuration must be an object.`)
   const record = value as Record<string, unknown>
   if (!['SKR03', 'SKR04'].includes(String(record.chart)) || record.rateBasisPoints !== 1900
     || !Number.isSafeInteger(record.inputVatAccountNumber) || Number(record.inputVatAccountNumber) <= 0
     || !Number.isSafeInteger(record.outputVatAccountNumber) || Number(record.outputVatAccountNumber) <= 0
     || record.inputVatAccountNumber === record.outputVatAccountNumber
     || Object.keys(record).sort().join(',') !== 'chart,inputVatAccountNumber,outputVatAccountNumber,rateBasisPoints') {
-    throw new TypeError('Incoming §13b configuration requires one chart-bound 19% input account and a different output account.')
+    throw new TypeError(`${subject} configuration requires one chart-bound 19% input account and a different output account.`)
   }
   return { chart: record.chart as 'SKR03' | 'SKR04', rateBasisPoints: 1900, inputVatAccountNumber: Number(record.inputVatAccountNumber), outputVatAccountNumber: Number(record.outputVatAccountNumber) }
 }
 
-export function requireIncomingReverseChargeAccountsForLedger(configuration: IncomingReverseChargeAccounts, chart: string, accountLength = 4) {
-  if (configuration.chart !== chart) throw new TypeError('Incoming §13b control accounts must be configured for the active ledger chart.')
-  if (!Number.isSafeInteger(accountLength) || accountLength < 4 || accountLength > 8) throw new TypeError('The active ledger account length is unsupported for §13b controls.')
+function requireIncomingVatControlAccountsForLedger<T extends IncomingVatControlAccounts>(configuration: T, chart: string, accountLength: number, subject: string): T {
+  if (configuration.chart !== chart) throw new TypeError(`${subject} control accounts must be configured for the active ledger chart.`)
+  if (!Number.isSafeInteger(accountLength) || accountLength < 4 || accountLength > 8) throw new TypeError(`The active ledger account length is unsupported for ${subject} controls.`)
   const minimum = 10 ** (accountLength - 1)
   const maximum = 10 ** accountLength - 1
-  if ([configuration.inputVatAccountNumber, configuration.outputVatAccountNumber].some(number => number < minimum || number > maximum)) throw new TypeError(`Incoming §13b control accounts must use exactly ${accountLength} digits for the active ledger.`)
+  if ([configuration.inputVatAccountNumber, configuration.outputVatAccountNumber].some(number => number < minimum || number > maximum)) throw new TypeError(`${subject} control accounts must use exactly ${accountLength} digits for the active ledger.`)
   return configuration
+}
+
+export function parseIncomingReverseChargeAccounts(value: unknown): IncomingReverseChargeAccounts | null {
+  return parseIncomingVatControlAccounts(value, 'Incoming §13b')
+}
+
+export function requireIncomingReverseChargeAccountsForLedger(configuration: IncomingReverseChargeAccounts, chart: string, accountLength = 4) {
+  return requireIncomingVatControlAccountsForLedger(configuration, chart, accountLength, 'Incoming §13b')
+}
+
+export function parseIncomingEuAcquisitionAccounts(value: unknown): IncomingEuAcquisitionAccounts | null {
+  return parseIncomingVatControlAccounts(value, 'Intra-community acquisition')
+}
+
+export function requireIncomingEuAcquisitionAccountsForLedger(configuration: IncomingEuAcquisitionAccounts, chart: string, accountLength = 4) {
+  return requireIncomingVatControlAccountsForLedger(configuration, chart, accountLength, 'Intra-community acquisition')
 }
 
 export function classifyDomesticGermanReverseCharge(data: StructuredInvoiceData) {
@@ -66,9 +91,9 @@ export function classifyIncomingGermanReverseCharge(data: StructuredInvoiceData)
 
 export function classifyEuSupplierServiceReverseCharge(data: StructuredInvoiceData): IncomingReverseChargeTreatment {
   const sellerCountry = data.seller.countryCode.toUpperCase()
-  if (!OTHER_EU_COUNTRIES.has(sellerCountry)) throw new TypeError('EU-service §13b supports only a supplier established in another current EU member country, excluding Germany and third countries.')
+  if (!isOtherEuCountry(sellerCountry)) throw new TypeError('EU-service §13b supports only a supplier established in another current EU member country, excluding Germany and third countries.')
   if (data.buyer.countryCode !== 'DE' || !/^DE\d{9}$/.test(normalizeVatId(data.buyer.vatId))) throw new TypeError('EU-service §13b requires a German business buyer with a German VAT ID.')
-  if (!EU_VAT_ID_PATTERNS[sellerCountry]?.test(normalizeVatId(data.seller.vatId))) throw new TypeError('EU-service §13b requires a syntactically valid supplier VAT ID matching the other EU member country.')
+  if (!matchesOtherEuVatId(sellerCountry, data.seller.vatId)) throw new TypeError('EU-service §13b requires a syntactically valid supplier VAT ID matching the other EU member country.')
   if (!data.reverseCharge || !data.lines.length || data.lines.some(line => line.taxCategoryCode !== 'AE' || !line.reverseCharge || line.taxRateBasisPoints !== 0 || !isEuServiceReverseChargeReason(line.exemptionReason))) {
     throw new TypeError('EU-service §13b requires every line to use EN16931 category AE, zero supplier VAT, and an explicit §13b(1) or Article 196 reverse-charge reason.')
   }
@@ -99,4 +124,14 @@ function isEuServiceReverseChargeReason(value: string | undefined) {
   return legalBasis && /reverse[ -]?charge|Steuerschuldnerschaft\s+des\s+Leistungsempf[aä]ngers/i.test(normalized)
 }
 
-function normalizeVatId(value: string | undefined) { return value?.normalize('NFKC').replaceAll(/[^A-Za-z0-9]/g, '').toUpperCase() ?? '' }
+export function isOtherEuCountry(value: string | undefined) { return OTHER_EU_COUNTRIES.has(value?.toUpperCase() ?? '') }
+
+export function matchesOtherEuVatId(countryCode: string | undefined, vatId: string | undefined) {
+  const country = countryCode?.toUpperCase() ?? ''
+  return isOtherEuCountry(country) && Boolean(EU_VAT_ID_PATTERNS[country]?.test(normalizeVatId(vatId)))
+}
+
+export function normalizeVatId(value: string | undefined) { return value?.normalize('NFKC').replaceAll(/[^A-Za-z0-9]/g, '').toUpperCase() ?? '' }
+
+/** @deprecated Prefer normalizeVatId; retained as a descriptive compatibility alias for incoming-invoice classifiers. */
+export const normalizeIncomingVatId = normalizeVatId

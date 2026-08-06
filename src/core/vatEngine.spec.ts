@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { VatRuleBook, attachVatDocument, calculateMixedVat, calculateVat, createConfiguredVatIdValidator, createConfiguredVatReversalStore, createConfiguredVatTransportEvidenceVerifier, createTestVatIdValidationEvidence, createTestVatReversalStore, createTestVatRuleBook, createTestVatTransportEvidence, reconcileVat, representativeGermanVatRules, requireVatReconciliation, restoreVatIdValidationEvidenceWithAuthority, restoreVatPosting, restoreVatTransportEvidenceWithAuthority, validateVatIdWithAuthority, verifyVatTransportEvidenceWithAuthority, type VatReversalPersistence, type VatRule } from './vatEngine'
+import { VatRuleBook, attachVatDocument, calculateMixedVat, calculateVat, createConfiguredVatIdValidator, createConfiguredVatReversalStore, createConfiguredVatTransportEvidenceVerifier, createTestVatIdValidationEvidence, createTestVatReversalStore, createTestVatRuleBook, createTestVatTransportEvidence, originalVatPostingMarkers, reconcileVat, representativeGermanVatRules, requireVatReconciliation, restoreVatIdValidationEvidenceWithAuthority, restoreVatPosting, restoreVatTransportEvidenceWithAuthority, validateVatIdWithAuthority, verifyVatTransportEvidenceWithAuthority, type VatReversalPersistence, type VatRule } from './vatEngine'
 
 const book = createTestVatRuleBook(representativeGermanVatRules)
 const ownerId = 'company-1'
@@ -114,7 +114,8 @@ describe('effective-dated VAT engine', () => {
     expect(calculateVat(split('DE_EXEMPT'), book).deductibleTaxCents).toBe(0)
     expect(calculateVat({ ...split('DE_13B'), direction: 'purchase' }, book)).toMatchObject({ taxCents: 1_900, grossCents: 10_000, outputTaxCents: 1_900, inputTaxCents: 1_900 })
     expect(calculateVat({ ...split('EU_13B_SERVICE_RECIPIENT'), direction: 'purchase' }, book)).toMatchObject({ taxCents: 1_900, grossCents: 10_000, outputTaxCents: 1_900, inputTaxCents: 1_900, returnBoxes: [{ box: '46' }, { box: '47' }, { box: '67' }] })
-    expect(calculateVat({ ...split('EU_ACQUISITION'), direction: 'purchase' }, book)).toMatchObject({ outputTaxCents: 1_900, inputTaxCents: 1_900 })
+    expect(calculateVat({ ...split('EU_ACQUISITION'), direction: 'purchase', supplyKind: 'goods' }, book)).toMatchObject({ outputTaxCents: 1_900, inputTaxCents: 1_900, returnBoxes: [{ box: '89', value: 'net-base' }, { box: '61', value: 'input-tax' }] })
+    expect(() => calculateVat({ ...split('EU_ACQUISITION'), direction: 'purchase' }, book)).toThrow(/explicit goods/)
     expect(calculateVat({ ...split('IMPORT_VAT'), direction: 'purchase' }, book)).toMatchObject({ outputTaxCents: 0, inputTaxCents: 1_900 })
     expect(calculateVat({ ...split('DE_13B_SUPPLIER'), direction: 'sale' }, book)).toMatchObject({ taxCents: 0, outputTaxCents: 0, inputTaxCents: 0, returnBoxes: [{ box: '60' }] })
     expect(() => calculateVat(split('DE_13B'), book)).toThrow(/requires a purchase direction/)
@@ -130,6 +131,12 @@ describe('effective-dated VAT engine', () => {
     expect(calculateVat({ ...split('DE_EXEMPT'), direction: 'purchase' }, book).returnBoxes).toEqual([])
     expect(calculateVat({ ...split('DE_DEPOSIT'), direction: 'purchase' }, book).returnBoxes).toEqual([{ box: '66', value: 'input-tax', direction: 'purchase' }])
     expect(calculateVat({ ...split('DE_FINAL'), direction: 'purchase' }, book).returnBoxes).toEqual([{ box: '66', value: 'input-tax', direction: 'purchase' }])
+  })
+
+  it('Given a newly calculated original, when durable persistence requests its markers, then owner/source restoration receives the exact canonical binding', () => {
+    const posting = calculateVat({ ...split('EU_ACQUISITION'), direction: 'purchase', supplyKind: 'goods' }, book)
+    expect(originalVatPostingMarkers(posting)).toEqual([expect.stringMatching(/^bound-source:/), expect.stringMatching(/^original:/)])
+    expect(() => originalVatPostingMarkers({ ...posting })).toThrow(/exact newly calculated/)
   })
 
   it('reconciles invoice detail to control accounts and every return box with document drilldown', () => {

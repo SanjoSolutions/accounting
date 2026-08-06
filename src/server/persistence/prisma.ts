@@ -12,6 +12,7 @@ import type {
   Persistence,
 } from './Persistence'
 import { prisma } from './client'
+import { parseIncomingEuAcquisitionAccounts, parseIncomingReverseChargeAccounts } from '@/core/incomingReverseCharge'
 
 class PrismaAccountRepository implements AccountRepository {
   constructor(private readonly prisma: PrismaClient) {}
@@ -32,6 +33,8 @@ class PrismaAccountRepository implements AccountRepository {
     if (typeof data.activeChart === 'string' && (isChartOfAccountsStandard(data.activeChart) || /^CUSTOM:.+/.test(data.activeChart))) account.activeChart = data.activeChart
     if (Array.isArray(data.importedCharts) && data.importedCharts.every(item => typeof item === 'string' && /^CUSTOM:.+/.test(item))) account.importedCharts = [...data.importedCharts]
     account.companyProfile = data.companyProfile
+    account.incomingReverseChargeAccounts = parseIncomingReverseChargeAccounts(data.incomingReverseChargeAccounts) ?? undefined
+    account.incomingEuAcquisitionAccounts = parseIncomingEuAcquisitionAccounts(data.incomingEuAcquisitionAccounts) ?? undefined
     return account
   }
 

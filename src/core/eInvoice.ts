@@ -26,6 +26,7 @@ export interface StructuredInvoiceData {
   invoiceNumber: string
   issueDate: string
   supplyDate: string
+  deliveryCountryCode?: string
   seller: EInvoiceParty
   buyer: EInvoiceParty
   lines: EInvoiceLine[]
@@ -373,6 +374,7 @@ export function validateInvoice(data: StructuredInvoiceData): string[] {
   if (!data.invoiceNumber.trim()) issues.push('Invoice number is mandatory.')
   if (!isoCurrencies.has(data.currency)) issues.push('Invoice currency must be a supported three-letter uppercase ISO 4217 code.')
   if (!isRealDate(data.issueDate) || !isRealDate(data.supplyDate)) issues.push('Issue and supply dates must be real ISO dates.')
+  if (data.deliveryCountryCode !== undefined && !/^[A-Z]{2}$/.test(data.deliveryCountryCode)) issues.push('Delivery country code must be a two-letter uppercase ISO-like code when provided.')
   if (![data.seller.name, data.seller.street, data.seller.city, data.seller.postalCode, data.seller.countryCode].every(value => value.trim())) issues.push('Complete seller address is mandatory.')
   if (![data.buyer.name, data.buyer.street, data.buyer.city, data.buyer.postalCode, data.buyer.countryCode].every(value => value.trim())) issues.push('Complete buyer address is mandatory.')
   if (!isoCountries.has(data.seller.countryCode) || !isoCountries.has(data.buyer.countryCode)) issues.push('Seller and buyer country codes must be canonical ISO 3166-1 alpha-2 codes.')
@@ -455,7 +457,8 @@ function generateUblInvoiceWithProfile(data: Omit<StructuredInvoiceData, 'syntax
   const buyerReference = xrechnung ? `<cbc:BuyerReference>${esc(xrechnung.buyerReference)}</cbc:BuyerReference>` : ''
   const sellerXRechnung = xrechnung ? { contact: xrechnung.sellerContact, endpoint: { schemeId: '9930' as const, value: data.seller.vatId! } } : undefined
   const buyerXRechnung = xrechnung ? { endpoint: xrechnung.buyerElectronicAddress } : undefined
-  const xml = `<?xml version="1.0" encoding="UTF-8"?><${root} xmlns="urn:oasis:names:specification:ubl:schema:xsd:${root}-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"><cbc:CustomizationID>${customizationId}</cbc:CustomizationID><cbc:ProfileID>${profileId}</cbc:ProfileID><cbc:ID>${esc(data.invoiceNumber)}</cbc:ID><cbc:IssueDate>${data.issueDate}</cbc:IssueDate><cbc:${root}TypeCode>${typeCode}</cbc:${root}TypeCode>${data.reverseCharge ? '<cbc:Note>Reverse charge</cbc:Note>' : ''}<cbc:DocumentCurrencyCode>${esc(data.currency)}</cbc:DocumentCurrencyCode>${buyerReference}${reference}${partyXml('AccountingSupplierParty', data.seller, sellerXRechnung)}${partyXml('AccountingCustomerParty', data.buyer, buyerXRechnung)}<cac:Delivery><cbc:ActualDeliveryDate>${data.supplyDate}</cbc:ActualDeliveryDate></cac:Delivery>${payment}${terms}<cac:TaxTotal><cbc:TaxAmount currencyID="${esc(data.currency)}">${formatMoney(data.taxAmountCents)}</cbc:TaxAmount>${taxSubtotals}</cac:TaxTotal><cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="${esc(data.currency)}">${formatMoney(data.netAmountCents)}</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="${esc(data.currency)}">${formatMoney(data.netAmountCents)}</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="${esc(data.currency)}">${formatMoney(data.grossAmountCents)}</cbc:TaxInclusiveAmount>${prepaid}${rounding}<cbc:PayableAmount currencyID="${esc(data.currency)}">${formatMoney(payable)}</cbc:PayableAmount></cac:LegalMonetaryTotal>${lines}</${root}>`
+  const deliveryLocation = data.deliveryCountryCode ? `<cac:DeliveryLocation><cac:Address><cac:Country><cbc:IdentificationCode>${esc(data.deliveryCountryCode)}</cbc:IdentificationCode></cac:Country></cac:Address></cac:DeliveryLocation>` : ''
+  const xml = `<?xml version="1.0" encoding="UTF-8"?><${root} xmlns="urn:oasis:names:specification:ubl:schema:xsd:${root}-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"><cbc:CustomizationID>${customizationId}</cbc:CustomizationID><cbc:ProfileID>${profileId}</cbc:ProfileID><cbc:ID>${esc(data.invoiceNumber)}</cbc:ID><cbc:IssueDate>${data.issueDate}</cbc:IssueDate><cbc:${root}TypeCode>${typeCode}</cbc:${root}TypeCode>${data.reverseCharge ? '<cbc:Note>Reverse charge</cbc:Note>' : ''}<cbc:DocumentCurrencyCode>${esc(data.currency)}</cbc:DocumentCurrencyCode>${buyerReference}${reference}${partyXml('AccountingSupplierParty', data.seller, sellerXRechnung)}${partyXml('AccountingCustomerParty', data.buyer, buyerXRechnung)}<cac:Delivery><cbc:ActualDeliveryDate>${data.supplyDate}</cbc:ActualDeliveryDate>${deliveryLocation}</cac:Delivery>${payment}${terms}<cac:TaxTotal><cbc:TaxAmount currencyID="${esc(data.currency)}">${formatMoney(data.taxAmountCents)}</cbc:TaxAmount>${taxSubtotals}</cac:TaxTotal><cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="${esc(data.currency)}">${formatMoney(data.netAmountCents)}</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="${esc(data.currency)}">${formatMoney(data.netAmountCents)}</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="${esc(data.currency)}">${formatMoney(data.grossAmountCents)}</cbc:TaxInclusiveAmount>${prepaid}${rounding}<cbc:PayableAmount currencyID="${esc(data.currency)}">${formatMoney(payable)}</cbc:PayableAmount></cac:LegalMonetaryTotal>${lines}</${root}>`
   return new TextEncoder().encode(xml)
 }
 
@@ -644,7 +647,9 @@ function parseUbl(root: XmlNode): StructuredInvoiceData {
     if (headerGroups.size !== lineGroups.size || [...lineGroups].some(([key, taxable]) => headerGroups.get(key) !== taxable)) throw new EInvoiceValidationError(['UBL line tax categories/rates do not reconcile to header VAT breakdowns.'])
   }
   const issueDate = textOf(child(root, CBC, 'IssueDate'))
-  const supplyDate = textOf(nodeAt(child(root, CAC, 'Delivery'), [CBC, 'ActualDeliveryDate']))
+  const delivery = child(root, CAC, 'Delivery')
+  const supplyDate = textOf(nodeAt(delivery, [CBC, 'ActualDeliveryDate']))
+  const deliveryCountryCode = textOf(nodeAt(delivery, [CAC, 'DeliveryLocation'], [CAC, 'Address'], [CAC, 'Country'], [CBC, 'IdentificationCode'])) || undefined
   if (!supplyDate) throw new EInvoiceValidationError(['UBL requires an explicit supported supply date.'])
   const billingReference = child(root, CAC, 'BillingReference')
   const documentCurrency = textOf(child(root, CBC, 'DocumentCurrencyCode'))
@@ -660,7 +665,7 @@ function parseUbl(root: XmlNode): StructuredInvoiceData {
   assertCurrencyIds(root, documentCurrency)
   return {
     syntax: 'UBL', kind, invoiceNumber: textOf(child(root, CBC, 'ID')), issueDate,
-    supplyDate,
+    supplyDate, deliveryCountryCode,
     seller: parseUblParty(supplier), buyer: parseUblParty(customer), lines,
     netAmountCents: lineExtensionAmount, taxAmountCents: headerTax, grossAmountCents: money(textOf(taxInclusive)),
     prepaidAmountCents: prepaid ? money(prepaid.text) : undefined,
@@ -685,6 +690,7 @@ function parseCii(root: XmlNode, syntax: 'CII' | 'ZUGFERD'): StructuredInvoiceDa
   const totals = nodeAt(settlement, [RAM, 'SpecifiedTradeSettlementHeaderMonetarySummation'])
   const issueDate = normalizeCiiDate(textOf(nodeAt(document, [RAM, 'IssueDateTime'], [UDT, 'DateTimeString'])))
   const supplyDate = normalizeCiiDate(textOf(nodeAt(delivery, [RAM, 'ActualDeliverySupplyChainEvent'], [RAM, 'OccurrenceDateTime'], [UDT, 'DateTimeString'])))
+  const deliveryCountryCode = textOf(nodeAt(delivery, [RAM, 'ShipToTradeParty'], [RAM, 'PostalTradeAddress'], [RAM, 'CountryID'])) || undefined
   if (!supplyDate) throw new EInvoiceValidationError(['CII requires an explicit supported supply date.'])
   const typeCode = textOf(child(document, RAM, 'TypeCode'))
   if (typeCode && !['380', '381', '384', '457'].includes(typeCode)) throw new EInvoiceValidationError([`Unsupported CII invoice type code ${typeCode}.`])
@@ -721,7 +727,7 @@ function parseCii(root: XmlNode, syntax: 'CII' | 'ZUGFERD'): StructuredInvoiceDa
   assertCurrencyIds(root, invoiceCurrency)
   return {
     syntax, kind, invoiceNumber: textOf(child(document, RAM, 'ID')), issueDate,
-    supplyDate,
+    supplyDate, deliveryCountryCode,
     seller: parseCiiParty(child(agreement, RAM, 'SellerTradeParty')), buyer: parseCiiParty(child(agreement, RAM, 'BuyerTradeParty')), lines,
     netAmountCents: money(textOf(lineTotal ?? taxBasisTotal)), taxAmountCents: headerTax, grossAmountCents: money(textOf(grandTotal)),
     prepaidAmountCents: prepaid ? money(prepaid.text) : undefined,

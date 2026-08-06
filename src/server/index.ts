@@ -14,7 +14,7 @@ import { getDocumentStorage } from './storage'
 import { requireLegacyLedgerProfile } from './ledger'
 import { appendAuditEvent } from './compliance/auditPersistence'
 import { registerRetainedArtifact } from './compliance/runtime'
-import { parseIncomingReverseChargeAccounts, requireIncomingReverseChargeAccountsForLedger } from '@/core/incomingReverseCharge'
+import { parseIncomingEuAcquisitionAccounts, parseIncomingReverseChargeAccounts, requireIncomingEuAcquisitionAccountsForLedger, requireIncomingReverseChargeAccountsForLedger } from '@/core/incomingReverseCharge'
 
 const persistence = createPrismaPersistence()
 const companySettingsId = (ownerId: string) => `company:${ownerId}`
@@ -70,6 +70,11 @@ export async function updateSettings(data: any, ownerId: string, actorId = owner
   const availableImportedCharts = [...new Set([...availableCustomChartsForProfileUpdate(account.importedCharts, requestedChart, Boolean(persistedRequestedCohort)), ...(importedChart ? [importedChart.id] : [])])]
   if (data.invoiceIssuer !== undefined) mergeInvoiceIssuerFields(account.invoiceIssuer, data.invoiceIssuer)
   if (data.incomingReverseChargeAccounts !== undefined) account.incomingReverseChargeAccounts = parseIncomingReverseChargeAccounts(data.incomingReverseChargeAccounts) ?? undefined
+  if (data.incomingEuAcquisitionAccounts !== undefined) account.incomingEuAcquisitionAccounts = parseIncomingEuAcquisitionAccounts(data.incomingEuAcquisitionAccounts) ?? undefined
+  if (account.incomingReverseChargeAccounts && account.incomingEuAcquisitionAccounts) {
+    const configuredNumbers = [account.incomingReverseChargeAccounts.inputVatAccountNumber, account.incomingReverseChargeAccounts.outputVatAccountNumber, account.incomingEuAcquisitionAccounts.inputVatAccountNumber, account.incomingEuAcquisitionAccounts.outputVatAccountNumber]
+    if (new Set(configuredNumbers).size !== configuredNumbers.length) throw new CompanyProfileValidationError('Intra-community acquisition controls must use accounts distinct from incoming §13b controls')
+  }
   const versionedProfile = profileVersionWrite ? upgradeProfileRegisteredAddress(data.companyProfile, account.invoiceIssuer) as typeof data.companyProfile : data.companyProfile
   if (data.chartOfAccounts !== undefined) {
     account.chartOfAccounts = data.chartOfAccounts
@@ -169,6 +174,16 @@ export async function updateSettings(data: any, ownerId: string, actorId = owner
       if (wrong) throw new CompanyProfileValidationError(`Configured §13b control account ${wrong.number} has the wrong ledger category`)
       await transaction.ledgerAccount.upsert({ where: { ownerId_number: { ownerId, number: configured.inputVatAccountNumber } }, create: { ownerId, number: configured.inputVatAccountNumber, name: 'Vorsteuer §13b 19 %', category: 'ASSET', eBilanzPosition: 'bs.ass.currAss.receiv.other.vat' }, update: { active: true } })
       await transaction.ledgerAccount.upsert({ where: { ownerId_number: { ownerId, number: configured.outputVatAccountNumber } }, create: { ownerId, number: configured.outputVatAccountNumber, name: 'Umsatzsteuer §13b 19 %', category: 'LIABILITY', eBilanzPosition: 'bs.eqLiab.liab.other.theroffTax.vat' }, update: { active: true } })
+    }
+    if (account.incomingEuAcquisitionAccounts) {
+      let configured = account.incomingEuAcquisitionAccounts
+      try { configured = requireIncomingEuAcquisitionAccountsForLedger(configured, targetChart, currentLedgerProfile?.accountLength ?? 4) }
+      catch (error) { throw new CompanyProfileValidationError(error instanceof Error ? error.message : 'Invalid intra-community acquisition ledger controls') }
+      const existingControls = await transaction.ledgerAccount.findMany({ where: { ownerId, number: { in: [configured.inputVatAccountNumber, configured.outputVatAccountNumber] } } })
+      const wrong = existingControls.find(item => item.number === configured.inputVatAccountNumber ? item.category !== 'ASSET' : item.category !== 'LIABILITY')
+      if (wrong) throw new CompanyProfileValidationError(`Configured intra-community acquisition control account ${wrong.number} has the wrong ledger category`)
+      await transaction.ledgerAccount.upsert({ where: { ownerId_number: { ownerId, number: configured.inputVatAccountNumber } }, create: { ownerId, number: configured.inputVatAccountNumber, name: 'Vorsteuer innergemeinschaftlicher Erwerb 19 %', category: 'ASSET', eBilanzPosition: 'bs.ass.currAss.receiv.other.vat' }, update: { name: 'Vorsteuer innergemeinschaftlicher Erwerb 19 %', eBilanzPosition: 'bs.ass.currAss.receiv.other.vat', active: true } })
+      await transaction.ledgerAccount.upsert({ where: { ownerId_number: { ownerId, number: configured.outputVatAccountNumber } }, create: { ownerId, number: configured.outputVatAccountNumber, name: 'Umsatzsteuer innergemeinschaftlicher Erwerb 19 %', category: 'LIABILITY', eBilanzPosition: 'bs.eqLiab.liab.other.theroffTax.vat' }, update: { name: 'Umsatzsteuer innergemeinschaftlicher Erwerb 19 %', eBilanzPosition: 'bs.eqLiab.liab.other.theroffTax.vat', active: true } })
     }
     if (!explicitlyChangesChart) {
       account.activeChart = targetChart as typeof account.activeChart
