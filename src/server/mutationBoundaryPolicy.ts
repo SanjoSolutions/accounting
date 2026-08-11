@@ -16,6 +16,8 @@ export const apiMutationBoundaryPolicy = {
   '/api/banking/matches/[id]/reversals#POST': 'write',
   '/api/banking/statements#POST': 'write',
   '/api/banking/transactions/[id]/matches#POST': 'write',
+  '/api/booking-batches/[id]/post#POST': 'write',
+  '/api/booking-batches/[id]#PATCH': 'write',
   '/api/booking-records#POST': 'write',
   '/api/commercial/documents#POST': 'write',
   '/api/commercial/open-items/[id]/allocations#POST': 'write',

@@ -2,7 +2,9 @@ import 'server-only'
 import { getCurrentUser } from '@/server/authentication'
 import { forbiddenUnless } from '@/server/authorization'
 import { AccountingValidationError } from '@/core/doubleEntry'
-import { getLedgerWorkspace, postJournalEntry } from '@/server/ledger'
+import { getLedgerWorkspace } from '@/server/ledger'
+import { createBookingBatch } from '@/server/bookingBatches'
+import { ComplianceRuntimeError } from '@/server/compliance/runtime'
 
 export const runtime = 'nodejs'
 
@@ -22,8 +24,8 @@ export async function POST(request: Request) {
   if (!user) return Response.json({ success: false }, { status: 401 })
   const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   try {
-    const entry = await postJournalEntry(user.id, await request.json())
-    return Response.json(entry, { status: 201 })
+    const draft = await createBookingBatch(user.id, user.actorId, await request.json())
+    return Response.json(draft, { status: 201 })
   } catch (error) {
     return accountingError(error)
   }
@@ -32,6 +34,9 @@ export async function POST(request: Request) {
 function accountingError(error: unknown) {
   if (error instanceof AccountingValidationError) {
     return Response.json({ success: false, issues: error.issues }, { status: 400 })
+  }
+  if (error instanceof ComplianceRuntimeError) {
+    return Response.json({ success: false, error: error.message }, { status: error.status })
   }
   if (error instanceof SyntaxError) {
     return Response.json({ success: false, issues: ['Der Anfrageinhalt ist kein gültiges JSON.'] }, { status: 400 })

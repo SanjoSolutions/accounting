@@ -85,6 +85,24 @@ export function isCompletedDisposalRetry(artifact: { disposedAt: Date | null; st
 export function requireOpenDraftPeriod(status: string) {
   if (status !== 'OPEN') throw new ComplianceRuntimeError('Drafts can only be created or revised in an open fiscal period', 409)
 }
+
+/**
+ * Drafts do not have a document number until they become journal entries.  We
+ * still persist a deterministic, tenant-scoped reference so a draft can be
+ * edited and audited without relying on a client-supplied document number.
+ * `postJournalEntry` replaces this value with its established JOURNAL-
+ * reference during the one-way posting transition.
+ */
+export function draftJournalReference(draftId: string) {
+  return `DRAFT-${draftId}`
+}
+
+function draftPostingWithReference(posting: unknown, draftId: string, fallbackReference?: string) {
+  if (!posting || typeof posting !== 'object' || Array.isArray(posting)) return posting
+  const value = posting as Record<string, unknown>
+  if (typeof value.documentNumber === 'string' && value.documentNumber.trim()) return posting
+  return { ...value, documentNumber: fallbackReference ?? draftJournalReference(draftId) }
+}
 export function assertRestoreCertificationPolicy(policy: { operatorIds: string; recoveryPointObjectiveMinutes: number; recoveryTimeObjectiveMinutes: number } | null, actorId: string, recoveryWindow: { recoveryPointAt: string; referenceAt: string }, restoreMinutes: number) {
   if (!policy) throw new ComplianceRuntimeError('Compliance policy is no longer available', 403)
   let operators: unknown
@@ -203,16 +221,18 @@ export async function createDraft(ownerId: string, actorId: string, input: unkno
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ComplianceRuntimeError('Draft payload must be an object')
   const value = input as { fiscalPeriodId?: unknown; posting?: unknown; reason?: unknown }
   if (typeof value.fiscalPeriodId !== 'string') throw new ComplianceRuntimeError('fiscalPeriodId is required')
-  validateJournalEntry(value.posting)
   const reason = requireReason(value.reason)
+  const id = randomUUID()
+  const posting = draftPostingWithReference(value.posting, id)
+  validateJournalEntry(posting)
   return prisma.$transaction(async transaction => {
     const period = await transaction.fiscalYear.findFirst({ where: { id: value.fiscalPeriodId as string, ownerId } })
     if (!period) throw new ComplianceRuntimeError('Fiscal period not found', 404)
     requireOpenDraftPeriod(period.status)
-    const bookingDate = (value.posting as { bookingDate: string }).bookingDate
+    const bookingDate = (posting as { bookingDate: string }).bookingDate
     if (bookingDate < dateOnly(period.startsAt) || bookingDate > dateOnly(period.endsAt)) throw new ComplianceRuntimeError('Draft booking date is outside its fiscal period')
-    const draft = await transaction.journalDraft.create({ data: { ownerId, fiscalYearId: period.id, payload: JSON.stringify(value.posting), createdBy: actorId, updatedBy: actorId } })
-    await appendAuditEvent(transaction, { ownerId, actorId, action: 'JOURNAL_DRAFT_CREATED', reason, objectType: 'JournalDraft', objectId: draft.id, after: value.posting })
+    const draft = await transaction.journalDraft.create({ data: { id, ownerId, fiscalYearId: period.id, payload: JSON.stringify(posting), createdBy: actorId, updatedBy: actorId } })
+    await appendAuditEvent(transaction, { ownerId, actorId, action: 'JOURNAL_DRAFT_CREATED', reason, objectType: 'JournalDraft', objectId: draft.id, after: posting })
     return draft
   })
 }
@@ -220,21 +240,24 @@ export async function createDraft(ownerId: string, actorId: string, input: unkno
 export async function reviseDraft(ownerId: string, actorId: string, draftId: string, input: unknown) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ComplianceRuntimeError('Draft revision must be an object')
   const value = input as { posting?: unknown; expectedVersion?: unknown; reason?: unknown }
-  validateJournalEntry(value.posting)
   if (!Number.isInteger(value.expectedVersion)) throw new ComplianceRuntimeError('expectedVersion is required')
   const reason = requireReason(value.reason)
   return prisma.$transaction(async transaction => {
     const before = await transaction.journalDraft.findFirst({ where: { id: draftId, ownerId, status: 'DRAFT' } })
     if (!before) throw new ComplianceRuntimeError('Editable draft not found', 404)
+    let existingPosting: unknown
+    try { existingPosting = JSON.parse(before.payload) } catch { throw new ComplianceRuntimeError('Draft payload is corrupted', 409) }
+    const posting = draftPostingWithReference(value.posting, draftId, typeof (existingPosting as { documentNumber?: unknown })?.documentNumber === 'string' ? (existingPosting as { documentNumber: string }).documentNumber : undefined)
+    validateJournalEntry(posting)
     const period = await transaction.fiscalYear.findFirst({ where: { id: before.fiscalYearId, ownerId } })
     if (!period) throw new ComplianceRuntimeError('Fiscal period not found', 404)
     requireOpenDraftPeriod(period.status)
-    const bookingDate = (value.posting as { bookingDate: string }).bookingDate
+    const bookingDate = (posting as { bookingDate: string }).bookingDate
     if (bookingDate < dateOnly(period.startsAt) || bookingDate > dateOnly(period.endsAt)) throw new ComplianceRuntimeError('Draft booking date is outside its fiscal period')
-    const updated = await transaction.journalDraft.updateMany({ where: { id: draftId, ownerId, status: 'DRAFT', version: Number(value.expectedVersion) }, data: { payload: JSON.stringify(value.posting), version: { increment: 1 }, updatedBy: actorId } })
+    const updated = await transaction.journalDraft.updateMany({ where: { id: draftId, ownerId, status: 'DRAFT', version: Number(value.expectedVersion) }, data: { payload: JSON.stringify(posting), version: { increment: 1 }, updatedBy: actorId } })
     if (updated.count !== 1) throw new ComplianceRuntimeError('Draft changed concurrently', 409)
     const after = await transaction.journalDraft.findUniqueOrThrow({ where: { id: draftId } })
-    await appendAuditEvent(transaction, { ownerId, actorId, action: 'JOURNAL_DRAFT_REVISED', reason, objectType: 'JournalDraft', objectId: draftId, before: JSON.parse(before.payload), after: value.posting })
+    await appendAuditEvent(transaction, { ownerId, actorId, action: 'JOURNAL_DRAFT_REVISED', reason, objectType: 'JournalDraft', objectId: draftId, before: existingPosting, after: posting })
     return after
   })
 }
