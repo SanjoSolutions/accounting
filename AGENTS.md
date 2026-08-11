@@ -34,6 +34,10 @@ Never run destructive reset, migration, or test tooling against `accounting.db` 
 
 Use Bootstrap 5. Use Bootstrap patterns preferably. If Bootstrap has no pattern for what you require, you can introduce new UI components/elements/variants. Make sure to implement new UI components in a reusable way.
 
+## Typo
+
+UI text should be concise and to the point, optimized for what the user requires.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
