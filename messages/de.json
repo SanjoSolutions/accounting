@@ -657,6 +657,7 @@
     "postingSaved": "Buchung wurde im Buchungsstapel gespeichert. Prüfen und schreiben Sie sie dort ausdrücklich ins Journal fest.",
     "continueWithSameDocuments": "Mit denselben Belegen fortfahren",
     "journal": "Journal",
+    "journalConnector": "an",
     "postedEntries": "Festgeschriebene Buchungen",
     "entryCount": "{count} Einträge",
     "noBookings": "Noch keine Buchungen",

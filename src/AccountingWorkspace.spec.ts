@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, test } from 'vitest'
+import deMessages from '../messages/de.json'
+import enMessages from '../messages/en.json'
 import {
   bookingFormRows,
   bookingLineRequest,
@@ -9,6 +11,7 @@ import {
   documentStateAfterPosting,
   getBrowserBookingWorkspaceStorage,
   isBookingFormDisabled,
+  journalEntryDisplayLines,
   journalEntrySourceMetadata,
   loadBookingWorkspaceState,
   parseBookingWorkspaceState,
@@ -271,4 +274,34 @@ describe('accounting workspace request ordering', () => {
     }
   })
 
+})
+
+describe('journal debit-to-credit presentation', () => {
+  test('translates the debit-to-credit connector for each supported locale', () => {
+    expect(deMessages.Workspaces.journalConnector).toBe('an')
+    expect(enMessages.Workspaces.journalConnector).toBe('to')
+  })
+
+  test('renders a simple booking as debit account followed by a connected credit account', () => {
+    expect(journalEntryDisplayLines([
+      { id: 'credit', debitCents: 0, creditCents: 10_000, account: { number: 8400, name: 'PASSIV' } },
+      { id: 'debit', debitCents: 10_000, creditCents: 0, account: { number: 1200, name: 'AKTIV' } },
+    ])).toMatchObject([
+      { side: 'debit', amountCents: 10_000, connector: false, account: { name: 'AKTIV' } },
+      { side: 'credit', amountCents: 10_000, connector: true, account: { name: 'PASSIV' } },
+    ])
+  })
+
+  test('keeps every split debit before every credit and connects each credit line', () => {
+    const lines = journalEntryDisplayLines([
+      { id: 'credit-2', debitCents: 0, creditCents: 2_000, account: { number: 8402, name: 'PASSIV 2' } },
+      { id: 'debit-1', debitCents: 7_000, creditCents: 0, account: { number: 1201, name: 'AKTIV 1' } },
+      { id: 'credit-1', debitCents: 0, creditCents: 5_000, account: { number: 8401, name: 'PASSIV 1' } },
+      { id: 'debit-2', debitCents: 3_000, creditCents: 0, account: { number: 1202, name: 'AKTIV 2' } },
+    ])
+
+    expect(lines.map(line => line.account.name)).toEqual(['AKTIV 1', 'AKTIV 2', 'PASSIV 2', 'PASSIV 1'])
+    expect(lines.map(line => line.connector)).toEqual([false, false, true, true])
+    expect(lines.map(line => line.amountCents)).toEqual([7_000, 3_000, 2_000, 5_000])
+  })
 })

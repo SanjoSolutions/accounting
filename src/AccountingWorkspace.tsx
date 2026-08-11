@@ -9,6 +9,17 @@ import { availableBookingAccounts, sanitizeBookingAccountSelections, type Accoun
 type Account = { id: string; number: number; name: string; category: AccountCategory }
 export type VatTreatment = '' | 'DE_STANDARD_SALE_NET' | 'DE_STANDARD_PURCHASE_NET' | 'DE_STANDARD_SALE_GROSS' | 'DE_STANDARD_PURCHASE_GROSS'
 type Line = { accountId: string; debit: string; credit: string; vatTreatment?: VatTreatment }
+export type JournalEntryLine = {
+  id: string
+  debitCents: number
+  creditCents: number
+  account: Pick<Account, 'number' | 'name'>
+}
+export type JournalDisplayLine = JournalEntryLine & {
+  side: 'debit' | 'credit'
+  amountCents: number
+  connector: boolean
+}
 export type BookingWorkspaceState = {
   year: number
   bookingDate: string
@@ -22,7 +33,7 @@ type Workspace = {
   entries: Array<{
     id: string; sequenceNumber: number; bookingDate: string; documentNumber: string; description: string
     sourcePostingDate?: string | null; sourceJournalDate?: string | null; sourcePeriod?: number | null
-    lines: Array<{ id: string; debitCents: number; creditCents: number; account: Account }>
+    lines: Array<JournalEntryLine & { account: Account }>
     documents: BookingDocument[]
   }>
   statements: { assetsCents: number; liabilitiesCents: number; equityCents: number; netIncomeCents: number }
@@ -252,7 +263,15 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
             : <time key={index}>{item.value}</time>)}</div>
           <strong>{entry.description}</strong>
           {entry.documents?.length > 0 && <div className="journal-documents">{entry.documents.map(document => <a key={document.id} href={document.url} target="_blank" rel="noreferrer"><i className="bi bi-paperclip" />{document.fileName || t('unnamedDocument')}</a>)}</div>}
-          <div className="journal-lines">{entry.lines.map(line => <div key={line.id}><span>{line.account.number} · {line.account.name}</span><span>{line.debitCents ? `Soll ${money.format(line.debitCents / 100)}` : `Haben ${money.format(line.creditCents / 100)}`}</span></div>)}</div>
+          <div className="journal-lines" role="list" aria-label={t('journal')}>
+            {journalEntryDisplayLines(entry.lines).map(line => <div key={line.id} role="listitem">
+              <span>
+                {line.connector && <span className="journal-connector">{t('journalConnector')}</span>}
+                <span>{line.account.number} · {line.account.name}</span>
+              </span>
+              <span><span className="visually-hidden">{line.side === 'debit' ? t('debit') : t('credit')}: </span>{money.format(line.amountCents / 100)}</span>
+            </div>)}
+          </div>
         </article>)}</div>
       </section>}
   </div>
@@ -279,6 +298,29 @@ export function bookingLineRequest(line: Line) {
 }
 function localDate() { const date = new Date(); const offset = date.getTimezoneOffset() * 60_000; return new Date(date.getTime() - offset).toISOString().slice(0, 10) }
 function formatCalendarDate(value: string) { const [year, month, day] = value.slice(0, 10).split('-'); return `${day}.${month}.${year}` }
+export function journalEntryDisplayLines(lines: readonly JournalEntryLine[]): JournalDisplayLine[] {
+  const debitLines: JournalDisplayLine[] = []
+  const creditLines: JournalDisplayLine[] = []
+
+  for (const line of lines) {
+    if (line.debitCents !== 0) debitLines.push({
+      ...line,
+      side: 'debit',
+      amountCents: line.debitCents,
+      connector: false,
+      id: `${line.id}:debit`,
+    })
+    if (line.creditCents !== 0) creditLines.push({
+      ...line,
+      side: 'credit',
+      amountCents: line.creditCents,
+      connector: true,
+      id: `${line.id}:credit`,
+    })
+  }
+
+  return [...debitLines, ...creditLines]
+}
 export function journalEntrySourceMetadata(entry: {
   bookingDate: string
   sourcePostingDate?: string | null

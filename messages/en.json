@@ -657,6 +657,7 @@
     "postingSaved": "The booking was saved to a booking batch. Review it there before explicitly posting it to the journal.",
     "continueWithSameDocuments": "Continue with same documents",
     "journal": "Journal",
+    "journalConnector": "to",
     "postedEntries": "Posted entries",
     "entryCount": "{count} entries",
     "noBookings": "No bookings yet",
