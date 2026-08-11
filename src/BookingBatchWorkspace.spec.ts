@@ -51,8 +51,8 @@ describe('booking batch fiscal-year and draft selection', () => {
   })
 
   test('keeps draft list metadata focused on dates without row counts or revision numbers', () => {
-    expect(bookingBatchWorkspaceSource).toContain('{draft.posting.bookingDate}</span>')
-    expect(bookingBatchWorkspaceSource).toContain("t('updatedAt', { date: dateLabel(draft.updatedAt")
+    expect(bookingBatchWorkspaceSource).toContain('{formatDisplayDate(draft.posting.bookingDate)}</span>')
+    expect(bookingBatchWorkspaceSource).toContain("t('updatedAt', { date: formatDisplayDate(draft.updatedAt)")
     expect(bookingBatchWorkspaceSource).not.toContain("t('lineCount'")
     expect(bookingBatchWorkspaceSource).not.toContain('v{draft.version}')
   })
