@@ -569,7 +569,6 @@
     "empty": "No open booking drafts",
     "emptyHint": "New bookings appear here for review.",
     "untitled": "Untitled booking",
-    "lineCount": "{count, plural, one {# line} other {# lines}}",
     "updatedAt": "Updated {date}",
     "editor": "Edit booking draft",
     "editorEyebrow": "Edit draft",

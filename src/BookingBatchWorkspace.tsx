@@ -377,8 +377,8 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
             {drafts.length > 0 && <div className="list-group" role="listbox" aria-label={t('draftList')}>
               {drafts.map(draft => <button key={draft.id} type="button" role="option" aria-selected={draft.id === selectedDraft?.id} className={`list-group-item list-group-item-action text-start${draft.id === selectedDraft?.id ? ' active' : ''}`} onClick={() => selectDraft(draft.id)}>
                 <span className="d-flex justify-content-between align-items-start gap-2"><strong className="text-truncate">{draft.posting.description || t('untitled')}</strong><span className={`badge ${draftStatusClass(draft.status)}`}>{draft.status === 'DRAFT' ? t('status.DRAFT') : draft.status}</span></span>
-                <span className="d-block small mt-1">{draft.posting.bookingDate} · {t('lineCount', { count: draft.posting.lines.length })}</span>
-                <span className="d-block small opacity-75">{t('updatedAt', { date: dateLabel(draft.updatedAt, locale === 'en' ? 'en-GB' : 'de-DE') })} · v{draft.version}</span>
+                <span className="d-block small mt-1">{draft.posting.bookingDate}</span>
+                <span className="d-block small opacity-75">{t('updatedAt', { date: dateLabel(draft.updatedAt, locale === 'en' ? 'en-GB' : 'de-DE') })}</span>
               </button>)}
             </div>}
           </div>

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import {
   bookingBatchDraftsForYear,
@@ -12,6 +14,8 @@ import {
   unlinkBookingBatchDocument,
   type BookingBatchDraft,
 } from './BookingBatchWorkspace'
+
+const bookingBatchWorkspaceSource = readFileSync(resolve(process.cwd(), 'src/BookingBatchWorkspace.tsx'), 'utf8')
 
 const draft = (overrides: Partial<BookingBatchDraft> = {}): BookingBatchDraft => ({
   id: 'draft-1',
@@ -44,6 +48,13 @@ describe('booking batch fiscal-year and draft selection', () => {
       draft({ id: 'posted', status: 'POSTED' }),
       draft({ id: 'other-year', posting: { ...draft().posting, fiscalYear: 2025 } }),
     ] }, 2026).map(item => item.id)).toEqual(['draft-1'])
+  })
+
+  test('keeps draft list metadata focused on dates without row counts or revision numbers', () => {
+    expect(bookingBatchWorkspaceSource).toContain('{draft.posting.bookingDate}</span>')
+    expect(bookingBatchWorkspaceSource).toContain("t('updatedAt', { date: dateLabel(draft.updatedAt")
+    expect(bookingBatchWorkspaceSource).not.toContain("t('lineCount'")
+    expect(bookingBatchWorkspaceSource).not.toContain('v{draft.version}')
   })
 })
 

@@ -569,7 +569,6 @@
     "empty": "Keine offenen Buchungsentwürfe",
     "emptyHint": "Neue Buchungen erscheinen hier zur Prüfung.",
     "untitled": "Ohne Buchungstext",
-    "lineCount": "{count, plural, one {# Zeile} other {# Zeilen}}",
     "updatedAt": "Geändert am {date}",
     "editor": "Buchungsentwurf bearbeiten",
     "editorEyebrow": "Entwurf bearbeiten",
