@@ -1,10 +1,10 @@
 {
   "Metadata": {
-    "title": "Buchführung",
-    "description": "Anwendung für die Buchführung"
+    "title": "Buchhaltung",
+    "description": "Anwendung für die Buchhaltung"
   },
   "Navbar": {
-    "Accounting": "Buchführung",
+    "Accounting": "Buchhaltung",
     "Bookings": "Buchen",
     "Booking batches": "Buchungsstapel",
     "Journal": "Journal",
@@ -150,7 +150,6 @@
     "saving": "Speichern …"
   },
   "Compliance": {
-    "eyebrow": "Governance und Betrieb",
     "title": "Compliance-Leitstand",
     "subtitle": "Mandantenbezogene Stammdaten, Geschäftsjahre, nachvollziehbare Korrekturen, Aufbewahrung und Notfallvorsorge.",
     "refresh": "Aktualisieren",
@@ -347,7 +346,6 @@
     "Load failed": "Die Einstellungen konnten nicht geladen werden."
   },
   "Tax": {
-    "eyebrow": "Steuerdeklaration",
     "title": "Steuermeldungen {year}",
     "subtitle": "Umsatzsteuer- und Jahressteuererklärungen vorbereiten, prüfen, freigeben und mit unveränderlicher Historie übermitteln.",
     "loadFailed": "Die Steuermeldungen konnten nicht geladen werden.",
@@ -377,7 +375,6 @@
     "empty": "Es wurden noch keine Steuererklärungen übermittelt."
   },
   "AccountingReports": {
-    "eyebrow": "Importierte Geschäftsjahresdaten",
     "title": "Buchhaltungsauswertungen {year}",
     "subtitle": "Importierte Stammdaten, Konten, Salden, Kontenblätter, Geschäftspartner und die Umsatzsteuer-Jahresübersicht prüfen.",
     "loading": "Buchhaltungsauswertungen werden geladen …",
@@ -388,7 +385,7 @@
     "setup": "Buchhaltungseinrichtung",
     "fiscalPeriod": "Geschäftsjahreszeitraum",
     "chart": "Kontenrahmen",
-    "accountingMethod": "Buchführungsmethode",
+    "accountingMethod": "Buchhaltungsmethode",
     "profitDetermination": "Gewinnermittlung",
     "taxonomyVersion": "Taxonomieversion",
     "currency": "Währung",
@@ -558,7 +555,6 @@
         "providerMessage": "Anbieter-Nachrichten-ID: {id}"
   },
   "BookingBatches": {
-    "eyebrow": "Zwischenprüfung",
     "title": "Buchungsstapel",
     "subtitle": "Prüfen und bearbeiten Sie manuelle Buchungen, bevor sie ausdrücklich ins Journal festgeschrieben werden.",
     "fiscalYear": "Geschäftsjahr",
@@ -571,7 +567,6 @@
     "untitled": "Ohne Buchungstext",
     "updatedAt": "Geändert am {date}",
     "editor": "Buchungsentwurf bearbeiten",
-    "editorEyebrow": "Entwurf bearbeiten",
     "selectDraft": "Wählen Sie einen Entwurf aus, um ihn zu bearbeiten.",
     "versionLabel": "Version {version}",
     "bookingDate": "Buchungsdatum",
@@ -627,7 +622,6 @@
     "status": "Status",
     "open": "Offen",
     "locked": "Festgeschrieben",
-    "newPosting": "Neue Buchung",
     "recordTransaction": "Geschäftsvorfall erfassen",
     "postingDate": "Buchungsdatum",
     "postingText": "Buchungstext",
@@ -678,7 +672,6 @@
     "chooseDocuments": "Belege hochladen",
     "uploadingDocuments": "Belege werden hochgeladen …",
     "availableDocuments": "Verfügbare Belege",
-    "selectedDocuments": "Ausgewählte Belege",
     "documentPreview": "Belegansicht",
     "noDocuments": "Noch keine Belege",
     "noDocumentsHelp": "Klicken oder PDF- bzw. XML-Dateien in dieses Fenster ziehen, um zu beginnen.",
@@ -695,17 +688,14 @@
     "removeDocument": "{name} aus der Buchung entfernen",
     "unlinkDocument": "Belegverknüpfung lösen",
     "resizeColumns": "Spaltenbreite zwischen Belegansicht und Buchung ändern",
-    "dataExchange": "Datenaustausch",
     "exportImport": "Export / Import",
     "exportImportSubtitle": "Buchhaltungsdaten sicher mit externen Systemen austauschen.",
-    "dataExport": "Datenexport",
     "datevExport": "DATEV-Übergabe an die Kanzlei",
     "datevExportHelp": "Laden Sie einen aufbewahrten DATEV-EXTF-700-Buchungsstapel herunter. Geprüfte DATEV-Berater- und Mandantendaten müssen bereits eingerichtet sein.",
     "datevExportAction": "DATEV-Buchungsstapel herunterladen",
     "datevExportBusy": "DATEV-Export wird erstellt …",
     "datevExportSucceeded": "Der aufbewahrte DATEV-Buchungsstapel für {year} wurde heruntergeladen.",
     "datevExportFailed": "Der DATEV-Buchungsstapel konnte nicht exportiert werden.",
-    "dataImport": "Datenübernahme",
     "accountingImport": "Buchhaltungsdaten importieren",
     "accountingImportHelp": "Wählen Sie einen vollständigen DATEV-EXTF- oder Lexware-Buchhaltung-Ordner „Daten Betriebsprüfung“. Das Format und alle enthaltenen Geschäftsjahre werden automatisch erkannt.",
     "accountingChooseFolder": "Exportordner auswählen",
@@ -715,7 +705,6 @@
     "accountingImportSucceeded": "{imported} Buchungen, {accounts} Konten und {documents} Belege für {years} verarbeitet; {skipped} bereits vorhandene Buchungen übersprungen.",
     "accountingImportFailed": "Der Buchhaltungsimport ist fehlgeschlagen.",
     "datevChooseFiles": "DATEV-CSV-Dateien auswählen",
-    "guidedClose": "Geführter Abschluss",
     "annualClose": "Jahresabschluss {year}",
     "annualCloseSubtitle": "Automatische Rechenwerke, klare Blocker und eine bewusste fachliche Freigabe.",
     "inProgress": "In Bearbeitung",
@@ -758,7 +747,6 @@
     "companyCity": "Ort",
     "eBalanceLoading": "Buchungsdaten werden geladen …",
     "eBalanceExporting": "Prüfpaket wird erzeugt …",
-    "taxSubmission": "Steuerliche Übermittlung",
     "eBalanceYear": "E-Bilanz {year}",
     "eBalanceSubtitle": "Kontenzuordnung, amtliche ERiC-Prüfung und Übermittlung mit der wirksamen registrierten Taxonomie.",
     "taxonomy": "Taxonomie",

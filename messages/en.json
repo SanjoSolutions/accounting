@@ -150,7 +150,6 @@
     "saving": "Saving …"
   },
   "Compliance": {
-    "eyebrow": "Governance and operations",
     "title": "Compliance control center",
     "subtitle": "Tenant-scoped master data, fiscal periods, traceable corrections, retention, and disaster recovery.",
     "refresh": "Refresh",
@@ -347,7 +346,6 @@
     "Load failed": "Settings could not be loaded."
   },
   "Tax": {
-    "eyebrow": "Tax reporting",
     "title": "Tax filings {year}",
     "subtitle": "Prepare, validate, approve and transmit VAT and annual tax declarations with immutable history.",
     "loadFailed": "Tax filing data could not be loaded.",
@@ -377,7 +375,6 @@
     "empty": "No tax declarations have been transmitted."
   },
   "AccountingReports": {
-    "eyebrow": "Imported fiscal-year data",
     "title": "Accounting reports {year}",
     "subtitle": "Review the imported master data, accounts, balances, ledgers, counterparties, and annual VAT statement.",
     "loading": "Loading accounting reports …",
@@ -558,7 +555,6 @@
         "providerMessage": "Provider message ID: {id}"
   },
   "BookingBatches": {
-    "eyebrow": "Review before posting",
     "title": "Booking batches",
     "subtitle": "Review and edit manual bookings before explicitly posting them to the journal.",
     "fiscalYear": "Fiscal year",
@@ -571,7 +567,6 @@
     "untitled": "Untitled booking",
     "updatedAt": "Updated {date}",
     "editor": "Edit booking draft",
-    "editorEyebrow": "Edit draft",
     "selectDraft": "Select a draft to edit it.",
     "versionLabel": "Version {version}",
     "bookingDate": "Booking date",
@@ -627,7 +622,6 @@
     "status": "Status",
     "open": "Open",
     "locked": "Locked",
-    "newPosting": "New posting",
     "recordTransaction": "Record transaction",
     "postingDate": "Posting date",
     "postingText": "Posting text",
@@ -678,7 +672,6 @@
     "chooseDocuments": "Upload documents",
     "uploadingDocuments": "Uploading documents …",
     "availableDocuments": "Available documents",
-    "selectedDocuments": "Selected documents",
     "documentPreview": "Document preview",
     "noDocuments": "No documents yet",
     "noDocumentsHelp": "Click or drag PDF or XML files into this window to get started.",
@@ -695,17 +688,14 @@
     "removeDocument": "Remove {name} from booking",
     "unlinkDocument": "Unlink document",
     "resizeColumns": "Resize document preview and posting columns",
-    "dataExchange": "Data exchange",
     "exportImport": "Export / Import",
     "exportImportSubtitle": "Exchange accounting data securely with external systems.",
-    "dataExport": "Data export",
     "datevExport": "DATEV adviser handoff",
     "datevExportHelp": "Download a retained DATEV EXTF 700 booking batch. Verified DATEV consultant and client metadata must already be configured.",
     "datevExportAction": "Download DATEV booking batch",
     "datevExportBusy": "Preparing DATEV export …",
     "datevExportSucceeded": "The retained DATEV booking batch for {year} was downloaded.",
     "datevExportFailed": "The DATEV booking batch could not be exported.",
-    "dataImport": "Data import",
     "accountingImport": "Import accounting data",
     "accountingImportHelp": "Select a complete DATEV EXTF folder or a Lexware Buchhaltung “Daten Betriebsprüfung” folder. The format and all included fiscal years are detected automatically.",
     "accountingChooseFolder": "Select export folder",
@@ -715,7 +705,6 @@
     "accountingImportSucceeded": "Processed {imported} bookings, {accounts} accounts, and {documents} documents for {years}; skipped {skipped} existing bookings.",
     "accountingImportFailed": "The accounting import failed.",
     "datevChooseFiles": "Select DATEV CSV files",
-    "guidedClose": "Guided close",
     "annualClose": "Annual close {year}",
     "annualCloseSubtitle": "Automated statements, clear blockers, and deliberate professional approval.",
     "inProgress": "In progress",
@@ -758,7 +747,6 @@
     "companyCity": "City",
     "eBalanceLoading": "Loading ledger data …",
     "eBalanceExporting": "Creating validation package …",
-    "taxSubmission": "Tax submission",
     "eBalanceYear": "E-Balance {year}",
     "eBalanceSubtitle": "Account mapping, official ERiC validation, and submission with the effective registered taxonomy.",
     "taxonomy": "Taxonomy",

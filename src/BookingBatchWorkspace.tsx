@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { BookingDocuments, type BookingDocument } from './BookingDocuments'
 import { formatDisplayDate } from './dateFormatting'
+import { PageHeading } from './PageHeading'
 
 export type BookingBatchVatTreatment = '' | 'DE_STANDARD_SALE_NET' | 'DE_STANDARD_PURCHASE_NET' | 'DE_STANDARD_SALE_GROSS' | 'DE_STANDARD_PURCHASE_GROSS' | 'EU_13B_SERVICE_RECIPIENT_NET'
 
@@ -348,13 +349,7 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
   }
 
   return <div className="booking-batch-workspace workspace pb-4">
-    <header className="page-heading">
-      <div>
-        <span className="eyebrow">{t('eyebrow')}</span>
-        <h1>{t('title')}</h1>
-        <p>{t('subtitle')}</p>
-      </div>
-    </header>
+    <PageHeading title={t('title')} subtitle={t('subtitle')} />
 
     {error && <div className="alert alert-danger" role="alert">{error}</div>}
     {status && <div className="alert alert-success" role="status">{status}</div>}
@@ -392,7 +387,7 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
         >
           {({ attachedDocuments, pickerOpen }) => <section className="card panel booking-panel">
           <div className="card-body">
-            <div className="d-flex justify-content-between align-items-start gap-3 mb-4"><div><span className="eyebrow">{t('editorEyebrow')}</span><h2 className="h4 mb-1">{posting.description || t('untitled')}</h2><p className="small text-muted mb-0">{t('versionLabel', { version: selectedDraft.version })}</p></div><span className={`badge ${draftStatusClass(selectedDraft.status)}`}>{selectedDraft.status === 'DRAFT' ? t('status.DRAFT') : selectedDraft.status}</span></div>
+            <div className="d-flex justify-content-between align-items-start gap-3 mb-4"><div><h2 className="h4 mb-1">{posting.description || t('untitled')}</h2><p className="small text-muted mb-0">{t('versionLabel', { version: selectedDraft.version })}</p></div><span className={`badge ${draftStatusClass(selectedDraft.status)}`}>{selectedDraft.status === 'DRAFT' ? t('status.DRAFT') : selectedDraft.status}</span></div>
             <form onSubmit={event => { event.preventDefault(); void save() }}>
               <fieldset disabled={busy}>
                 <legend className="visually-hidden">{t('editor')}</legend>

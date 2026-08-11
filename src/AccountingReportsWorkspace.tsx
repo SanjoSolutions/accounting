@@ -10,6 +10,7 @@ import {
   type AccountingReportLedgerEntry,
   type AccountingReportResponse,
 } from './accountingReports'
+import { PageHeading } from './PageHeading'
 
 function formatAddress(address: AccountingReportAddress) {
   return `${address.street} ${address.houseNumber}, ${address.postalCode} ${address.city}${address.region ? `, ${address.region}` : ''}`
@@ -52,9 +53,7 @@ export function AccountingReportsView({ report }: { report: AccountingReportResp
   const currency = report.setup.currency
 
   return <>
-    <header className="page-heading">
-      <div><span className="eyebrow">{t('eyebrow')}</span><h1>{t('title', { year: report.year })}</h1><p>{t('subtitle')}</p></div>
-    </header>
+    <PageHeading title={t('title', { year: report.year })} subtitle={t('subtitle')} />
 
     <div className="close-grid">
       <section className="card panel">

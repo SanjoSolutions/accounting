@@ -283,7 +283,7 @@ export function BookingDocuments({
 
   const attachedDocumentsRegion = <section className="attached-documents-region border-top mt-4 pt-4" aria-label={t('attachedDocuments')}>
       <div className="panel-title">
-        <div><span className="step">{t('documents')}</span><h2>{t('attachedDocuments')}</h2></div>
+        <h2>{t('attachedDocuments')}</h2>
         <span className="badge text-bg-light hint">{attachedDocuments.length}</span>
       </div>
       {attachedDocuments.length === 0
@@ -317,7 +317,7 @@ export function BookingDocuments({
 
     {!pickerOpen ? <div className="booking-workflow-columns booking-workflow-columns--compact">{renderChildren()}</div> : <div className="booking-workflow-columns" style={{ '--document-column': `${documentColumnPercent}%` } as React.CSSProperties}>
     <section className="card panel document-preview-panel">
-      <div className="panel-title"><div><span className="step">{t('selectedDocuments')}</span><h2>{t('documentPreview')}</h2></div><span className="badge text-bg-light hint">{selectedDocuments.length}</span></div>
+      <div className="panel-title"><h2>{t('documentPreview')}</h2><span className="badge text-bg-light hint">{selectedDocuments.length}</span></div>
       {selectedDocuments.length === 0
         ? <div className="preview-empty"><i className="bi bi-files" /><strong>{t('noSelectedDocuments')}</strong><p>{t('noSelectedDocumentsHelp')}</p></div>
         : <>

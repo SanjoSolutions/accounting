@@ -35,7 +35,7 @@ describe('translation messages', () => {
   })
 
   it('uses German as the base wording and provides English translations', () => {
-    expect(de.Navbar.Accounting).toBe('Buchführung')
+    expect(de.Navbar.Accounting).toBe('Buchhaltung')
     expect(en.Navbar.Accounting).toBe('Accounting')
     expect(de.Navbar.ExportImport).toBe('Export / Import')
     expect(en.Navbar.ExportImport).toBe('Export / Import')

@@ -192,7 +192,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
 
     {sections.booking && <BookingDocuments selectedDocumentIds={selectedDocumentIds} unavailableDocumentIds={unavailableDocumentIds} onSelectionChange={setSelectedDocumentIds} onUploadingChange={setDocumentsUploading}>
       <section className="card panel booking-panel">
-        <div className="panel-title"><div><span className="step">2 · {t('newPosting')}</span><h2>{t('recordTransaction')}</h2></div></div>
+        <div className="panel-title"><h2>{t('recordTransaction')}</h2></div>
         <form onSubmit={post}>
           <fieldset disabled={isBookingFormDisabled(busy, documentsUploading, !storageRestored)}>
           <div className="form-grid booking-metadata-row">
@@ -253,7 +253,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
     </BookingDocuments>}
 
       {sections.journal && <section className="card panel journal-panel">
-        <div className="panel-title"><div><span className="step">{t('journal')}</span><h2>{t('postedEntries')}</h2></div><span className="badge text-bg-light hint">{t('entryCount', { count: currentWorkspace?.entries.length ?? 0 })}</span></div>
+        <div className="panel-title"><h2>{t('postedEntries')}</h2><span className="badge text-bg-light hint">{t('entryCount', { count: currentWorkspace?.entries.length ?? 0 })}</span></div>
         {currentWorkspace && currentWorkspace.entries.length === 0 && <div className="empty"><strong>{t('noBookings')}</strong><p>{t('noBookingsHelp')}</p></div>}
         <div className="journal-list">{currentWorkspace?.entries.map(entry => <article className="journal-entry" id={`journal-entry-${entry.id}`} key={entry.id}>
           <div className="journal-meta"><span className="sequence">#{String(entry.sequenceNumber).padStart(4, '0')}</span><span>{entry.documentNumber}</span>{journalEntrySourceMetadata(entry).map((item, index) => item.label

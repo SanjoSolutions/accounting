@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { HgbCloseWorkbench } from './HgbCloseWorkbench'
+import { PageHeading } from './PageHeading'
 
 type CloseData = {
   fiscalYear: { year: number; status: string; lockedAt: string | null }
@@ -82,7 +83,9 @@ export function AnnualCloseWorkspace({ year }: { year: number }) {
   const displayIssues = currentData && !currentData.entries?.length ? [...new Set([...issues, t('journalEmpty')])] : issues
   const steps = getCloseSteps(currentData ? { ...currentData, closingIssues: displayIssues } : null, key => t(key))
   return <div className="workspace pb-4">
-    <header className="page-heading"><div><span className="eyebrow">{t('guidedClose')}</span><h1>{t('annualClose', { year })}</h1><p>{t('annualCloseSubtitle')}</p></div><span className={`status ${currentData?.fiscalYear.status.toLowerCase() ?? 'loading'}`}>{currentData?.fiscalYear.status === 'CLOSED' ? t('locked') : currentData ? t('inProgress') : transitioning ? t('closingBusy') : t('closeFailed')}</span></header>
+    <PageHeading title={t('annualClose', { year })} subtitle={t('annualCloseSubtitle')}>
+      <span className={`status ${currentData?.fiscalYear.status.toLowerCase() ?? 'loading'}`}>{currentData?.fiscalYear.status === 'CLOSED' ? t('locked') : currentData ? t('inProgress') : transitioning ? t('closingBusy') : t('closeFailed')}</span>
+    </PageHeading>
     <div className="close-grid">
       <section className="card panel close-steps"><h2>{t('closeProgress')}</h2>{steps.map((step, index) => <div className="close-step" key={step.title}><span className={step.done ? 'done' : ''}>{step.done ? '✓' : index + 1}</span><div><strong>{step.title}</strong><p>{step.detail}</p></div></div>)}</section>
       <section className="card panel statement-preview"><div className="panel-title"><div><span className="step">{t('automaticallyCalculated')}</span><h2>{t('statements')}</h2></div></div>
@@ -91,7 +94,7 @@ export function AnnualCloseWorkspace({ year }: { year: number }) {
     </div>
     <HgbCloseWorkbench year={year} onChanged={() => void load()} />
     <section className={`card panel readiness ${unavailable || displayIssues.length ? 'blocked' : 'ready'}`}>
-      <div><span className="eyebrow">{t('closeReview')}</span><h2>{transitioning ? t('closingBusy') : unavailable ? t('closeFailed') : displayIssues.length ? t('closeBlockers', { count: displayIssues.length }) : t('readyForApproval')}</h2>
+      <div><span className="step">{t('closeReview')}</span><h2>{transitioning ? t('closingBusy') : unavailable ? t('closeFailed') : displayIssues.length ? t('closeBlockers', { count: displayIssues.length }) : t('readyForApproval')}</h2>
       {!unavailable && (displayIssues.length ? <ul>{displayIssues.map(issue => <li key={issue}>{issue}</li>)}</ul> : <p>{t('professionalReviewNote')}</p>)}</div>
       {closeError && <p className="alert alert-danger" role="alert">{closeError}</p>}
       <div className="action-stack"><Link className="btn btn-outline-secondary" href={`/e-bilanz/${year}`}>{t('reviewEBalance')}</Link><button className="btn btn-primary" disabled={!canCloseYear(data, displayIssues, loading, busy, year, hgbReady)} onClick={close}>{data?.fiscalYear.status === 'CLOSED' ? t('yearLocked') : busy ? t('closingBusy') : t('reviewAndLock')}</button></div>

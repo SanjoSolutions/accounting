@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { PageHeading } from './PageHeading'
 
 export function ExportImportWorkspace() {
   const t = useTranslations('Workspaces')
@@ -44,11 +45,9 @@ export function ExportImportWorkspace() {
   }
 
   return <div className="workspace pb-4">
-    <header className="page-heading">
-      <div><span className="eyebrow">{t('dataExchange')}</span><h1>{t('exportImport')}</h1><p>{t('exportImportSubtitle')}</p></div>
-    </header>
+    <PageHeading title={t('exportImport')} subtitle={t('exportImportSubtitle')} />
     <section className="card panel datev-panel">
-      <div className="panel-title"><div><span className="step">{t('dataExport')}</span><h2>{t('datevExport')}</h2></div><span className="badge text-bg-light hint">DATEV EXTF 700 / 13</span></div>
+      <div className="panel-title"><h2>{t('datevExport')}</h2><span className="badge text-bg-light hint">DATEV EXTF 700 / 13</span></div>
       <p>{t('datevExportHelp')}</p>
       <div className="datev-controls">
         <label>{t('fiscalYear')}<input className="form-control" type="number" min="1900" max="2200" disabled={busy} value={exportYear} onChange={event => setExportYear(Number(event.target.value))} /></label>
@@ -56,7 +55,7 @@ export function ExportImportWorkspace() {
       </div>
     </section>
     <section className="card panel datev-panel">
-      <div className="panel-title"><div><span className="step">{t('dataImport')}</span><h2>{t('accountingImport')}</h2></div><span className="badge text-bg-light hint">{formatLabel(format)}</span></div>
+      <div className="panel-title"><h2>{t('accountingImport')}</h2><span className="badge text-bg-light hint">{formatLabel(format)}</span></div>
       <form ref={formRef} onSubmit={importAccountingData}>
         <p>{t('accountingImportHelp')}</p>
         <div className="datev-controls">

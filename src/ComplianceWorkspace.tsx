@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useTranslations } from 'next-intl'
+import { PageHeading } from './PageHeading'
 
 type Profile = {
   companyName: string; legalForm: string; registerCourt?: string; registerNumber?: string; taxNumber: string; vatId?: string; taxOffice: string
@@ -163,7 +164,9 @@ export function ComplianceWorkspace() {
 
   const applicability = overview?.profile?.applicability ?? {}
   return <div className="workspace pb-4 compliance-workspace" aria-busy={busy || refreshing} data-compliance-ready={!busy && !refreshing ? 'true' : 'false'}>
-    <header className="page-heading"><div><span className="eyebrow">{t('eyebrow')}</span><h1>{t('title')}</h1><p>{t('subtitle')}</p></div><button type="button" className="btn btn-outline-secondary" disabled={busy} onClick={() => void refresh()}>{t('refresh')}</button></header>
+    <PageHeading title={t('title')} subtitle={t('subtitle')}>
+      <button type="button" className="btn btn-outline-secondary" disabled={busy} onClick={() => void refresh()}>{t('refresh')}</button>
+    </PageHeading>
     {error && <div className="alert alert-danger" role="alert">{error}</div>}
     {success && <p className="alert alert-success" role="status">{success}</p>}
 
