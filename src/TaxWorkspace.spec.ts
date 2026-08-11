@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { annualAdjustmentRuleVersion, declarationPreparationRequest, parseAnnualValues, parseDeclarationFields, preparationSourceAfterValidation, requestKeyAfterPreparation, shouldReplaySubmissionFailure, submissionOutcomeMessage, submissionRequestKey, submissionSuccessMessage, workspaceLoadStatus } from './TaxWorkspace'
+import { describe, expect, it, test } from 'vitest'
+import enMessages from '../messages/en.json'
+import deMessages from '../messages/de.json'
+import { annualAdjustmentRuleVersion, declarationPreparationRequest, parseAnnualValues, parseDeclarationFields, preparationSourceAfterValidation, requestKeyAfterPreparation, shouldReplaySubmissionFailure, submissionOutcomeMessage, submissionRequestKey, submissionSuccessMessage, taxWorkflowKindLabel, taxWorkflowStateLabel, workspaceLoadStatus } from './TaxWorkspace'
 
 describe('tax filing workspace', () => {
   it('accepts official integer-cent fields for the usable validation/submission form', () => expect(parseDeclarationFields('{"KZ81":10000,"USTID_OK":true}')).toEqual({ KZ81: 10000, USTID_OK: true }))
@@ -57,5 +59,27 @@ describe('tax filing workspace', () => {
   })
   it('keeps VAT workflow history available when optional annual applicability is unavailable', () => {
     expect(workspaceLoadStatus(true, false)).toEqual({ historyAvailable: true, annualAvailable: false })
+  })
+})
+
+describe('tax workspace localized copy', () => {
+  test('Given persisted kind and state codes, when labels are resolved, then the UI uses localized text and a safe fallback', () => {
+    const kindLabels = { USTVA: 'VAT advance return', unknown: 'Other tax filing' }
+    const stateLabels = { accepted: 'Accepted', unknown: 'Unknown status' }
+    expect(taxWorkflowKindLabel('USTVA', kindLabels)).toBe('VAT advance return')
+    expect(taxWorkflowKindLabel('UNSUPPORTED_KIND', kindLabels)).toBe('Other tax filing')
+    expect(taxWorkflowStateLabel('accepted', stateLabels)).toBe('Accepted')
+    expect(taxWorkflowStateLabel('UNSUPPORTED_STATE', stateLabels)).toBe('Unknown status')
+  })
+
+  test('Given German and English locales, when tax gateway and assessment copy is loaded, then required legal terms remain explicit', () => {
+    expect(enMessages.Tax.gatewayLocal).toContain('ELSTER/ERiC')
+    expect(enMessages.Tax.annualPreviewNotice).toEqual(expect.stringContaining('HGB'))
+    expect(enMessages.Tax.annualPreviewNotice).toEqual(expect.stringContaining('E-Bilanz'))
+    expect(enMessages.Tax.annualPreviewNotice).toEqual(expect.stringContaining('KSt, SolZ and GewSt'))
+    expect(enMessages.Tax.assessmentTitle).toContain('Finanzamt')
+    expect(deMessages.Tax.gatewayNotConfigured).toContain('Übermittlung')
+    expect(deMessages.Tax.annualPreviewNotice).toEqual(expect.stringContaining('HGB'))
+    expect(deMessages.Tax.assessmentSaved).toContain('Finanzamt')
   })
 })

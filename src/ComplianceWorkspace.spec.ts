@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, test, vi } from 'vitest'
+import enMessages from '../messages/en.json'
+import deMessages from '../messages/de.json'
 import { complianceHref, complianceOperationExamples, compliancePolicyRequest, historicalHgbOnboardingRequests, parseJsonObject, preparedAnnualPackages, profileRefreshMayApply, requestComplianceAction, requireEffectiveDate, supportsCapitalCompanyTaxProfile } from './ComplianceWorkspace'
 
 describe('tenant compliance workspace', () => {
@@ -69,5 +71,25 @@ describe('tenant compliance workspace', () => {
     await expect(requestComplianceAction({ action: 'period.create', ownerId: 'ignored-by-route' })).resolves.toEqual({ id: 'period' })
     expect(fetch).toHaveBeenCalledWith('/api/compliance', expect.objectContaining({ method: 'POST' }))
     await expect(requestComplianceAction({ action: 'period.reopen.decide' })).rejects.toThrow(/Four-eyes/)
+  })
+})
+
+describe('compliance workspace localized copy', () => {
+  test('Given the historical HGB workflow, when its form copy is loaded, then the evidence and year boundaries are explicit in both locales', () => {
+    expect(enMessages.Compliance.historicalHgbLegend).toContain('historical HGB')
+    expect(enMessages.Compliance.historicalHgbDescription).toContain('immutable')
+    expect(enMessages.Compliance.historicalHgbYears).toContain('fiscal years')
+    expect(deMessages.Compliance.historicalHgbLegend).toContain('historisch')
+    expect(deMessages.Compliance.historicalHgbDescription).toContain('aufbewahrte Nachweise')
+    expect(deMessages.Compliance.historicalHgbYears).toContain('Geschäftsjahre')
+  })
+
+  test('Given jurisdiction, annual accounts, and GoBD controls, when action copy is loaded, then labels are localized and precise', () => {
+    expect(enMessages.Compliance.policyLegend).toContain('recovery policy')
+    expect(enMessages.Compliance.annualPackageLegend).toContain('annual-accounts')
+    expect(enMessages.Compliance.downloadVerifiedGobdPackage).toContain('GoBD')
+    expect(deMessages.Compliance.workflows).toBe('Kontrollierte Abläufe und Bedienerrechte')
+    expect(deMessages.Compliance.mappingArrayRequired).toContain('JSON-Array')
+    expect(deMessages.Compliance.overrideBooleanRequired).toContain('Wahrheitswerte')
   })
 })
