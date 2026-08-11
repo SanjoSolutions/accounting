@@ -19,6 +19,10 @@ describe('CAMT.053 bank statement parser', () => {
     expect(parseCamt053(camt(entry, '974.50')).transactions[0].amountCents).toBe(-2550)
   })
 
+  it('Given a Belgian Wise EUR account, when the statement is parsed, then its valid IBAN is accepted', () => {
+    expect(parseCamt053(camt().replace('DE44500105175407324931', 'BE55967298399244')).iban).toBe('BE55967298399244')
+  })
+
   it.each([
     ['unbalanced totals', camt(undefined, '1118.99'), /does not equal/],
     ['pending entries', camt(camt().match(/<Ntry>[\s\S]*<\/Ntry>/)![0].replace('<Cd>BOOK</Cd>', '<Cd>PDNG</Cd>')), /Only booked/],

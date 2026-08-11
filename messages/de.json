@@ -594,6 +594,7 @@
     "vatStandardPurchaseNet": "19 % Einkauf (netto)",
     "vatStandardSaleGross": "19 % Verkauf (brutto)",
     "vatStandardPurchaseGross": "19 % Einkauf (brutto)",
+    "vatEuServiceReverseChargeNet": "19 % EU-Dienstleistung (§ 13b, netto)",
     "actions": "Aktionen",
     "removeLine": "Zeile {line} entfernen",
     "addLine": "Buchungszeile hinzufügen",

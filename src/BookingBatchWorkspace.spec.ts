@@ -50,6 +50,8 @@ describe('booking batch editing requests', () => {
     expect(editable.lines[0]).toEqual({ accountId: 'expense', debit: '119.00', credit: '', vatTreatment: 'DE_STANDARD_PURCHASE_GROSS' })
     expect(editable.documentIds).toEqual(['document-1'])
     expect(bookingBatchVatTreatment({ accountId: 'sales', debitCents: 0, creditCents: 1000, vat: { mode: 'net', direction: 'sale' } })).toBe('DE_STANDARD_SALE_NET')
+    expect(bookingBatchVatTreatment({ accountId: 'expense', debitCents: 680, creditCents: 0, vat: { ruleId: 'EU_13B_SERVICE_RECIPIENT', mode: 'net', direction: 'purchase' } })).toBe('EU_13B_SERVICE_RECIPIENT_NET')
+    expect(bookingBatchLineRequest({ accountId: 'expense', debit: '6.80', credit: '', vatTreatment: 'EU_13B_SERVICE_RECIPIENT_NET' })).toEqual({ accountId: 'expense', debitCents: 680, creditCents: 0, vat: { ruleId: 'EU_13B_SERVICE_RECIPIENT', mode: 'net', direction: 'purchase' } })
   })
 
   test('includes expectedVersion and edited posting fields when saving', () => {

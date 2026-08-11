@@ -594,6 +594,7 @@
     "vatStandardPurchaseNet": "19% purchase (net)",
     "vatStandardSaleGross": "19% sale (gross)",
     "vatStandardPurchaseGross": "19% purchase (gross)",
+    "vatEuServiceReverseChargeNet": "19% EU service (reverse charge, net)",
     "actions": "Actions",
     "removeLine": "Remove line {line}",
     "addLine": "Add booking line",

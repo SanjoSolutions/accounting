@@ -11,7 +11,7 @@ let api: typeof import('./bankingRepository')
 let prisma: typeof import('@/server/persistence/client').prisma
 
 function camt(statementId = 'stmt-1', reference = 'bank-ref-1', amount = '119.00', closing = '1119.00', remittance = 'Invoice RE-2026-0001') {
-  return Buffer.from(`<?xml version="1.0"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08"><BkToCstmrStmt><Stmt><Id>${statementId}</Id><FrToDt><FrDtTm>2026-08-01T00:00:00Z</FrDtTm><ToDtTm>2026-08-31T23:59:59Z</ToDtTm></FrToDt><Acct><Id><IBAN>DE44500105175407324931</IBAN></Id></Acct><Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">1000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal><Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">${closing}</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal><Ntry><Amt Ccy="EUR">${amount}</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts><Cd>BOOK</Cd></Sts><BookgDt><Dt>2026-08-04</Dt></BookgDt><NtryRef>${reference}</NtryRef><NtryDtls><TxDtls><Refs><AcctSvcrRef>${reference}</AcctSvcrRef></Refs><RltdPties><Dbtr><Nm>Musterkunde GmbH</Nm></Dbtr></RltdPties><RmtInf><Ustrd>${remittance}</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry></Stmt></BkToCstmrStmt></Document>`)
+  return Buffer.from(`<?xml version="1.0"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08"><BkToCstmrStmt><Stmt><Id>${statementId}</Id><FrToDt><FrDtTm>2026-08-01T00:00:00Z</FrDtTm><ToDtTm>2026-08-31T23:59:59Z</ToDtTm></FrToDt><Acct><Id><IBAN>BE55967298399244</IBAN></Id></Acct><Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">1000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal><Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">${closing}</Amt><CdtDbtInd>CRDT</CdtDbtInd></Bal><Ntry><Amt Ccy="EUR">${amount}</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts><Cd>BOOK</Cd></Sts><BookgDt><Dt>2026-08-04</Dt></BookgDt><NtryRef>${reference}</NtryRef><NtryDtls><TxDtls><Refs><AcctSvcrRef>${reference}</AcctSvcrRef></Refs><RltdPties><Dbtr><Nm>Musterkunde GmbH</Nm></Dbtr></RltdPties><RmtInf><Ustrd>${remittance}</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry></Stmt></BkToCstmrStmt></Document>`)
 }
 
 beforeAll(async () => {
@@ -32,10 +32,10 @@ afterAll(async () => { await prisma.$disconnect(); delete process.env.DATABASE_U
 
 describe('persistent CAMT review repository', () => {
   let accountId = ''
-  it('Given a tenant ledger account, when a German bank account is configured, then its compound ownership is durable', async () => {
-    const account = await api.createBankAccount('tenant-a', 'user-a', { name: 'Hausbank', iban: 'DE44 5001 0517 5407 3249 31', ledgerAccountId: 'bank-ledger-a' })
+  it('Given a tenant ledger account, when a valid European bank account is configured, then its compound ownership is durable', async () => {
+    const account = await api.createBankAccount('tenant-a', 'user-a', { name: 'Wise EUR', iban: 'BE55 9672 9839 9244', ledgerAccountId: 'bank-ledger-a' })
     accountId = account.id
-    expect(account).toMatchObject({ ownerId: 'tenant-a', iban: 'DE44500105175407324931', currency: 'EUR' })
+    expect(account).toMatchObject({ ownerId: 'tenant-a', iban: 'BE55967298399244', currency: 'EUR' })
     await expect(api.createBankAccount('tenant-a', 'user-a', { name: 'Cross tenant', iban: 'DE12500105170648489890', ledgerAccountId: 'bank-ledger-b' })).rejects.toThrow(/does not belong/)
   })
 

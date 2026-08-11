@@ -2,6 +2,7 @@ import 'server-only'
 
 import { createHash, randomUUID } from 'node:crypto'
 import { BankStatementValidationError, parseCamt053 } from '@/core/banking'
+import { normalizeValidIban } from '@/core/iban'
 import { appendAuditEvent } from '@/server/compliance/auditPersistence'
 import { prisma } from '@/server/persistence/client'
 import type { Prisma } from '@/generated/prisma/client'
@@ -10,7 +11,7 @@ export class BankingError extends Error {}
 
 export async function createBankAccount(ownerId: string, actorId: string, input: { name: string; iban: string; ledgerAccountId: string }) {
   const name = required(input.name, 'Bank account name')
-  const iban = normalizeGermanIban(input.iban)
+  const iban = normalizeBankIban(input.iban)
   return prisma.$transaction(async transaction => {
     const ledger = await transaction.ledgerAccount.findFirst({ where: { ownerId, id: input.ledgerAccountId, active: true, category: 'ASSET' } })
     if (!ledger) throw new BankingError('The active bank ledger account does not belong to this tenant.')
@@ -171,13 +172,6 @@ function validDate(value: string) { const result = new Date(`${value}T12:00:00.0
 function normalizeReference(value: string) { return value.normalize('NFKC').toLocaleUpperCase('de-DE').replace(/[^A-Z0-9]/g, '') }
 function required(value: string, label: string) { if (!value?.trim()) throw new BankingError(`${label} is required.`); return value.trim() }
 function date(value: string) { return new Date(`${value}T12:00:00.000Z`) }
-function normalizeGermanIban(value: string) {
-  const iban = value.replace(/\s/g, '').toUpperCase()
-  if (!/^DE\d{20}$/.test(iban)) throw new BankingError('A valid German IBAN is required.')
-  const rearranged = `${iban.slice(4)}${iban.slice(0, 4)}`.replace(/[A-Z]/g, character => String(character.charCodeAt(0) - 55))
-  let remainder = 0; for (const digit of rearranged) remainder = (remainder * 10 + Number(digit)) % 97
-  if (remainder !== 1) throw new BankingError('A valid German IBAN is required.')
-  return iban
-}
+function normalizeBankIban(value: string) { const iban = normalizeValidIban(value); if (!iban) throw new BankingError('A valid IBAN is required.'); return iban }
 
 export { BankStatementValidationError }

@@ -71,9 +71,9 @@ export function extractUncompressedStructuredInvoiceFromPdf(pdfBytes: Uint8Array
   if (pdfNameForKey(rootTokens, 'Type') !== 'Catalog') throw new EInvoiceValidationError(['PDF trailer does not identify an authoritative catalog root.'])
   for (const ref of [...pdfRefsForKey(rootTokens, 'AF'), ...pdfRefsForKey(rootTokens, 'Names'), ...pdfRefsForKey(rootTokens, 'EmbeddedFiles'), ...[pdfNestedRef(rootTokens, 'Names', 'EmbeddedFiles')].filter((item): item is string => Boolean(item))]) enqueue(ref)
   for (let index = 0; index < queue.length; index++) { const key = queue[index]; reachable.add(key); const object = byKey.get(key); if (object?.dictionary) { const tokens = tokenizePdfDictionary(object.dictionary); for (const ref of [...pdfRefsForKey(tokens, 'Kids'), ...pdfRefsForKey(tokens, 'Names'), ...pdfRefsForKey(tokens, 'EmbeddedFiles')]) enqueue(ref) } else if (object?.rawValue?.trim().startsWith('[')) { for (const ref of pdfRefsForKey(tokenizePdfDictionary(`<< /Items ${object.rawValue} >>`), 'Items')) enqueue(ref) } }
-  const fileSpecs = objects.filter(object => { if (!reachable.has(object.key) || !object.dictionary) return false; const tokens = tokenizePdfDictionary(object.dictionary); const unicodeName = pdfStringForKey(tokens, 'UF'); const fallbackName = pdfStringForKey(tokens, 'F'); const fileName = unicodeName && /\.xml$/i.test(unicodeName) ? unicodeName : fallbackName; return pdfNameForKey(tokens, 'Type') === 'Filespec' && Boolean(fileName && /\.xml$/i.test(fileName)) && ['Data', 'Alternative'].includes(pdfNameForKey(tokens, 'AFRelationship') ?? '') && Boolean(pdfNestedRef(tokens, 'EF', 'F')) })
+  const fileSpecs = objects.filter(object => { if (!reachable.has(object.key) || !object.dictionary) return false; const tokens = tokenizePdfDictionary(object.dictionary); const unicodeName = pdfStringForKey(tokens, 'UF'); const fallbackName = pdfStringForKey(tokens, 'F'); const fileName = unicodeName && /\.xml$/i.test(unicodeName) ? unicodeName : fallbackName; return pdfNameForKey(tokens, 'Type') === 'Filespec' && Boolean(fileName && /\.xml$/i.test(fileName)) && ['Data', 'Alternative'].includes(pdfNameForKey(tokens, 'AFRelationship') ?? '') && Boolean(pdfNestedOrIndirectRef(tokens, 'EF', 'F', byKey)) })
   if (fileSpecs.length !== 1) throw new EInvoiceValidationError([fileSpecs.length ? 'PDF has ambiguous XML associated-file specifications.' : 'PDF has no XML associated-file specification.'])
-  const fileReference = pdfNestedRef(tokenizePdfDictionary(fileSpecs[0].dictionary!), 'EF', 'F')
+  const fileReference = pdfNestedOrIndirectRef(tokenizePdfDictionary(fileSpecs[0].dictionary!), 'EF', 'F', byKey)
   if (!fileReference) throw new EInvoiceValidationError(['PDF has no XML associated-file specification.'])
   const embedded = byKey.get(fileReference)
   const embeddedTokens = embedded?.dictionary ? tokenizePdfDictionary(embedded.dictionary) : []
@@ -165,6 +165,13 @@ function pdfStringForKey(tokens: readonly PdfToken[], key: string) { const value
 function pdfNumberForKey(tokens: readonly PdfToken[], key: string) { const value = pdfValueForKey(tokens, key); return value?.kind === 'number' ? Number(value.value) : undefined }
 function pdfRefsForKey(tokens: readonly PdfToken[], key: string) { const value = pdfValueForKey(tokens, key); if (value?.kind === 'ref') return [value.value]; if (value?.kind === 'array') return value.value.filter((item): item is Extract<PdfValue, { kind: 'ref' }> => item.kind === 'ref').map(item => item.value); return [] }
 function pdfNestedRef(tokens: readonly PdfToken[], outerKey: string, innerKey: string) { const outer = pdfValueForKey(tokens, outerKey); const inner = outer?.kind === 'dict' ? outer.value.get(innerKey) : undefined; return inner?.kind === 'ref' ? inner.value : undefined }
+function pdfNestedOrIndirectRef(tokens: readonly PdfToken[], outerKey: string, innerKey: string, byKey: ReadonlyMap<string, ParsedPdfObject>) {
+  const direct = pdfNestedRef(tokens, outerKey, innerKey)
+  if (direct) return direct
+  const outer = pdfValueForKey(tokens, outerKey)
+  const dictionary = outer?.kind === 'ref' ? byKey.get(outer.value)?.dictionary : undefined
+  return dictionary ? pdfRefsForKey(tokenizePdfDictionary(dictionary), innerKey)[0] : undefined
+}
 type PdfXrefEntry = { kind: 'free' } | { kind: 'uncompressed'; key: string; offset: number } | { kind: 'compressed'; key: string; streamNumber: number; index: number }
 interface PdfXrefSection { entries: Map<number, PdfXrefEntry>; trailer: string; end: number; rowCount: number }
 const MAX_PDF_XREF_ENTRIES = 50_000

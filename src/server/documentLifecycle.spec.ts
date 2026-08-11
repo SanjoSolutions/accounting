@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, test, vi } from 'vitest'
 import { Document } from '@/core/Document'
 
 const mocks = vi.hoisted(() => ({
@@ -99,6 +99,28 @@ describe('document thumbnail lifecycle', () => {
     expect(second.fileName).toBe('invoice.pdf')
     expect(mocks.write.mock.calls[0][0]).toBe(`documents/owner-1/${first.id}.pdf`)
     expect(mocks.write.mock.calls[2][0]).toBe(`documents/owner-1/${second.id}.pdf`)
+  })
+
+  test('retains XML accounting evidence without manufacturing a thumbnail or PDF copy', async () => {
+    const document = await createDocument({
+      content: Buffer.from('<?xml version="1.0"?><BkToCstmrStmt />'),
+      contentType: 'application/xml',
+      fileName: 'wise-camt.xml',
+    }, 'owner-1')
+
+    const storedDocument = mocks.save.mock.calls[0][0] as Document
+    expect(mocks.generateDocumentThumbnail).not.toHaveBeenCalled()
+    expect(mocks.write).toHaveBeenCalledOnce()
+    expect(mocks.write).toHaveBeenCalledWith(`documents/owner-1/${storedDocument.id}.xml`, expect.any(Buffer), expect.objectContaining({ contentType: 'application/xml', fileName: `${storedDocument.id}.xml` }))
+    expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'wise-camt.xml', contentType: 'application/xml', thumbnailStorageKey: undefined }))
+    expect(mocks.registerRetainedArtifact).toHaveBeenCalledWith('owner-1', 'owner-1', expect.objectContaining({ retentionClass: 'JOURNAL' }))
+    expect(document.thumbnailUrl).toBeUndefined()
+  })
+
+  test('rejects mislabeled or malformed XML evidence', async () => {
+    await expect(createDocument({ content: Buffer.from('not XML'), contentType: 'application/xml', fileName: 'statement.xml' }, 'owner-1')).rejects.toThrow(/valid XML/)
+    await expect(createDocument({ content: Buffer.from('<root />'), contentType: 'text/plain', fileName: 'statement.xml' }, 'owner-1')).rejects.toThrow(/PDF and XML/)
+    expect(mocks.write).not.toHaveBeenCalled()
   })
 
   it('uses a conservative next-year retention boundary before fiscal-period assignment', async () => {

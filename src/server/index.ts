@@ -221,29 +221,31 @@ export async function updateSettings(data: any, ownerId: string, actorId = owner
 }
 
 export async function createDocument(input: DocumentFileInput, ownerId: string): Promise<Document> {
-  validateDocumentFile(input)
+  const documentType = validateDocumentFile(input)
 
   const id = randomUUID()
-  const storageKey = `documents/${ encodeURIComponent(ownerId) }/${ id }.pdf`
-  const fileName = sanitizeFileName(input.fileName)
-  const contentType = 'application/pdf'
+  const storageKey = `documents/${ encodeURIComponent(ownerId) }/${ id }.${documentType.extension}`
+  const fileName = sanitizeFileName(input.fileName, documentType.extension)
+  const contentType = documentType.contentType
   const storage = getDocumentStorage()
   let documentSaved = false
 
-  await storage.write(storageKey, input.content, { contentType, fileName: `${id}.pdf` })
+  await storage.write(storageKey, input.content, { contentType, fileName: `${id}.${documentType.extension}` })
   const candidateThumbnailStorageKey = `documents/${ encodeURIComponent(ownerId) }/${ id }.webp`
   let thumbnailStorageKey: string | undefined
 
-  try {
-    const thumbnail = await generateDocumentThumbnail(input.content)
-    await storage.write(candidateThumbnailStorageKey, thumbnail, {
-      contentType: 'image/webp',
-      fileName: `${id}.webp`,
-    })
-    thumbnailStorageKey = candidateThumbnailStorageKey
-  } catch {
-    await storage.delete(candidateThumbnailStorageKey).catch(() => undefined)
-    thumbnailStorageKey = undefined
+  if (documentType.extension === 'pdf') {
+    try {
+      const thumbnail = await generateDocumentThumbnail(input.content)
+      await storage.write(candidateThumbnailStorageKey, thumbnail, {
+        contentType: 'image/webp',
+        fileName: `${id}.webp`,
+      })
+      thumbnailStorageKey = candidateThumbnailStorageKey
+    } catch {
+      await storage.delete(candidateThumbnailStorageKey).catch(() => undefined)
+      thumbnailStorageKey = undefined
+    }
   }
 
   try {
@@ -268,7 +270,7 @@ export async function createDocument(input: DocumentFileInput, ownerId: string):
     })
     const periodEndsAt = coveringPeriod?.endsAt.toISOString().slice(0, 10) ?? `${uploadedOn.getUTCFullYear() + 1}-12-31`
     await registerRetainedArtifact(ownerId, ownerId, {
-      objectType: 'Document', objectId: id, retentionClass: 'INVOICE',
+      objectType: 'Document', objectId: id, retentionClass: documentType.retentionClass,
       periodEndsAt, provenance: coveringPeriod ? 'authenticated document upload in configured fiscal period' : 'authenticated document upload before fiscal-period assignment',
       storageKey, content: input.content, reason: 'Original document received',
     })
@@ -349,26 +351,32 @@ export function getMaxDocumentUploadBytes(): number {
   return maxSize
 }
 
-function validateDocumentFile({ content, contentType, fileName }: DocumentFileInput): void {
+function validateDocumentFile({ content, contentType, fileName }: DocumentFileInput): {
+  contentType: 'application/pdf' | 'application/xml'
+  extension: 'pdf' | 'xml'
+  retentionClass: 'INVOICE' | 'JOURNAL'
+} {
   const maxSize = getMaxDocumentUploadBytes()
   if (content.length === 0) throw new DocumentUploadError('The document is empty')
   if (content.length > maxSize) {
     throw new DocumentUploadError(`The document exceeds ${ maxSize } bytes`)
   }
-  if (!fileName.toLowerCase().endsWith('.pdf')) {
-    throw new DocumentUploadError('Only PDF documents are supported')
+  const mediaType = contentType.split(';', 1)[0].trim().toLowerCase()
+  if (fileName.toLowerCase().endsWith('.pdf') && mediaType === 'application/pdf') {
+    if (content.subarray(0, 5).toString('ascii') !== '%PDF-') throw new DocumentUploadError('The uploaded file is not a valid PDF document')
+    return { contentType: 'application/pdf', extension: 'pdf', retentionClass: 'INVOICE' }
   }
-  if (contentType.split(';', 1)[0].trim() !== 'application/pdf') {
-    throw new DocumentUploadError('Only PDF documents are supported')
+  if (fileName.toLowerCase().endsWith('.xml') && (mediaType === 'application/xml' || mediaType === 'text/xml')) {
+    const start = content.subarray(0, Math.min(content.length, 512)).toString('utf8').replace(/^\uFEFF/, '').trimStart()
+    if (!start.startsWith('<')) throw new DocumentUploadError('The uploaded file is not a valid XML document')
+    return { contentType: 'application/xml', extension: 'xml', retentionClass: 'JOURNAL' }
   }
-  if (content.subarray(0, 5).toString('ascii') !== '%PDF-') {
-    throw new DocumentUploadError('The uploaded file is not a valid PDF document')
-  }
+  throw new DocumentUploadError('Only PDF and XML documents are supported')
 }
 
-function sanitizeFileName(fileName: string): string {
+function sanitizeFileName(fileName: string, extension: 'pdf' | 'xml'): string {
   const sanitized = fileName.replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 200)
-  return sanitized.toLowerCase().endsWith('.pdf') ? sanitized : `${ sanitized }.pdf`
+  return sanitized.toLowerCase().endsWith(`.${extension}`) ? sanitized : `${ sanitized }.${extension}`
 }
 
 export class DocumentUploadError extends Error {}

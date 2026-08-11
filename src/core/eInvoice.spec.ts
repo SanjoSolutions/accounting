@@ -433,6 +433,8 @@ describe('structured e-invoices', () => {
     expect(Buffer.from(extractUncompressedStructuredInvoiceFromPdf(reordered).xmlBytes)).toEqual(xml)
     const textXml = buildPdf([{ id: 1, body: Buffer.from('<< /Type /Filespec /F (factur-x.xml) /AFRelationship /Data /EF << /F 2 0 R >> >>') }, { id: 2, body: embeddedXmlBody(xml, `/Type /EmbeddedFile /Subtype /text#2Fxml /Length ${xml.length}`) }, { id: 3, body: Buffer.from('<< /Type /Catalog /AF [1 0 R] >>') }])
     expect(Buffer.from(extractUncompressedStructuredInvoiceFromPdf(textXml).xmlBytes)).toEqual(xml)
+    const indirectEf = buildPdf([{ id: 1, body: Buffer.from('<< /Type /Filespec /F (factur-x.xml) /AFRelationship /Alternative /EF 4 0 R >>') }, { id: 2, body: embeddedXmlBody(xml, `/Type /EmbeddedFile /Subtype /text#2Fxml /Length ${xml.length}`) }, { id: 3, body: Buffer.from('<< /Type /Catalog /AF [1 0 R] >>') }, { id: 4, body: Buffer.from('<< /F 2 0 R /UF 2 0 R >>') }])
+    expect(Buffer.from(extractUncompressedStructuredInvoiceFromPdf(indirectEf).xmlBytes)).toEqual(xml)
     const xrefStream = buildXrefStreamPdf([{ id: 1, body: Buffer.from('<< /Type /Filespec /F (factur-x.xml) /AFRelationship /Data /EF << /F 2 0 R >> >>') }, { id: 2, body: embeddedXmlBody(xml) }, { id: 3, body: Buffer.from('<< /Type /Catalog /AF [1 0 R] >>') }])
     expect(Buffer.from(extractUncompressedStructuredInvoiceFromPdf(xrefStream).xmlBytes)).toEqual(xml)
     expect(Buffer.from(extractUncompressedStructuredInvoiceFromPdf(buildObjectStreamPdf(xml)).xmlBytes)).toEqual(xml)

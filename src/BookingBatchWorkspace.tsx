@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 
-export type BookingBatchVatTreatment = '' | 'DE_STANDARD_SALE_NET' | 'DE_STANDARD_PURCHASE_NET' | 'DE_STANDARD_SALE_GROSS' | 'DE_STANDARD_PURCHASE_GROSS'
+export type BookingBatchVatTreatment = '' | 'DE_STANDARD_SALE_NET' | 'DE_STANDARD_PURCHASE_NET' | 'DE_STANDARD_SALE_GROSS' | 'DE_STANDARD_PURCHASE_GROSS' | 'EU_13B_SERVICE_RECIPIENT_NET'
 
 export type BookingBatchAccount = {
   id: string
@@ -67,6 +67,7 @@ const vatTreatments: BookingBatchVatTreatment[] = [
   'DE_STANDARD_PURCHASE_NET',
   'DE_STANDARD_SALE_GROSS',
   'DE_STANDARD_PURCHASE_GROSS',
+  'EU_13B_SERVICE_RECIPIENT_NET',
 ]
 
 export function bookingBatchYearFromSearchParameter(value: string | string[] | undefined, currentYear = new Date().getFullYear()) {
@@ -85,6 +86,7 @@ export function bookingBatchVatTreatment(value: BookingBatchLine): BookingBatchV
   if (!value.vat) return ''
   if (typeof value.vat === 'string' && vatTreatments.includes(value.vat as BookingBatchVatTreatment)) return value.vat as BookingBatchVatTreatment
   if (typeof value.vat !== 'object') return ''
+  if (value.vat.ruleId === 'EU_13B_SERVICE_RECIPIENT' && value.vat.mode === 'net' && value.vat.direction === 'purchase') return 'EU_13B_SERVICE_RECIPIENT_NET'
   const mode = value.vat.mode === 'gross' ? 'GROSS' : value.vat.mode === 'net' ? 'NET' : ''
   const direction = value.vat.direction === 'purchase' ? 'PURCHASE' : value.vat.direction === 'sale' ? 'SALE' : ''
   const treatment = `DE_STANDARD_${direction}_${mode}`
@@ -123,9 +125,9 @@ function amountToCents(value: string) {
 export function bookingBatchLineRequest(line: EditableBookingBatchLine) {
   const treatment = line.vatTreatment
   const vat = treatment ? {
-    ruleId: 'DE_STANDARD',
+    ruleId: treatment === 'EU_13B_SERVICE_RECIPIENT_NET' ? 'EU_13B_SERVICE_RECIPIENT' : 'DE_STANDARD',
     mode: treatment.endsWith('_GROSS') ? 'gross' as const : 'net' as const,
-    direction: treatment.includes('_PURCHASE_') ? 'purchase' as const : 'sale' as const,
+    direction: treatment === 'EU_13B_SERVICE_RECIPIENT_NET' || treatment.includes('_PURCHASE_') ? 'purchase' as const : 'sale' as const,
   } : undefined
   return {
     accountId: line.accountId,
@@ -360,7 +362,7 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
                   <div className="col-12"><label htmlFor="booking-batch-documents">{t('documents')}<span className="small text-muted fw-normal">{t('documentsHint')}</span><input id="booking-batch-documents" className="form-control" value={posting.documentIds.join(', ')} onChange={event => setPosting(current => current ? { ...current, documentIds: parseDocumentIds(event.target.value) } : current)} /></label></div>
                 </div>
                 <div className="table-responsive mb-2"><table className="table align-middle booking-batch-lines"><caption className="visually-hidden">{t('lines')}</caption><thead><tr><th scope="col">{t('account')}</th><th scope="col" className="text-end">{t('debit')}</th><th scope="col" className="text-end">{t('credit')}</th><th scope="col">{t('vatTreatment')}</th><th scope="col"><span className="visually-hidden">{t('actions')}</span></th></tr></thead><tbody>
-                  {posting.lines.map((line, index) => <tr key={index}><td><label className="visually-hidden" htmlFor={`booking-batch-account-${index}`}>{t('accountLine', { line: index + 1 })}</label><select id={`booking-batch-account-${index}`} className="form-select" required value={line.accountId} onChange={event => updateLine(index, 'accountId', event.target.value)}><option value="">{t('chooseAccount')}</option>{workspace.accounts.map(account => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select></td><td><label className="visually-hidden" htmlFor={`booking-batch-debit-${index}`}>{t('debitLine', { line: index + 1 })}</label><div className="input-group"><input id={`booking-batch-debit-${index}`} className="form-control text-end" inputMode="decimal" min="0" step="0.01" type="number" value={line.debit} onChange={event => updateLine(index, 'debit', event.target.value)} /><span className="input-group-text">€</span></div></td><td><label className="visually-hidden" htmlFor={`booking-batch-credit-${index}`}>{t('creditLine', { line: index + 1 })}</label><div className="input-group"><input id={`booking-batch-credit-${index}`} className="form-control text-end" inputMode="decimal" min="0" step="0.01" type="number" value={line.credit} onChange={event => updateLine(index, 'credit', event.target.value)} /><span className="input-group-text">€</span></div></td><td><label className="visually-hidden" htmlFor={`booking-batch-vat-${index}`}>{t('vatLine', { line: index + 1 })}</label><select id={`booking-batch-vat-${index}`} className="form-select" value={line.vatTreatment} onChange={event => updateLine(index, 'vatTreatment', event.target.value)}><option value="">{t('vatNone')}</option><option value="DE_STANDARD_SALE_NET">{t('vatStandardSaleNet')}</option><option value="DE_STANDARD_PURCHASE_NET">{t('vatStandardPurchaseNet')}</option><option value="DE_STANDARD_SALE_GROSS">{t('vatStandardSaleGross')}</option><option value="DE_STANDARD_PURCHASE_GROSS">{t('vatStandardPurchaseGross')}</option></select></td><td><button type="button" className="btn btn-outline-secondary" aria-label={t('removeLine', { line: index + 1 })} disabled={posting.lines.length <= 2} onClick={() => setPosting(current => current ? { ...current, lines: current.lines.filter((_, lineIndex) => lineIndex !== index) } : current)}><i className="bi bi-trash" aria-hidden="true" /></button></td></tr>)}
+                  {posting.lines.map((line, index) => <tr key={index}><td><label className="visually-hidden" htmlFor={`booking-batch-account-${index}`}>{t('accountLine', { line: index + 1 })}</label><select id={`booking-batch-account-${index}`} className="form-select" required value={line.accountId} onChange={event => updateLine(index, 'accountId', event.target.value)}><option value="">{t('chooseAccount')}</option>{workspace.accounts.map(account => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select></td><td><label className="visually-hidden" htmlFor={`booking-batch-debit-${index}`}>{t('debitLine', { line: index + 1 })}</label><div className="input-group"><input id={`booking-batch-debit-${index}`} className="form-control text-end" inputMode="decimal" min="0" step="0.01" type="number" value={line.debit} onChange={event => updateLine(index, 'debit', event.target.value)} /><span className="input-group-text">€</span></div></td><td><label className="visually-hidden" htmlFor={`booking-batch-credit-${index}`}>{t('creditLine', { line: index + 1 })}</label><div className="input-group"><input id={`booking-batch-credit-${index}`} className="form-control text-end" inputMode="decimal" min="0" step="0.01" type="number" value={line.credit} onChange={event => updateLine(index, 'credit', event.target.value)} /><span className="input-group-text">€</span></div></td><td><label className="visually-hidden" htmlFor={`booking-batch-vat-${index}`}>{t('vatLine', { line: index + 1 })}</label><select id={`booking-batch-vat-${index}`} className="form-select" value={line.vatTreatment} onChange={event => updateLine(index, 'vatTreatment', event.target.value)}><option value="">{t('vatNone')}</option><option value="DE_STANDARD_SALE_NET">{t('vatStandardSaleNet')}</option><option value="DE_STANDARD_PURCHASE_NET">{t('vatStandardPurchaseNet')}</option><option value="DE_STANDARD_SALE_GROSS">{t('vatStandardSaleGross')}</option><option value="DE_STANDARD_PURCHASE_GROSS">{t('vatStandardPurchaseGross')}</option><option value="EU_13B_SERVICE_RECIPIENT_NET">{t('vatEuServiceReverseChargeNet')}</option></select></td><td><button type="button" className="btn btn-outline-secondary" aria-label={t('removeLine', { line: index + 1 })} disabled={posting.lines.length <= 2} onClick={() => setPosting(current => current ? { ...current, lines: current.lines.filter((_, lineIndex) => lineIndex !== index) } : current)}><i className="bi bi-trash" aria-hidden="true" /></button></td></tr>)}
                 </tbody></table></div>
                 <button type="button" className="btn btn-link px-0" onClick={() => setPosting(current => current ? { ...current, lines: [...current.lines, emptyLine()] } : current)}><i className="bi bi-plus-circle me-1" aria-hidden="true" />{t('addLine')}</button>
               </fieldset>

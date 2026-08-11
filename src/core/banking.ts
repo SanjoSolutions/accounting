@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { SaxesParser } from 'saxes'
+import { normalizeValidIban } from './iban'
 
 export class BankStatementValidationError extends Error {}
 
@@ -122,7 +123,7 @@ function firstText(node: XmlNode | undefined, names: string[]) { for (const name
 function firstDescendantText(node: XmlNode | undefined, containers: string[], field: string) { for (const container of containers) { const value = optionalText(descendants(descendants(node, container)[0], field)[0]); if (value) return value } return undefined }
 function dateChoice(node: XmlNode) { const values = [...children(node, 'Dt'), ...children(node, 'DtTm')]; if (values.length !== 1) throw new BankStatementValidationError('A CAMT date must contain exactly one date value.'); return requiredText(values[0], 'date').slice(0, 10) }
 function isoDate(value: string, label: string) { const date = new Date(`${value}T00:00:00.000Z`); if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(date.valueOf()) || date.toISOString().slice(0, 10) !== value) throw new BankStatementValidationError(`The CAMT ${label} must be an ISO calendar date.`); return value }
-function normalizeIban(value: string) { const iban = value.replace(/\s/g, '').toUpperCase(); if (!/^DE\d{20}$/.test(iban)) throw new BankStatementValidationError('A German IBAN is required.'); return iban }
+function normalizeIban(value: string) { const iban = normalizeValidIban(value); if (!iban) throw new BankStatementValidationError('A valid IBAN is required.'); return iban }
 function signedAmount(node: XmlNode, indicator: string) { if (node.attributes.Ccy !== 'EUR') throw new BankStatementValidationError('Only EUR CAMT amounts are supported.'); const cents = decimalCents(requiredText(node, 'amount')); if (indicator === 'CRDT') return cents; if (indicator === 'DBIT') return -cents; throw new BankStatementValidationError('CAMT debit/credit indicator must be CRDT or DBIT.') }
 function decimalCents(value: string) { const match = /^(0|[1-9]\d*)\.(\d{2})$/.exec(value); if (!match) throw new BankStatementValidationError('CAMT EUR amounts require exactly two decimal places.'); const cents = Number(match[1]) * 100 + Number(match[2]); if (!Number.isSafeInteger(cents)) throw new BankStatementValidationError('The CAMT amount exceeds the safe cent range.'); return cents }
 function checkedAdd(sum: number, value: number) { const result = sum + value; if (!Number.isSafeInteger(result)) throw new BankStatementValidationError('CAMT balance arithmetic exceeds the safe cent range.'); return result }
