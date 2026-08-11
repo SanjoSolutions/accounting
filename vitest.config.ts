@@ -9,6 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    setupFiles: ['./src/test/database-safety.setup.ts'],
     hookTimeout: 30_000,
     exclude: [...configDefaults.exclude, 'e2e/**', 'e2e-local-solo/**'],
     coverage: {

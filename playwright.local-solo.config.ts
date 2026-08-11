@@ -19,6 +19,7 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       DATABASE_URL: 'file:./playwright.db',
+      E2E_DATABASE_FILE: 'playwright.db',
       DOCUMENT_STORAGE_DRIVER: 'fs',
       DOCUMENT_STORAGE_ROOT: './.playwright/solo-documents',
       DOCUMENT_STORAGE_REGION: 'DE',

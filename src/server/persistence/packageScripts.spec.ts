@@ -9,24 +9,25 @@ describe('Prisma development startup', () => {
       scripts?: Record<string, string>
     }
 
-    expect(packageJson.scripts?.dev).toBe('prisma migrate deploy && prisma generate && next dev')
+    expect(packageJson.scripts?.dev).toBe('node tools/guarded-prisma.mjs migrate deploy && prisma generate && next dev')
   })
 
   it('offers one-command solo modes that force no-auth Next.js onto loopback', () => {
     const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as {
       scripts?: Record<string, string>
     }
+    const cleanEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !['DATABASE_URL', 'NODE_ENV', 'VITEST', 'VITEST_POOL_ID', 'VITEST_WORKER_ID'].includes(key)))
     const configuration = JSON.parse(execFileSync(process.execPath, [
       resolve(process.cwd(), 'tools/local-solo.mjs'),
       '--print-config',
-    ], { encoding: 'utf8' })) as { environment: Record<string, string>; arguments: string[] }
+    ], { encoding: 'utf8', env: cleanEnvironment as NodeJS.ProcessEnv })) as { environment: Record<string, string>; arguments: string[] }
 
-    expect(packageJson.scripts?.solo).toBe('prisma migrate deploy && prisma generate && node tools/local-solo.mjs dev')
+    expect(packageJson.scripts?.solo).toBe('node tools/company-start.mjs')
     expect(packageJson.scripts?.['dev:local-solo']).toBe('pnpm solo')
     expect(packageJson.scripts?.['start:local-solo']).toBe('node tools/local-solo.mjs start')
     expect(packageJson.scripts?.['test:e2e:local-solo']).toBe('playwright test --config playwright.local-solo.config.ts')
     expect(configuration).toEqual({
-      environment: { AUTH_MODE: 'none', APP_BIND_HOST: '127.0.0.1' },
+      environment: { AUTH_MODE: 'none', APP_BIND_HOST: '127.0.0.1', DATABASE_URL: 'file:./accounting.db' },
       arguments: ['dev', '--hostname', '127.0.0.1'],
       startupMessages: [
         '[local-solo] Authentication: OFF (single local user)',

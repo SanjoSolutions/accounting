@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { resolveApplicationDatabaseUrl } from './db-safety.mjs'
 
 const LOOPBACK_HOST = '127.0.0.1'
 const command = process.argv[2]
@@ -40,9 +41,9 @@ child.once('exit', (code, signal) => {
 })
 
 function localSoloConfiguration(nextCommand, extraArguments) {
-  const database = process.env.DATABASE_URL?.trim() || 'file:./accounting.db'
+  const database = resolveApplicationDatabaseUrl()
   return {
-    environment: { AUTH_MODE: 'none', APP_BIND_HOST: LOOPBACK_HOST },
+    environment: { AUTH_MODE: 'none', APP_BIND_HOST: LOOPBACK_HOST, DATABASE_URL: database },
     arguments: [nextCommand, '--hostname', LOOPBACK_HOST, ...extraArguments],
     startupMessages: [
       '[local-solo] Authentication: OFF (single local user)',

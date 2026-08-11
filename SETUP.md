@@ -68,14 +68,46 @@ Authenticated deployments remain the default: use `pnpm dev` while developing,
 or `pnpm build` followed by `pnpm start`, with `AUTH_MODE=credentials`, a strong
 `BETTER_AUTH_SECRET`, and the externally reachable `BETTER_AUTH_URL`.
 
-## Database
+## Database and safe migrations
 
-SQLite is used by default and stores its data in `accounting.db`. Override
-`DATABASE_URL` for another location. Persistence is accessed through repository
-interfaces under `src/server/persistence`, so another Prisma-supported SQL
-database can be added without changing the application services. Because a
-Prisma schema targets one SQL dialect, changing database engines also requires
-the corresponding Prisma datasource provider, driver adapter, and migrations.
+SQLite is used by default and the company database remains at
+`accounting.db` in the workspace for compatibility with existing installations.
+The normal startup command is still:
+
+```sh
+pnpm run solo
+```
+
+`pnpm run solo` explicitly selects that company file, prints its resolved path,
+creates and verifies a pre-migration snapshot, applies migrations, and then
+starts the loopback-only local-solo server. Snapshots are stored outside the
+repository in `%LOCALAPPDATA%\Sanjo Accounting\backups` on Windows (or
+`$XDG_DATA_HOME/Sanjo Accounting/backups`, with an OS app-data fallback) and
+the newest 14 snapshots are retained. Set `COMPANY_BACKUP_DIR` only when an
+operator has deliberately selected another durable location. A first start with
+no existing database has no file to snapshot; the migration creates it.
+
+To restore safely, stop the application, copy a verified `accounting-*.db`
+snapshot back to a separately named staging file, inspect it, and only after
+confirming the timestamp and `.json` manifest replace the live `accounting.db`
+using the operating system's recoverable file operation. Keep the original live
+file until the restored application has been checked. Never restore a snapshot
+while the application is running.
+
+`pnpm db:migrate`, `pnpm db:deploy`, `pnpm db:push`, and `pnpm dev` are guarded:
+they refuse the protected company file unless `ALLOW_PROTECTED_DATABASE=true`
+is explicitly supplied; the guard creates a verified backup before the Prisma
+command. E2E commands always set both `E2E_DATABASE_FILE` and `DATABASE_URL`,
+and reject `accounting.db`, its SQLite sidecars, missing targets, and paths
+outside the workspace root. Unit tests receive a private temporary URL and
+cannot open the company file.
+
+Override `DATABASE_URL` for another location when running an authenticated or
+disposable environment. Persistence is accessed through repository interfaces
+under `src/server/persistence`, so another Prisma-supported SQL database can be
+added without changing application services. Because a Prisma schema targets
+one SQL dialect, changing database engines also requires the corresponding
+Prisma datasource provider, driver adapter, and migrations.
 
 ## Document storage
 

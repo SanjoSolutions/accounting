@@ -16,6 +16,9 @@ node_modules
 /database
 /accounting.db
 /accounting.db-journal
+/accounting.db-shm
+/accounting.db-wal
+/company-backups
 /src/generated/prisma
 /storage
 /.eric

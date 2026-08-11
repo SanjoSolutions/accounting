@@ -43,6 +43,7 @@ export default defineConfig({
       timeout: 120_000,
       env: {
         DATABASE_URL: 'file:./playwright.db',
+        E2E_DATABASE_FILE: 'playwright.db',
         AUTH_MODE: 'credentials',
         BETTER_AUTH_URL: baseURL,
         BETTER_AUTH_SECRET: 'playwright-only-secret-with-at-least-32-characters',

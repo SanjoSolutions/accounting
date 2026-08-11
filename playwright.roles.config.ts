@@ -10,7 +10,7 @@ export default defineConfig({
   use: { baseURL, trace: 'on-first-retry', screenshot: 'only-on-failure' },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: 'node e2e/prepare-database.mjs && prisma db push && prisma generate && next dev --hostname 127.0.0.1 --port 3120',
+    command: 'node tools/e2e-dev.mjs roles',
     url: baseURL,
     reuseExistingServer: false,
     timeout: 120_000,
