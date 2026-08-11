@@ -22,6 +22,14 @@ For test coverage you can run `pnpm run coverage`.
 Run all unit tests.
 Run E2E tests only selectively.
 
+### Local testing safety boundary (HIGH VISIBILITY)
+
+`http://localhost:3000` is the live app instance connected to the real business/company database. Never use that instance for automated tests, UI verification, exploratory browser testing, test uploads, mutations, or test data. Merely making client-only changes in the live UI is also prohibited as testing.
+
+Agents must start and use their own isolated app instance on a different port. Prefer the existing test/E2E ports such as `3100`, `3110`, or `3120`, or choose another unused non-`3000` port. Set an explicit disposable test `DATABASE_URL` and isolated document storage for that instance; a disposable DB must never share the live database or document storage. Before any browser action, verify the target URL and port and confirm database and document-storage isolation.
+
+Never run destructive reset, migration, or test tooling against `accounting.db` (including its SQLite sidecars).
+
 ## Web design
 
 Use Bootstrap 5. Use Bootstrap patterns preferably. If Bootstrap has no pattern for what you require, you can introduce new UI components/elements/variants. Make sure to implement new UI components in a reusable way.

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, test } from 'vitest'
 
 describe('Prisma development startup', () => {
   it('applies committed migrations and generates the Prisma client before starting Next.js', () => {
@@ -82,5 +82,13 @@ describe('Prisma development startup', () => {
     expect(packageJson.scripts).toMatchObject({ typecheck: 'tsc --noEmit', 'audit:security': 'pnpm audit --audit-level high', coverage: 'vitest run --coverage --reporter html', 'coverage:ci': 'vitest run --coverage --coverage.reporter=text --coverage.reporter=json-summary', 'test:e2e': 'playwright test' })
     for (const command of ['pnpm typecheck', 'pnpm audit:security', 'pnpm coverage:ci', 'pnpm build', 'pnpm test:e2e', 'pnpm test:e2e:local-solo']) expect(workflow).toContain(command)
     expect(workflow).toContain('pnpm install --frozen-lockfile')
+  })
+
+  test('documents the live instance boundary before browser testing', () => {
+    const agents = readFileSync(resolve(process.cwd(), 'AGENTS.md'), 'utf8')
+
+    expect(agents).toContain('`http://localhost:3000` is the live app instance connected to the real business/company database')
+    expect(agents).toContain('different port')
+    expect(agents).toContain('disposable test `DATABASE_URL`')
   })
 })
