@@ -692,6 +692,7 @@
     "documentsLoadFailed": "Documents could not be loaded.",
     "unnamedDocument": "Unnamed document",
     "openDocument": "Open document",
+    "removeDocumentAction": "Remove",
     "removeDocument": "Remove {name} from booking",
     "unlinkDocument": "Unlink document",
     "resizeColumns": "Resize document preview and posting columns",

@@ -14,6 +14,15 @@ export type BookingDocument = {
   thumbnailUrl?: string
 }
 
+export type BookingDocumentsRenderContext = {
+  /** The compact attached-document region, ready to place inside the editor. */
+  attachedDocuments: ReactNode
+  /** Whether the full document picker and preview are currently visible. */
+  pickerOpen: boolean
+}
+
+export type BookingDocumentsChildren = ReactNode | ((context: BookingDocumentsRenderContext) => ReactNode)
+
 const documentColumnStorageKey = 'accounting.bookings.document-column-percent'
 
 export function BookingDocuments({
@@ -42,7 +51,7 @@ export function BookingDocuments({
   onSelectionChange: (ids: string[]) => void
   onUploadingChange: (uploading: boolean) => void
   onRemoveDocument?: (id: string) => void
-  children: ReactNode
+  children: BookingDocumentsChildren
 }) {
   const t = useTranslations('Workspaces')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -171,6 +180,9 @@ export function BookingDocuments({
     [compactByDefault, documents, selectedDocumentIds, unavailableDocumentIdSet],
   )
   const activeDocument = selectedDocuments.find(document => document.id === activeDocumentId) ?? selectedDocuments[0]
+  const activeDocumentName = activeDocument
+    ? documentDisplayName(activeDocument.fileName || t('unnamedDocument'), t('unnamedDocument'))
+    : t('unnamedDocument')
 
   function select(documentId: string, extendSelection: boolean) {
     const isNewAttachment = compactByDefault && !selectedDocumentIds.includes(documentId)
@@ -231,7 +243,7 @@ export function BookingDocuments({
         })}</div>}
     </section>
 
-  const compactPanel = <section className="card panel document-picker-panel attached-documents-panel">
+  const attachedDocumentsRegion = <section className="attached-documents-region border-top mt-4 pt-4" aria-label={t('attachedDocuments')}>
       <div className="panel-title">
         <div><span className="step">{t('documents')}</span><h2>{t('attachedDocuments')}</h2></div>
         <span className="badge text-bg-light hint">{attachedDocuments.length}</span>
@@ -245,7 +257,8 @@ export function BookingDocuments({
             document={document}
             fallbackName={t('unnamedDocument')}
             openLabel={t('openDocument')}
-            removeLabel={t('removeDocument', { name })}
+            removeLabel={t('removeDocumentAction')}
+            removeAccessibleLabel={t('removeDocument', { name })}
             onRemove={onRemoveDocument ? () => onRemoveDocument(document.id) : undefined}
           />
         })}</div>}
@@ -256,11 +269,15 @@ export function BookingDocuments({
       </div>
     </section>
 
+  const renderChildren = () => typeof children === 'function'
+    ? children({ attachedDocuments: attachedDocumentsRegion, pickerOpen })
+    : children
+
   return <>
     {pickerOpen && dragging && <div className="viewport-drop-target" role="status"><div><i className="bi bi-cloud-arrow-up" aria-hidden="true" /><strong>{t('dropDocuments')}</strong><span>{t('dropDocumentsHelp')}</span></div></div>}
-    {compactByDefault && !pickerOpen ? compactPanel : pickerPanel}
+    {compactByDefault && !pickerOpen ? null : pickerPanel}
 
-    {!pickerOpen ? <div className="booking-workflow-columns booking-workflow-columns--compact">{children}</div> : <div className="booking-workflow-columns" style={{ '--document-column': `${documentColumnPercent}%` } as React.CSSProperties}>
+    {!pickerOpen ? <div className="booking-workflow-columns booking-workflow-columns--compact">{renderChildren()}</div> : <div className="booking-workflow-columns" style={{ '--document-column': `${documentColumnPercent}%` } as React.CSSProperties}>
     <section className="card panel document-preview-panel">
       <div className="panel-title"><div><span className="step">{t('selectedDocuments')}</span><h2>{t('documentPreview')}</h2></div><span className="badge text-bg-light hint">{selectedDocuments.length}</span></div>
       {selectedDocuments.length === 0
@@ -277,7 +294,7 @@ export function BookingDocuments({
                 aria-label={t('removeDocument', { name })}
                 title={t('removeDocument', { name })}
                 onClick={() => onRemoveDocument(document.id)}
-              ><i className="bi bi-x-lg" aria-hidden="true" /></button>}
+              ><i className="bi bi-x-lg me-1" aria-hidden="true" />{t('removeDocumentAction')}</button>}
             </div>
           })}</div>
           {activeDocument && <>
@@ -285,8 +302,8 @@ export function BookingDocuments({
               <a className="btn btn-sm btn-outline-secondary" href={activeDocument.url} target="_blank" rel="noreferrer">
                 <i className="bi bi-box-arrow-up-right me-1" aria-hidden="true" />{t('openDocument')}
               </a>
-              {onRemoveDocument && <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => onRemoveDocument(activeDocument.id)}>
-                <i className="bi bi-link-45deg me-1" aria-hidden="true" />{t('unlinkDocument')}
+              {onRemoveDocument && <button type="button" className="btn btn-sm btn-outline-danger" aria-label={t('removeDocument', { name: activeDocumentName })} title={t('removeDocument', { name: activeDocumentName })} onClick={() => onRemoveDocument(activeDocument.id)}>
+                <i className="bi bi-x-lg me-1" aria-hidden="true" />{t('removeDocumentAction')}
               </button>}
             </div>
             <iframe className="document-frame" src={activeDocument.url} title={activeDocument.fileName || t('documentPreview')} />
@@ -307,7 +324,7 @@ export function BookingDocuments({
         onPointerMove={resizeColumns}
         onKeyDown={resizeColumnsWithKeyboard}
       ><span /></div>
-      {children}
+      {renderChildren()}
     </div>}
   </>
 }
@@ -317,15 +334,18 @@ export function AttachedDocumentRow({
   fallbackName,
   openLabel,
   removeLabel,
+  removeAccessibleLabel,
   onRemove,
 }: {
   document: BookingDocument
   fallbackName: string
   openLabel: string
   removeLabel: string
+  removeAccessibleLabel?: string
   onRemove?: () => void
 }) {
   const name = documentDisplayName(document.fileName || fallbackName, fallbackName)
+  const accessibleRemoveLabel = removeAccessibleLabel || removeLabel
   return <article className="attached-document-row" role="listitem">
     <div className="attached-document-details">
       <span className="document-thumbnail" aria-hidden="true">
@@ -339,7 +359,7 @@ export function AttachedDocumentRow({
       <a className="btn btn-sm btn-outline-secondary" href={document.url} target="_blank" rel="noreferrer">
         <i className="bi bi-box-arrow-up-right me-1" aria-hidden="true" />{openLabel}
       </a>
-      {onRemove && <button type="button" className="btn btn-sm btn-outline-danger" aria-label={removeLabel} onClick={onRemove}>
+      {onRemove && <button type="button" className="btn btn-sm btn-outline-danger" aria-label={accessibleRemoveLabel} title={accessibleRemoveLabel} onClick={onRemove}>
         <i className="bi bi-x-lg me-1" aria-hidden="true" />{removeLabel}
       </button>}
     </div>

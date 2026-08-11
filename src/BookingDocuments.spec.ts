@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { afterEach, describe, expect, it, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import de from '../messages/de.json'
 import en from '../messages/en.json'
 import { readFileSync } from 'node:fs'
@@ -9,20 +9,20 @@ import { acceptedBookingDocumentFiles, acceptedPdfFiles, addDocumentSelection, a
 afterEach(() => vi.useRealTimers())
 
 describe('booking document selection', () => {
-  it('selects only the clicked document unless Shift extends the selection', () => {
+  test('selects only the clicked document unless Shift extends the selection', () => {
     expect(selectDocument(['one', 'two'], 'three', false)).toEqual(['three'])
     expect(selectDocument(['one'], 'two', true)).toEqual(['one', 'two'])
     expect(selectDocument(['one', 'two'], 'one', true)).toEqual(['two'])
   })
 
-  it('extends selection only for Shift-click or a deliberate long touch', () => {
+  test('extends selection only for Shift-click or a deliberate long touch', () => {
     expect(selectionExtendsForActivation(false, false)).toBe(false)
     expect(selectionExtendsForActivation(true, false)).toBe(true)
     expect(selectionExtendsForActivation(false, true)).toBe(true)
     expect(longTouchSelectionDelayMs).toBe(500)
   })
 
-  it('suppresses only the click following a completed long touch', () => {
+  test('suppresses only the click following a completed long touch', () => {
     vi.useFakeTimers()
     const gesture = new LongTouchSelectionGesture()
     const onLongTouch = vi.fn()
@@ -37,7 +37,7 @@ describe('booking document selection', () => {
     expect(gesture.consumeClick()).toBe(false)
   })
 
-  it('does not suppress the next tap after a long touch is cancelled', () => {
+  test('does not suppress the next tap after a long touch is cancelled', () => {
     vi.useFakeTimers()
     const gesture = new LongTouchSelectionGesture()
     const onLongTouch = vi.fn()
@@ -50,7 +50,7 @@ describe('booking document selection', () => {
     expect(gesture.consumeClick()).toBe(false)
   })
 
-  it('shows only a PDF preview thumbnail and the document name on each card', () => {
+  test('shows only a PDF preview thumbnail and the document name on each card', () => {
     const html = renderToStaticMarkup(createElement(DocumentCard, {
       document: { id: 'one', url: '/api/documents/one/file', thumbnailUrl: '/api/documents/one/thumbnail', fileName: 'Invoice.pdf', size: 42_000 },
       selected: false,
@@ -69,7 +69,7 @@ describe('booking document selection', () => {
     expect(html).not.toContain('PDF</small>')
   })
 
-  it('falls back to a PDF icon when a stored thumbnail is unavailable', () => {
+  test('falls back to a PDF icon when a stored thumbnail is unavailable', () => {
     const html = renderToStaticMarkup(createElement(DocumentCard, {
       document: { id: 'one', url: '/api/documents/one/file', fileName: 'Invoice.pdf' },
       selected: false,
@@ -81,50 +81,52 @@ describe('booking document selection', () => {
     expect(html).not.toContain('<iframe')
   })
 
-  it('removes only the trailing PDF extension from document display names', () => {
+  test('removes only the trailing PDF extension from document display names', () => {
     expect(documentDisplayName('Invoice.final.PDF')).toBe('Invoice.final')
     expect(documentDisplayName('Invoice.XML')).toBe('Invoice')
     expect(documentDisplayName('Invoice')).toBe('Invoice')
     expect(documentDisplayName('.pdf', 'Unnamed document')).toBe('Unnamed document')
   })
 
-  it('uses only the concise document panel heading and upload action copy', () => {
+  test('uses only the concise document panel heading and upload action copy', () => {
     expect(en.Workspaces.documents).toBe('Documents')
     expect(en.Workspaces.chooseDocuments).toBe('Upload documents')
+    expect(en.Workspaces.removeDocumentAction).toBe('Remove')
     expect(de.Workspaces.documents).toBe('Belege')
     expect(de.Workspaces.chooseDocuments).toBe('Belege hochladen')
+    expect(de.Workspaces.removeDocumentAction).toBe('Entfernen')
     expect(en.Workspaces).not.toHaveProperty('selectDocuments')
     expect(en.Workspaces).not.toHaveProperty('documentsHelp')
     expect(en.Workspaces).not.toHaveProperty('documentsSelected')
   })
 
-  it('localizes the continue-with-documents checkbox', () => {
+  test('localizes the continue-with-documents checkbox', () => {
     expect(en.Workspaces.continueWithSameDocuments).toBe('Continue with same documents')
     expect(de.Workspaces.continueWithSameDocuments).toBe('Mit denselben Belegen fortfahren')
   })
 
-  it('accepts one or many PDFs from the viewport drop target or file picker', () => {
+  test('accepts one or many PDFs from the viewport drop target or file picker', () => {
     const files = [{ name: 'invoice.pdf', type: '' }, { name: 'scan', type: 'application/pdf' }, { name: 'notes.txt', type: 'text/plain' }]
     expect(acceptedPdfFiles(files).map(file => file.name)).toEqual(['invoice.pdf', 'scan'])
   })
 
-  it('Given a structured invoice, when files are selected, then XML and PDF evidence enter the booking workflow while unrelated files remain excluded', () => {
+  test('Given a structured invoice, when files are selected, then XML and PDF evidence enter the booking workflow while unrelated files remain excluded', () => {
     const files = [{ name: 'invoice.xml', type: '' }, { name: 'cii', type: 'application/xml' }, { name: 'hybrid.pdf', type: 'application/pdf' }, { name: 'notes.txt', type: 'text/plain' }]
     expect(acceptedBookingDocumentFiles(files).map(file => file.name)).toEqual(['invoice.xml', 'cii', 'hybrid.pdf'])
   })
 
-  it('merges each successful upload into the latest selection without overwriting concurrent choices', () => {
+  test('merges each successful upload into the latest selection without overwriting concurrent choices', () => {
     expect(mergeDocumentSelection(['selected-during-upload'], 'uploaded')).toEqual(['selected-during-upload', 'uploaded'])
     expect(mergeDocumentSelection(['uploaded'], 'uploaded')).toEqual(['uploaded'])
   })
 
-  it('shows each successful upload immediately even if a later file fails', () => {
+  test('shows each successful upload immediately even if a later file fails', () => {
     const existing = { id: 'existing', url: '/existing' }
     const uploaded = { id: 'uploaded', url: '/uploaded' }
     expect(mergeUploadedDocument([existing], uploaded)).toEqual([uploaded, existing])
   })
 
-  it('does not let a stale initial list hide a document uploaded while it loaded', () => {
+  test('does not let a stale initial list hide a document uploaded while it loaded', () => {
     const uploaded = { id: 'uploaded', url: '/uploaded' }
     const fetched = { id: 'existing', url: '/existing' }
     expect(mergeDocumentLists([uploaded], [fetched])).toEqual([uploaded, fetched])
@@ -139,28 +141,28 @@ describe('booking document selection', () => {
     }])
   })
 
-  it('hides documents consumed by a completed posting from the available list', () => {
+  test('hides documents consumed by a completed posting from the available list', () => {
     const documents = [{ id: 'booked', url: '/booked' }, { id: 'available', url: '/available' }]
     expect(availableBookingDocuments(documents, new Set(['booked']))).toEqual([{ id: 'available', url: '/available' }])
   })
 
-  it('resizes the document column while keeping both panels usable', () => {
+  test('resizes the document column while keeping both panels usable', () => {
     expect(clampDocumentColumnPercent(20)).toBe(40)
     expect(clampDocumentColumnPercent(55)).toBe(55)
     expect(clampDocumentColumnPercent(90)).toBe(75)
   })
 
-  it('restores a saved manual column size safely', () => {
+  test('restores a saved manual column size safely', () => {
     expect(parseSavedDocumentColumnPercent('62')).toBe(62)
     expect(parseSavedDocumentColumnPercent('100')).toBe(75)
     expect(parseSavedDocumentColumnPercent('not-a-number')).toBeNull()
   })
 
-  it('uses the localized upload fallback when an error response has no JSON body', async () => {
+  test('uses the localized upload fallback when an error response has no JSON body', async () => {
     await expect(readDocumentUploadResponse(new Response('', { status: 500 }), 'Upload failed')).rejects.toThrow('Upload failed')
   })
 
-  it('keeps spacing below a document loading error', () => {
+  test('keeps spacing below a document loading error', () => {
     const css = readFileSync(new URL('./index.css', import.meta.url), 'utf8')
     expect(css).toMatch(/\.document-picker-panel \.alert\s*\{[^}]*margin-bottom:\s*14px/)
   })
@@ -178,12 +180,15 @@ describe('compact attached-document flow', () => {
       document: attached[0],
       fallbackName: 'Unnamed document',
       openLabel: 'Open document',
-      removeLabel: 'Remove Invoice from booking',
+      removeLabel: 'Remove',
+      removeAccessibleLabel: 'Remove Invoice from booking',
       onRemove: () => undefined,
     }))
     expect(html).toContain('<strong class="document-name" title="Invoice">Invoice</strong>')
     expect(html).toContain('>Open document</a>')
-    expect(html).toContain('>Remove Invoice from booking</button>')
+    expect(html).toContain('><i class="bi bi-x-lg me-1" aria-hidden="true"></i>Remove</button>')
+    expect(html).toContain('aria-label="Remove Invoice from booking"')
+    expect(html).toContain('title="Remove Invoice from booking"')
     expect(html).not.toContain('>document-1<')
   })
 

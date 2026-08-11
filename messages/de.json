@@ -692,6 +692,7 @@
     "documentsLoadFailed": "Die Belege konnten nicht geladen werden.",
     "unnamedDocument": "Unbenannter Beleg",
     "openDocument": "Beleg öffnen",
+    "removeDocumentAction": "Entfernen",
     "removeDocument": "{name} aus der Buchung entfernen",
     "unlinkDocument": "Belegverknüpfung lösen",
     "resizeColumns": "Spaltenbreite zwischen Belegansicht und Buchung ändern",
