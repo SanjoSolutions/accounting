@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
-import { FiscalYearNavigation } from './FiscalYearNavigation'
 import { HgbCloseWorkbench } from './HgbCloseWorkbench'
 
 type CloseData = {
@@ -83,7 +82,6 @@ export function AnnualCloseWorkspace({ year }: { year: number }) {
   const displayIssues = currentData && !currentData.entries?.length ? [...new Set([...issues, t('journalEmpty')])] : issues
   const steps = getCloseSteps(currentData ? { ...currentData, closingIssues: displayIssues } : null, key => t(key))
   return <div className="workspace pb-4">
-    <FiscalYearNavigation area="annual-close" year={year} />
     <header className="page-heading"><div><span className="eyebrow">{t('guidedClose')}</span><h1>{t('annualClose', { year })}</h1><p>{t('annualCloseSubtitle')}</p></div><span className={`status ${currentData?.fiscalYear.status.toLowerCase() ?? 'loading'}`}>{currentData?.fiscalYear.status === 'CLOSED' ? t('locked') : currentData ? t('inProgress') : transitioning ? t('closingBusy') : t('closeFailed')}</span></header>
     <div className="close-grid">
       <section className="card panel close-steps"><h2>{t('closeProgress')}</h2>{steps.map((step, index) => <div className="close-step" key={step.title}><span className={step.done ? 'done' : ''}>{step.done ? '✓' : index + 1}</span><div><strong>{step.title}</strong><p>{step.detail}</p></div></div>)}</section>

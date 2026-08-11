@@ -44,10 +44,11 @@ const money = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR
 
 export type AccountingWorkspaceView = 'booking' | 'journal' | 'dashboard'
 
-export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = new Date().getFullYear() }: {
+export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = new Date().getFullYear(), restoreStoredYear = true }: {
   ownerId: string
   view?: AccountingWorkspaceView
   initialYear?: number
+  restoreStoredYear?: boolean
 }) {
   const t = useTranslations('Workspaces')
   const [year, setYear] = useState(initialYear)
@@ -82,14 +83,15 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
     const saved = storage ? loadBookingWorkspaceState(storage, ownerId) : null
     if (saved) {
       bookingWorkspaceStateRef.current = saved
-      setYear(saved.year)
-      setBookingDate(saved.bookingDate)
+      if (restoreStoredYear) setYear(saved.year)
+      const targetYear = restoreStoredYear ? saved.year : initialYear
+      setBookingDate(saved.bookingDate.startsWith(`${targetYear}-`) ? saved.bookingDate : `${targetYear}-01-01`)
       setDescription(saved.description)
       setLines(saved.lines)
       setSelectedDocumentIds(saved.selectedDocumentIds)
     }
     setStorageRestored(true)
-  }, [ownerId, view])
+  }, [initialYear, ownerId, restoreStoredYear, view])
 
   useEffect(() => {
     if (!storageRestored || view !== 'booking') return
@@ -181,10 +183,6 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
   const sections = workspaceSections(view)
 
   return <div className={`workspace ${view === 'booking' ? 'bookings-workspace' : `${view}-workspace`} pb-4`}>
-    <div className="workspace-toolbar">
-      <label className="year-picker">{t('fiscalYear')}<input className="form-control" disabled={busy} type="number" value={year} onChange={event => { const nextYear = Number(event.target.value); setWorkspace(null); setIssues([]); setSuccess(''); setYear(nextYear); if (Number(bookingDate.slice(0, 4)) !== nextYear) setBookingDate(`${nextYear}-01-01`) }} /></label>
-    </div>
-
     {sections.metrics && currentWorkspace && <section className="metric-grid" aria-label={t('metrics')}>
       <Metric label={t('assets')} value={currentWorkspace.statements.assetsCents} />
       <Metric label={t('liabilitiesEquity')} value={currentWorkspace.statements.liabilitiesCents + currentWorkspace.statements.equityCents} />

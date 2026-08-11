@@ -6,7 +6,9 @@
   "Navbar": {
     "Accounting": "Accounting",
     "Bookings": "Book",
+    "Booking batches": "Booking batches",
     "Journal": "Journal",
+    "Other": "Other",
     "Receivables": "Customers & open items",
     "Invoices": "Invoices",
     "Banking": "Bank",
@@ -19,7 +21,8 @@
     "Compliance": "Compliance",
     "Create booking record": "Create booking record",
     "Create balance sheet": "Create balance sheet",
-    "Settings": "Settings"
+    "Settings": "Settings",
+    "Users": "Users"
   },
   "FixedAssets": {
     "title": "Fixed-asset register",

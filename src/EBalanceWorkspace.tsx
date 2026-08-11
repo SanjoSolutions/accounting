@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { FiscalYearNavigation } from './FiscalYearNavigation'
 
 type LoadState = 'loading' | 'ready' | 'failed'
 type EricReadiness = { validationReady: boolean; submissionReady: boolean; testMode: boolean; issues: string[] }
@@ -231,7 +230,6 @@ export function EBalanceWorkspace({ year }: { year: number }) {
   const percent = coverage.total ? Math.round(coverage.mapped / coverage.total * 100) : 100
   const lifecycleView = reportLifecycleView(lifecycle, sourceEdited)
   return <div className="workspace pb-4">
-    <FiscalYearNavigation area="e-bilanz" year={year} />
     <header className="page-heading"><div><span className="eyebrow">{t('taxSubmission')}</span><h1>{t('eBalanceYear', { year })}</h1><p>{t('eBalanceSubtitle')}</p></div><span className="taxonomy">{t('taxonomy')} <strong>{lifecycle.taxonomies.find(item => item.validForFiscalPeriodsStartingFrom <= `${year}-12-31` && `${year}-01-01` <= item.validForFiscalPeriodsStartingThrough)?.version ?? '—'}</strong></span></header>
     <div className="ebalance-grid">
       <form className="card panel" onSubmit={download}><div className="panel-title"><div><span className="step">{t('gcdMasterData')}</span><h2>{t('prepareReport')}</h2></div></div>

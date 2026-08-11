@@ -6,7 +6,9 @@
   "Navbar": {
     "Accounting": "Buchführung",
     "Bookings": "Buchen",
+    "Booking batches": "Buchungsstapel",
     "Journal": "Journal",
+    "Other": "Andere",
     "Receivables": "Geschäftspartner & OPOS",
     "Invoices": "Rechnungen",
     "Banking": "Bank",
@@ -19,7 +21,8 @@
     "Compliance": "Compliance",
     "Create booking record": "Buchungssatz erstellen",
     "Create balance sheet": "Bilanz erstellen",
-    "Settings": "Einstellungen"
+    "Settings": "Einstellungen",
+    "Users": "Benutzer"
   },
   "FixedAssets": {
     "title": "Anlagenverzeichnis",

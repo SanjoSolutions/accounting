@@ -2,29 +2,66 @@
 
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
 import type { AuthMode, CurrentUser } from './authenticationPolicy'
 import { authClient } from './auth-client'
-import { defaultFiscalYear } from './FiscalYearNavigation'
+import { defaultFiscalYear, fiscalYearContextFromPath, FiscalYearNavigation } from './FiscalYearNavigation'
 
 export const exportImportHref = '/export-import'
 export const complianceHref = '/compliance'
 export const reportsHref = '/reports'
 export const bookingHref = '/bookings'
+export const bookingBatchesHref = '/booking-batches'
 export const journalHref = '/journal'
 export const receivablesHref = '/receivables'
 export const invoicesHref = '/invoices'
 export const bankingHref = '/banking'
 export const fixedAssetsHref = '/fixed-assets'
-export const accountingNavigation = [
+
+type NavigationItem = { href: string; label: string; activePath?: string }
+
+/** The small set of destinations that stays visible in the primary navbar. */
+export const primaryNavigation = [
   { href: bookingHref, label: 'Bookings' },
+  { href: bookingBatchesHref, label: 'Booking batches' },
   { href: journalHref, label: 'Journal' },
+] as const
+
+/** Static destinations grouped beneath the translated Andere/Other menu. */
+export const otherNavigation = [
   { href: receivablesHref, label: 'Receivables' },
   { href: invoicesHref, label: 'Invoices' },
   { href: bankingHref, label: 'Banking' },
   { href: fixedAssetsHref, label: 'Fixed assets' },
+  { href: exportImportHref, label: 'ExportImport' },
+  { href: complianceHref, label: 'Compliance' },
+  { href: '/settings', label: 'Settings' },
 ] as const
+
+/**
+ * Keep the old export as a compatibility alias for callers that used the
+ * accounting-only navigation list. New code should use primaryNavigation.
+ */
+export const accountingNavigation = primaryNavigation
+
+export function otherNavigationItems(currentYear: number): NavigationItem[] {
+  const operational = otherNavigation.slice(0, 4)
+  const utility = otherNavigation.slice(4)
+  return [
+    ...operational,
+    { href: `/annual-close/${defaultFiscalYear('annual-close', currentYear)}`, activePath: '/annual-close', label: 'Annual close' },
+    { href: `/e-bilanz/${defaultFiscalYear('e-bilanz', currentYear)}`, activePath: '/e-bilanz', label: 'E-balance' },
+    { href: `/tax/${defaultFiscalYear('tax', currentYear)}`, activePath: '/tax', label: 'Tax filings' },
+    { href: `${reportsHref}/${defaultFiscalYear('reports', currentYear)}`, activePath: reportsHref, label: 'Reports' },
+    ...utility,
+  ]
+}
+
+export function navigationItemIsActive(pathname: string, item: Pick<NavigationItem, 'href' | 'activePath'>) {
+  const activePath = item.activePath ?? item.href
+  return pathname === activePath || pathname.startsWith(`${activePath}/`)
+}
 
 export function Navbar({
   authMode,
@@ -37,65 +74,96 @@ export function Navbar({
 }): any {
   const t = useTranslations('Navbar')
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const router = useRouter()
   const [signOutError, setSignOutError] = useState<string | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [otherOpen, setOtherOpen] = useState(false)
+  const otherToggleRef = useRef<HTMLButtonElement>(null)
+  const otherMenuRef = useRef<HTMLUListElement>(null)
 
-  const navClassName = (href: string) =>
-    `nav-link${pathname === href || pathname.startsWith(`${href}/`) ? ' active' : ''}`
-  const year = new Date().getFullYear()
-  const annualCloseYear = defaultFiscalYear('annual-close', year)
-  const eBalanceYear = defaultFiscalYear('e-bilanz', year)
-  const taxYear = defaultFiscalYear('tax', year)
-  const reportsYear = defaultFiscalYear('reports', year)
+  const searchQuery = searchParams.toString()
+  useEffect(() => {
+    setMenuOpen(false)
+    setOtherOpen(false)
+  }, [pathname, searchQuery])
+
+  useEffect(() => {
+    if (!otherOpen) return
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node) || (!otherToggleRef.current?.contains(target) && !otherMenuRef.current?.contains(target))) setOtherOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setOtherOpen(false)
+      requestAnimationFrame(() => otherToggleRef.current?.focus())
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [otherOpen])
+
+  const otherItems = otherNavigationItems(new Date().getFullYear())
+  const fiscalYearContext = fiscalYearContextFromPath(pathname, searchParams.get('year'))
+  const otherActive = otherItems.some(item => navigationItemIsActive(pathname, item))
+  const navClassName = (href: string) => `nav-link${navigationItemIsActive(pathname, { href }) ? ' active' : ''}`
 
   return (
     <nav className="navbar navbar-expand-lg navbar-light bg-light">
       <div className="container-fluid">
-        <Link href="/" className="navbar-brand">{ t('Accounting') }</Link>
+        <Link href="/" className="navbar-brand">{t('Accounting')}</Link>
         <button
           className="navbar-toggler"
           type="button"
-          data-bs-toggle="collapse"
-          data-bs-target="#navbarSupportedContent"
           aria-controls="navbarSupportedContent"
-          aria-expanded="false"
+          aria-expanded={menuOpen}
           aria-label="Toggle navigation"
+          onClick={() => setMenuOpen(open => !open)}
         >
           <span className="navbar-toggler-icon" />
         </button>
-        <div className="collapse navbar-collapse" id="navbarSupportedContent">
+        <div className={`collapse navbar-collapse${menuOpen ? ' show' : ''}`} id="navbarSupportedContent">
           {user && <ul className="navbar-nav me-auto mb-2 mb-lg-0">
-            {accountingNavigation.map(item => <li className="nav-item" key={item.href}>
-              <Link href={item.href} className={navClassName(item.href)}>{t(item.label)}</Link>
+            {primaryNavigation.map(item => <li className="nav-item" key={item.href}>
+              <Link href={item.href} className={navClassName(item.href)} onClick={() => setMenuOpen(false)}>{t(item.label)}</Link>
             </li>)}
-            <li className="nav-item">
-              <Link
-                href={`/annual-close/${annualCloseYear}`}
-                className={navClassName('/annual-close')}
-              >{ t('Annual close') }</Link>
+            <li className={`nav-item dropdown${otherOpen ? ' show' : ''}`}>
+              <button
+                ref={otherToggleRef}
+                type="button"
+                className={`nav-link dropdown-toggle${otherActive ? ' active' : ''}`}
+                aria-expanded={otherOpen}
+                aria-controls="navbar-other-menu"
+                aria-haspopup="true"
+                onClick={() => setOtherOpen(open => !open)}
+              >{t('Other')}</button>
+              <ul ref={otherMenuRef} id="navbar-other-menu" className={`dropdown-menu${otherOpen ? ' show' : ''}`} role="menu" aria-hidden={!otherOpen}>
+                {otherItems.map(item => <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className={`dropdown-item${navigationItemIsActive(pathname, item) ? ' active' : ''}`}
+                    role="menuitem"
+                    onClick={() => { setOtherOpen(false); setMenuOpen(false) }}
+                  >{t(item.label)}</Link>
+                </li>)}
+                {authMode === 'credentials' && <li>
+                  <Link href="/access" className={`dropdown-item${navClassName('/access').includes('active') ? ' active' : ''}`} role="menuitem" onClick={() => { setOtherOpen(false); setMenuOpen(false) }}>{t('Users')}</Link>
+                </li>}
+              </ul>
             </li>
-            <li className="nav-item">
-              <Link href={`/e-bilanz/${eBalanceYear}`} className={navClassName('/e-bilanz')}>{ t('E-balance') }</Link>
-            </li>
-            <li className="nav-item">
-              <Link href={`/tax/${taxYear}`} className={navClassName('/tax')}>{ t('Tax filings') }</Link>
-            </li>
-            <li className="nav-item">
-              <Link href={`${reportsHref}/${reportsYear}`} className={navClassName(reportsHref)}>{ t('Reports') }</Link>
-            </li>
-            <li className="nav-item">
-              <Link href={exportImportHref} className={navClassName(exportImportHref)}>{ t('ExportImport') }</Link>
-            </li>
-            <li className="nav-item">
-              <Link href={complianceHref} className={navClassName(complianceHref)}>{ t('Compliance') }</Link>
-            </li>
-            <li className="nav-item">
-              <Link href="/settings" className={navClassName('/settings')}>{ t('Settings') }</Link>
-            </li>
-            {authMode === 'credentials' && <li className="nav-item">
-              <Link href="/access" className={navClassName('/access')}>Users</Link>
-            </li>}
           </ul>}
+          {user && fiscalYearContext && (
+            <div className="navbar-fiscal-year">
+              <FiscalYearNavigation area={fiscalYearContext.area} year={fiscalYearContext.year} />
+            </div>
+          )}
           {authMode === 'credentials' && (
             user ? (
               <div className="d-flex align-items-center gap-3">

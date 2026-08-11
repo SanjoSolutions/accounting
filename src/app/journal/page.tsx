@@ -1,5 +1,6 @@
 import { AccountingWorkspace } from '@/AccountingWorkspace'
 import { accountingRouteViews } from '@/accountingRoutes'
+import { fiscalYearFromSearchParameter } from '@/fiscalYearRouting'
 import { requirePageUser } from '@/server/authentication'
 
 export default async function JournalPage({ searchParams }: {
@@ -11,7 +12,5 @@ export default async function JournalPage({ searchParams }: {
 }
 
 export function journalYearFromSearchParameter(value: string | string[] | undefined, currentYear = new Date().getFullYear()) {
-  if (typeof value !== 'string' || !/^\d{4}$/.test(value)) return currentYear
-  const year = Number(value)
-  return year >= 1900 && year <= 2200 ? year : currentYear
+  return fiscalYearFromSearchParameter(value, currentYear)
 }

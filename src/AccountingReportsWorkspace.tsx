@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
-import { FiscalYearNavigation } from './FiscalYearNavigation'
 import {
   accountingReportEndpoint,
   filterAccountingReportAccounts,
@@ -157,7 +156,6 @@ export function AccountingReportsWorkspace({ year }: { year: number }) {
   }, [year])
 
   return <div className="workspace pb-4">
-    <FiscalYearNavigation area="reports" year={year} />
     {loading && <p role="status">{t('loading')}</p>}
     {error && <p className="alert alert-danger" role="alert">{t('loadFailed')}</p>}
     {report && <AccountingReportsView report={report} />}

@@ -5,27 +5,17 @@ import type { FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
+import {
+  defaultFiscalYear,
+  fiscalYearContextFromPath,
+  fiscalYearHref,
+  fiscalYearRange,
+  type FiscalYearArea,
+  type FiscalYearContext,
+} from './fiscalYearRouting'
 
-export type FiscalYearArea = 'annual-close' | 'e-bilanz' | 'tax' | 'reports'
-
-const ranges: Record<FiscalYearArea, { min: number; max: number }> = {
-  'annual-close': { min: 1900, max: 2200 },
-  'e-bilanz': { min: 2025, max: 2026 },
-  'tax': { min: 2025, max: 2026 },
-  'reports': { min: 1900, max: 2200 },
-}
-
-export function fiscalYearRange(area: FiscalYearArea) { return ranges[area] }
-export function defaultFiscalYear(area: FiscalYearArea, currentYear: number) {
-  const { min, max } = fiscalYearRange(area)
-  return Math.min(max, Math.max(min, currentYear))
-}
-
-export function fiscalYearHref(area: FiscalYearArea, year: number) {
-  const { min, max } = fiscalYearRange(area)
-  if (!Number.isInteger(year) || year < min || year > max) throw new Error('Invalid fiscal year')
-  return `/${area}/${year}`
-}
+export { defaultFiscalYear, fiscalYearContextFromPath, fiscalYearHref, fiscalYearRange }
+export type { FiscalYearArea, FiscalYearContext }
 
 export function FiscalYearNavigation({ area, year }: { area: FiscalYearArea; year: number }) {
   const t = useTranslations('Workspaces')

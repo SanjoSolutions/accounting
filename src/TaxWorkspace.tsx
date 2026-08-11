@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { FiscalYearNavigation } from './FiscalYearNavigation'
 
 type Workflow = { submissionId: string; kind: string; period: string; state: string; receipt?: string | null; correctsId?: string | null; updatedAt: string }
 type Applicability = { kinds: string[]; deadline: string; professionalValidationRequired: boolean }
@@ -164,7 +163,6 @@ export function TaxWorkspace({ year }: { year: number }) {
   }
 
   return <div className="workspace pb-4">
-    <FiscalYearNavigation area="tax" year={year} />
     <header className="page-heading"><div><span className="eyebrow">{t('eyebrow')}</span><h1>{t('title', { year })}</h1><p>{t('subtitle')}</p></div></header>
     {message && <p className="alert alert-danger" role="status">{message}</p>}
     {gatewayStatus?.mode === 'LOCAL_LIFECYCLE_EMULATOR' && <p className="alert alert-warning" role="status">Local lifecycle emulator: this proves the application workflow, not ELSTER/ERiC interoperability.</p>}
