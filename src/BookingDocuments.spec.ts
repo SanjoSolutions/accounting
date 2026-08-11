@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, test, vi } from 'vitest'
 import de from '../messages/de.json'
 import en from '../messages/en.json'
 import { readFileSync } from 'node:fs'
@@ -128,6 +128,15 @@ describe('booking document selection', () => {
     const uploaded = { id: 'uploaded', url: '/uploaded' }
     const fetched = { id: 'existing', url: '/existing' }
     expect(mergeDocumentLists([uploaded], [fetched])).toEqual([uploaded, fetched])
+  })
+
+  test('enriches draft metadata with the library thumbnail without replacing a selected document', () => {
+    const draftDocument = { id: 'invoice', url: '/api/documents/invoice/file', fileName: 'invoice.pdf' }
+    expect(mergeDocumentLists([draftDocument], [{ ...draftDocument, thumbnailUrl: '/api/documents/invoice/thumbnail', contentType: 'application/pdf' }])).toEqual([{
+      ...draftDocument,
+      thumbnailUrl: '/api/documents/invoice/thumbnail',
+      contentType: 'application/pdf',
+    }])
   })
 
   it('hides documents consumed by a completed posting from the available list', () => {

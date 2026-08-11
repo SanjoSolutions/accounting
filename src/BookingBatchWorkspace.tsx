@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
+import { BookingDocuments, type BookingDocument } from './BookingDocuments'
 
 export type BookingBatchVatTreatment = '' | 'DE_STANDARD_SALE_NET' | 'DE_STANDARD_PURCHASE_NET' | 'DE_STANDARD_SALE_GROSS' | 'DE_STANDARD_PURCHASE_GROSS' | 'EU_13B_SERVICE_RECIPIENT_NET'
 
@@ -30,12 +31,22 @@ export type BookingBatchPosting = {
   lines: BookingBatchLine[]
 }
 
+export type BookingBatchDocument = {
+  id: string
+  url?: string
+  fileName?: string
+  contentType?: string
+  size?: number
+  thumbnailUrl?: string
+}
+
 export type BookingBatchDraft = {
   id: string
   version: number
   status: string
   updatedAt: string
   posting: BookingBatchPosting
+  documents?: BookingBatchDocument[]
 }
 
 export type BookingBatchWorkspaceResponse = {
@@ -57,6 +68,26 @@ export type EditableBookingBatchPosting = {
   description: string
   documentIds: string[]
   lines: EditableBookingBatchLine[]
+}
+
+/** Converts API metadata into the richer document shape used by the picker. */
+export function bookingBatchDocumentForPicker(document: BookingBatchDocument): BookingDocument {
+  return {
+    id: document.id,
+    url: document.url || `/api/documents/${encodeURIComponent(document.id)}/file`,
+    ...(document.fileName ? { fileName: document.fileName } : {}),
+    ...(document.contentType ? { contentType: document.contentType } : {}),
+    ...(document.size === undefined ? {} : { size: document.size }),
+    ...(document.thumbnailUrl ? { thumbnailUrl: document.thumbnailUrl } : {}),
+  }
+}
+
+export function bookingBatchDocumentsForPicker(documents: BookingBatchDocument[] | undefined): BookingDocument[] {
+  return Array.isArray(documents) ? documents.map(bookingBatchDocumentForPicker) : []
+}
+
+export function unlinkBookingBatchDocument(documentIds: string[], documentId: string): string[] {
+  return documentIds.filter(id => id !== documentId)
 }
 
 const emptyLine = (): EditableBookingBatchLine => ({ accountId: '', debit: '', credit: '', vatTreatment: '' })
@@ -205,6 +236,7 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
   const [posting, setPosting] = useState<EditableBookingBatchPosting | null>(null)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
+  const [documentsUploading, setDocumentsUploading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [status, setStatus] = useState('')
@@ -213,6 +245,10 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
   const selectedDraft = drafts.find(draft => draft.id === selectedDraftId) ?? drafts[0]
   const savedPosting = selectedDraft ? editableBookingBatchPosting(selectedDraft.posting) : null
   const dirty = Boolean(posting && savedPosting && JSON.stringify(posting) !== JSON.stringify(savedPosting))
+  const selectedDraftDocuments = useMemo(
+    () => bookingBatchDocumentsForPicker(selectedDraft?.documents),
+    [selectedDraft?.documents],
+  )
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
@@ -272,7 +308,7 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
   }
 
   async function save() {
-    if (!selectedDraft || !posting) return
+    if (!selectedDraft || !posting || documentsUploading) return
     setBusy(true); setError(''); setStatus('')
     try {
       const response = await fetch(`/api/booking-batches/${encodeURIComponent(selectedDraft.id)}`, {
@@ -350,7 +386,14 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
       </aside>
 
       <section className="col-lg-8" aria-label={t('editor')}>
-        {!selectedDraft || !posting ? <div className="card"><div className="card-body text-center text-muted py-5"><i className="bi bi-pencil-square fs-2 d-block mb-2" aria-hidden="true" />{t('selectDraft')}</div></div> : <div className="card">
+        {!selectedDraft || !posting ? <div className="card"><div className="card-body text-center text-muted py-5"><i className="bi bi-pencil-square fs-2 d-block mb-2" aria-hidden="true" />{t('selectDraft')}</div></div> : <BookingDocuments
+          selectedDocumentIds={posting.documentIds}
+          initialDocuments={selectedDraftDocuments}
+          onSelectionChange={documentIds => setPosting(current => current ? { ...current, documentIds } : current)}
+          onUploadingChange={setDocumentsUploading}
+          onRemoveDocument={documentId => setPosting(current => current ? { ...current, documentIds: unlinkBookingBatchDocument(current.documentIds, documentId) } : current)}
+        >
+          <section className="card panel booking-panel">
           <div className="card-body">
             <div className="d-flex justify-content-between align-items-start gap-3 mb-4"><div><span className="eyebrow">{t('editorEyebrow')}</span><h2 className="h4 mb-1">{posting.description || t('untitled')}</h2><p className="small text-muted mb-0">{t('versionLabel', { version: selectedDraft.version })}</p></div><span className={`badge ${draftStatusClass(selectedDraft.status)}`}>{selectedDraft.status === 'DRAFT' ? t('status.DRAFT') : selectedDraft.status}</span></div>
             <form onSubmit={event => { event.preventDefault(); void save() }}>
@@ -359,7 +402,6 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
                 <div className="row g-3 mb-3">
                   <div className="col-md-4"><label htmlFor="booking-batch-date">{t('bookingDate')}<input id="booking-batch-date" className="form-control" required type="date" value={posting.bookingDate} onChange={event => setPosting(current => current ? { ...current, bookingDate: event.target.value } : current)} /></label></div>
                   <div className="col-md-8"><label htmlFor="booking-batch-description">{t('description')}<input id="booking-batch-description" className="form-control" required maxLength={240} value={posting.description} onChange={event => setPosting(current => current ? { ...current, description: event.target.value } : current)} /></label></div>
-                  <div className="col-12"><label htmlFor="booking-batch-documents">{t('documents')}<span className="small text-muted fw-normal">{t('documentsHint')}</span><input id="booking-batch-documents" className="form-control" value={posting.documentIds.join(', ')} onChange={event => setPosting(current => current ? { ...current, documentIds: parseDocumentIds(event.target.value) } : current)} /></label></div>
                 </div>
                 <div className="table-responsive mb-2"><table className="table align-middle booking-batch-lines"><caption className="visually-hidden">{t('lines')}</caption><thead><tr><th scope="col">{t('account')}</th><th scope="col" className="text-end">{t('debit')}</th><th scope="col" className="text-end">{t('credit')}</th><th scope="col">{t('vatTreatment')}</th><th scope="col"><span className="visually-hidden">{t('actions')}</span></th></tr></thead><tbody>
                   {posting.lines.map((line, index) => <tr key={index}><td><label className="visually-hidden" htmlFor={`booking-batch-account-${index}`}>{t('accountLine', { line: index + 1 })}</label><select id={`booking-batch-account-${index}`} className="form-select" required value={line.accountId} onChange={event => updateLine(index, 'accountId', event.target.value)}><option value="">{t('chooseAccount')}</option>{workspace.accounts.map(account => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select></td><td><label className="visually-hidden" htmlFor={`booking-batch-debit-${index}`}>{t('debitLine', { line: index + 1 })}</label><div className="input-group"><input id={`booking-batch-debit-${index}`} className="form-control text-end" inputMode="decimal" min="0" step="0.01" type="number" value={line.debit} onChange={event => updateLine(index, 'debit', event.target.value)} /><span className="input-group-text">€</span></div></td><td><label className="visually-hidden" htmlFor={`booking-batch-credit-${index}`}>{t('creditLine', { line: index + 1 })}</label><div className="input-group"><input id={`booking-batch-credit-${index}`} className="form-control text-end" inputMode="decimal" min="0" step="0.01" type="number" value={line.credit} onChange={event => updateLine(index, 'credit', event.target.value)} /><span className="input-group-text">€</span></div></td><td><label className="visually-hidden" htmlFor={`booking-batch-vat-${index}`}>{t('vatLine', { line: index + 1 })}</label><select id={`booking-batch-vat-${index}`} className="form-select" value={line.vatTreatment} onChange={event => updateLine(index, 'vatTreatment', event.target.value)}><option value="">{t('vatNone')}</option><option value="DE_STANDARD_SALE_NET">{t('vatStandardSaleNet')}</option><option value="DE_STANDARD_PURCHASE_NET">{t('vatStandardPurchaseNet')}</option><option value="DE_STANDARD_SALE_GROSS">{t('vatStandardSaleGross')}</option><option value="DE_STANDARD_PURCHASE_GROSS">{t('vatStandardPurchaseGross')}</option><option value="EU_13B_SERVICE_RECIPIENT_NET">{t('vatEuServiceReverseChargeNet')}</option></select></td><td><button type="button" className="btn btn-outline-secondary" aria-label={t('removeLine', { line: index + 1 })} disabled={posting.lines.length <= 2} onClick={() => setPosting(current => current ? { ...current, lines: current.lines.filter((_, lineIndex) => lineIndex !== index) } : current)}><i className="bi bi-trash" aria-hidden="true" /></button></td></tr>)}
@@ -367,15 +409,12 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
                 <button type="button" className="btn btn-link px-0" onClick={() => setPosting(current => current ? { ...current, lines: [...current.lines, emptyLine()] } : current)}><i className="bi bi-plus-circle me-1" aria-hidden="true" />{t('addLine')}</button>
               </fieldset>
               {dirty && <p className="small text-warning-emphasis mt-3 mb-0" role="status"><i className="bi bi-pencil me-1" aria-hidden="true" />{t('unsavedChanges')}</p>}
-              <div className="d-flex flex-wrap gap-2 align-items-end border-top pt-3 mt-3"><button className="btn btn-primary" type="submit" disabled={busy || !dirty}>{busy ? t('saving') : t('save')}</button><div className="flex-grow-1"><label htmlFor="booking-batch-reason">{t('postReason')}<span className="small text-muted fw-normal">{t('postReasonHint')}</span><input id="booking-batch-reason" className="form-control" value={reason} disabled={busy || dirty} onChange={event => setReason(event.target.value)} /></label></div><button type="button" className="btn btn-success" disabled={busy || dirty} onClick={() => void postToJournal()}><i className="bi bi-journal-check me-1" aria-hidden="true" />{busy ? t('posting') : t('postToJournal')}</button></div>
+              <div className="d-flex flex-wrap gap-2 align-items-end border-top pt-3 mt-3"><button className="btn btn-primary" type="submit" disabled={busy || documentsUploading || !dirty}>{busy ? t('saving') : t('save')}</button><div className="flex-grow-1"><label htmlFor="booking-batch-reason">{t('postReason')}<span className="small text-muted fw-normal">{t('postReasonHint')}</span><input id="booking-batch-reason" className="form-control" value={reason} disabled={busy || dirty} onChange={event => setReason(event.target.value)} /></label></div><button type="button" className="btn btn-success" disabled={busy || documentsUploading || dirty} onClick={() => void postToJournal()}><i className="bi bi-journal-check me-1" aria-hidden="true" />{busy ? t('posting') : t('postToJournal')}</button></div>
             </form>
           </div>
-        </div>}
+          </section>
+        </BookingDocuments>}
       </section>
     </div>}
   </div>
-}
-
-function parseDocumentIds(value: string) {
-  return [...new Set(value.split(/[,\n]/).map(item => item.trim()).filter(Boolean))]
 }

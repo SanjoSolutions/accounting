@@ -18,6 +18,7 @@ export type BookingBatchDocument = {
   fileName?: string
   contentType?: string
   size?: number
+  thumbnailUrl?: string
 }
 
 function requireYear(value: unknown) {
@@ -78,7 +79,7 @@ function safeDocumentMetadata(record: { id: string; payload: string }): BookingB
     // A document payload may be legacy data. The id remains safe metadata.
   }
   const result: BookingBatchDocument = { id: record.id }
-  for (const [target, source] of [['url', 'url'], ['fileName', 'fileName'], ['contentType', 'contentType']] as const) {
+  for (const [target, source] of [['url', 'url'], ['fileName', 'fileName'], ['contentType', 'contentType'], ['thumbnailUrl', 'thumbnailUrl']] as const) {
     if (typeof payload[source] === 'string' && payload[source].trim()) result[target] = payload[source] as string
   }
   if (typeof payload.size === 'number' && Number.isSafeInteger(payload.size) && payload.size >= 0) result.size = payload.size

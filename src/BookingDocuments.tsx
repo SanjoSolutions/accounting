@@ -9,6 +9,7 @@ export type BookingDocument = {
   id: string
   url: string
   fileName?: string
+  contentType?: string
   size?: number
   thumbnailUrl?: string
 }
@@ -18,14 +19,23 @@ const documentColumnStorageKey = 'accounting.bookings.document-column-percent'
 export function BookingDocuments({
   selectedDocumentIds,
   unavailableDocumentIds = [],
+  initialDocuments = [],
   onSelectionChange,
   onUploadingChange,
+  onRemoveDocument,
   children,
 }: {
   selectedDocumentIds: string[]
   unavailableDocumentIds?: string[]
+  /**
+   * Metadata returned with an editable draft. The library request is still
+   * authoritative, but keeping this list makes attached documents visible
+   * while the library is loading and for legacy records without a full URL.
+   */
+  initialDocuments?: BookingDocument[]
   onSelectionChange: (ids: string[]) => void
   onUploadingChange: (uploading: boolean) => void
+  onRemoveDocument?: (id: string) => void
   children: ReactNode
 }) {
   const t = useTranslations('Workspaces')
@@ -34,12 +44,16 @@ export function BookingDocuments({
   const uploadingRef = useRef(false)
   const selectedDocumentIdsRef = useRef(selectedDocumentIds)
   selectedDocumentIdsRef.current = selectedDocumentIds
-  const [documents, setDocuments] = useState<BookingDocument[]>([])
+  const [documents, setDocuments] = useState<BookingDocument[]>(() => initialDocuments)
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const [documentColumnPercent, setDocumentColumnPercent] = useState(60)
+
+  useEffect(() => {
+    if (initialDocuments.length) setDocuments(current => mergeDocumentLists(current, initialDocuments))
+  }, [initialDocuments])
 
   useEffect(() => {
     const saved = parseSavedDocumentColumnPercent(window.localStorage.getItem(documentColumnStorageKey))
@@ -194,8 +208,32 @@ export function BookingDocuments({
       {selectedDocuments.length === 0
         ? <div className="preview-empty"><i className="bi bi-files" /><strong>{t('noSelectedDocuments')}</strong><p>{t('noSelectedDocumentsHelp')}</p></div>
         : <>
-          <div className="document-tabs" role="tablist">{selectedDocuments.map(document => <button key={document.id} type="button" role="tab" aria-selected={document.id === activeDocument?.id} className={document.id === activeDocument?.id ? 'active' : ''} onClick={() => setActiveDocumentId(document.id)}>{document.fileName || t('unnamedDocument')}</button>)}</div>
-          {activeDocument && <><iframe className="document-frame" src={activeDocument.url} title={activeDocument.fileName || t('documentPreview')} /><DocumentExtractionPanel documentId={activeDocument.id} /></>}
+          <div className="document-tabs" role="tablist">{selectedDocuments.map(document => {
+            const name = documentDisplayName(document.fileName || t('unnamedDocument'), t('unnamedDocument'))
+            const active = document.id === activeDocument?.id
+            return <div className={`document-tab${active ? ' active' : ''}`} key={document.id} role="presentation">
+              <button type="button" role="tab" aria-selected={active} className={active ? 'active' : ''} onClick={() => setActiveDocumentId(document.id)}>{name}</button>
+              {onRemoveDocument && <button
+                type="button"
+                className="document-tab-remove"
+                aria-label={t('removeDocument', { name })}
+                title={t('removeDocument', { name })}
+                onClick={() => onRemoveDocument(document.id)}
+              ><i className="bi bi-x-lg" aria-hidden="true" /></button>}
+            </div>
+          })}</div>
+          {activeDocument && <>
+            <div className="document-preview-actions">
+              <a className="btn btn-sm btn-outline-secondary" href={activeDocument.url} target="_blank" rel="noreferrer">
+                <i className="bi bi-box-arrow-up-right me-1" aria-hidden="true" />{t('openDocument')}
+              </a>
+              {onRemoveDocument && <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => onRemoveDocument(activeDocument.id)}>
+                <i className="bi bi-link-45deg me-1" aria-hidden="true" />{t('unlinkDocument')}
+              </button>}
+            </div>
+            <iframe className="document-frame" src={activeDocument.url} title={activeDocument.fileName || t('documentPreview')} />
+            <DocumentExtractionPanel documentId={activeDocument.id} />
+          </>}
         </>}
     </section>
       <div
@@ -335,8 +373,31 @@ export function mergeUploadedDocument(documents: BookingDocument[], uploadedDocu
 }
 
 export function mergeDocumentLists(current: BookingDocument[], fetched: BookingDocument[]): BookingDocument[] {
-  const currentIds = new Set(current.map(document => document.id))
-  return [...current, ...fetched.filter(document => !currentIds.has(document.id))]
+  const merged = [...current]
+  let changed = false
+  for (const document of fetched) {
+    const index = merged.findIndex(currentDocument => currentDocument.id === document.id)
+    if (index < 0) {
+      merged.push(document)
+      changed = true
+      continue
+    }
+    const existing = merged[index]
+    const enriched = {
+      ...existing,
+      ...document,
+      fileName: document.fileName || existing.fileName,
+      contentType: document.contentType || existing.contentType,
+      size: document.size ?? existing.size,
+      thumbnailUrl: document.thumbnailUrl || existing.thumbnailUrl,
+      url: document.url || existing.url,
+    }
+    if (JSON.stringify(existing) !== JSON.stringify(enriched)) {
+      merged[index] = enriched
+      changed = true
+    }
+  }
+  return changed ? merged : current
 }
 
 export function availableBookingDocuments(documents: BookingDocument[], unavailableDocumentIds: ReadonlySet<string>): BookingDocument[] {

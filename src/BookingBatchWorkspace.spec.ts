@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'vitest'
 import {
   bookingBatchDraftsForYear,
+  bookingBatchDocumentForPicker,
+  bookingBatchDocumentsForPicker,
   bookingBatchLineRequest,
   bookingBatchPatchRequest,
   bookingBatchPostRequest,
   bookingBatchVatTreatment,
   bookingBatchYearFromSearchParameter,
   editableBookingBatchPosting,
+  unlinkBookingBatchDocument,
   type BookingBatchDraft,
 } from './BookingBatchWorkspace'
 
@@ -45,6 +48,23 @@ describe('booking batch fiscal-year and draft selection', () => {
 })
 
 describe('booking batch editing requests', () => {
+  test('maps attached document metadata to a viewable picker document without exposing IDs as the UI value', () => {
+    expect(bookingBatchDocumentForPicker({ id: 'invoice/one', fileName: 'Invoice.pdf', contentType: 'application/pdf', size: 42, thumbnailUrl: '/thumb' })).toEqual({
+      id: 'invoice/one',
+      url: '/api/documents/invoice%2Fone/file',
+      fileName: 'Invoice.pdf',
+      contentType: 'application/pdf',
+      size: 42,
+      thumbnailUrl: '/thumb',
+    })
+    expect(bookingBatchDocumentsForPicker(undefined)).toEqual([])
+  })
+
+  test('unlinks only the requested attached document while preserving the other selections', () => {
+    expect(unlinkBookingBatchDocument(['one', 'two', 'one'], 'one')).toEqual(['two'])
+    expect(unlinkBookingBatchDocument(['one', 'two'], 'missing')).toEqual(['one', 'two'])
+  })
+
   test('normalizes cents and VAT metadata into editable fields', () => {
     const editable = editableBookingBatchPosting(draft().posting)
     expect(editable.lines[0]).toEqual({ accountId: 'expense', debit: '119.00', credit: '', vatTreatment: 'DE_STANDARD_PURCHASE_GROSS' })
