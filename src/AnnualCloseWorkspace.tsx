@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { HgbCloseWorkbench } from './HgbCloseWorkbench'
 import { PageHeading } from './PageHeading'
+import { localizeErrorDates } from './errorFormatting'
+import { useRegionalFormat } from './RegionalFormatProvider'
 
 type CloseData = {
   fiscalYear: { year: number; status: string; lockedAt: string | null }
@@ -28,6 +30,7 @@ export function getCloseSteps(data: CloseData | null, t: (key: string) => string
 
 export function AnnualCloseWorkspace({ year }: { year: number }) {
   const t = useTranslations('Workspaces')
+  const { locale } = useRegionalFormat()
   const [data, setData] = useState<CloseData | null>(null)
   const [issues, setIssues] = useState<string[]>([])
   const [closeError, setCloseError] = useState('')
@@ -95,8 +98,8 @@ export function AnnualCloseWorkspace({ year }: { year: number }) {
     <HgbCloseWorkbench year={year} onChanged={() => void load()} />
     <section className={`card panel readiness ${unavailable || displayIssues.length ? 'blocked' : 'ready'}`}>
       <div><span className="step">{t('closeReview')}</span><h2>{transitioning ? t('closingBusy') : unavailable ? t('closeFailed') : displayIssues.length ? t('closeBlockers', { count: displayIssues.length }) : t('readyForApproval')}</h2>
-      {!unavailable && (displayIssues.length ? <ul>{displayIssues.map(issue => <li key={issue}>{issue}</li>)}</ul> : <p>{t('professionalReviewNote')}</p>)}</div>
-      {closeError && <p className="alert alert-danger" role="alert">{closeError}</p>}
+      {!unavailable && (displayIssues.length ? <ul>{displayIssues.map(issue => <li key={issue}>{localizeErrorDates(issue, locale)}</li>)}</ul> : <p>{t('professionalReviewNote')}</p>)}</div>
+      {closeError && <p className="alert alert-danger" role="alert">{localizeErrorDates(closeError, locale)}</p>}
       <div className="action-stack"><Link className="btn btn-outline-secondary" href={`/e-bilanz/${year}`}>{t('reviewEBalance')}</Link><button className="btn btn-primary" disabled={!canCloseYear(data, displayIssues, loading, busy, year, hgbReady)} onClick={close}>{data?.fiscalYear.status === 'CLOSED' ? t('yearLocked') : busy ? t('closingBusy') : t('reviewAndLock')}</button></div>
     </section>
   </div>

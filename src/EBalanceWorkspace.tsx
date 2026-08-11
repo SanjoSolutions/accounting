@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { PageHeading } from './PageHeading'
+import { LocalDateTime } from './LocalDate'
 
 type LoadState = 'loading' | 'ready' | 'failed'
 type EricReadiness = { validationReady: boolean; submissionReady: boolean; testMode: boolean; issues: string[] }
@@ -261,7 +262,7 @@ export function EBalanceWorkspace({ year }: { year: number }) {
         <div className="mt-3 mb-3"><label className="form-label" htmlFor="e-balance-certificate-pin">{t('certificatePin')}</label><input id="e-balance-certificate-pin" className="form-control" type="password" autoComplete="off" value={pin} onChange={event => { setPin(event.target.value); prepareCorrectedAttempt() }} /></div>
         <div className="form-check mb-3"><input id="e-balance-submission-confirmation" className="form-check-input" type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><label className="form-check-label" htmlFor="e-balance-submission-confirmation">{t('submissionConfirmation')}</label></div>
         <button type="button" className="btn btn-primary w-100" disabled={!canSubmitEBalance(eric.submissionReady, fiscalYearStatus, confirmed, pin, history.some(item => item.kind === 'SUBMISSION' && isActiveSubmissionStatus(item.status)), submissionUncertain) || !canRunEBalanceAction(combinedLoadState(ledgerLoadState, masterDataLoadState), ledgerIssues, ericBusy)} onClick={() => void processWithEric(true)}>{t('submitBinding')}</button>
-        {history.length > 0 && <div><h3>{t('submissionHistory')}</h3><ul>{history.map(item => <li key={item.id}><strong>{item.kind === 'SUBMISSION' ? t('submission') : t('validation')}</strong> · {item.status} · {new Date(item.createdAt).toLocaleString()} {item.ericMessage ? `— ${item.ericMessage}` : ''}</li>)}</ul></div>}
+        {history.length > 0 && <div><h3>{t('submissionHistory')}</h3><ul>{history.map(item => <li key={item.id}><strong>{item.kind === 'SUBMISSION' ? t('submission') : t('validation')}</strong> · {item.status} · <LocalDateTime value={item.createdAt} /> {item.ericMessage ? `— ${item.ericMessage}` : ''}</li>)}</ul></div>}
         <div className="legal-note"><strong>{t('productBoundary')}</strong><p>{t('ericBoundary')}</p></div>
       </section>
       <section className="card panel"><div className="panel-title"><div><span className="step">{t('lifecycleEvidence')}</span><h2>{t('immutableReportVersions')}</h2></div><span className="badge text-bg-secondary">{lifecycle.reports.length}</span></div>

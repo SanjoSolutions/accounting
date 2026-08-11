@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useInputStateHandler } from './useInputStateHandler'
 import { api, getJSON } from './Requester'
+import { useRegionalFormat } from './RegionalFormatProvider'
+import { regionalFormats, resolveRegionalFormat } from './regionalFormat'
 import {
   chartOfAccountsStandards,
   chartOfAccountsStandardLabel,
@@ -12,6 +14,7 @@ import {
 
 export function Settings(): any {
   const t = useTranslations('Settings')
+  const { preference: regionalFormat, setPreference: setRegionalFormat } = useRegionalFormat()
 
   const [isLoading, setIsLoading] = useState(true)
   const [isFirstRender, setIsFirstRender] = useState(true)
@@ -33,6 +36,10 @@ export function Settings(): any {
   const [euAcquisitionInputAccount, setEuAcquisitionInputAccount, onEuAcquisitionInputAccountChange] = useInputStateHandler('')
   const [euAcquisitionOutputAccount, setEuAcquisitionOutputAccount, onEuAcquisitionOutputAccountChange] = useInputStateHandler('')
   const nameElement = useRef<HTMLInputElement | null>(null)
+
+  const onRegionalFormatChange = useCallback((value: string) => {
+    void setRegionalFormat(resolveRegionalFormat(value))
+  }, [setRegionalFormat])
 
   useEffect(() => {
     async function loadData() {
@@ -195,6 +202,15 @@ export function Settings(): any {
                 <label htmlFor="euAcquisitionOutputAccount" className="form-label mt-2">{t('EU acquisition output account')}</label>
                 <input id="euAcquisitionOutputAccount" className="form-control" inputMode="numeric" pattern="[0-9]+" value={euAcquisitionOutputAccount} onChange={onEuAcquisitionOutputAccountChange} />
               </div>
+            </fieldset>
+
+            <fieldset className="mb-3">
+              <legend>{t('Regional format')}</legend>
+              <p className="form-text">{t('Regional format hint')}</p>
+              <label htmlFor="regional-format" className="form-label">{t('Regional format')}</label>
+              <select id="regional-format" className="form-select" value={regionalFormat} onChange={event => onRegionalFormatChange(event.target.value)}>
+                {regionalFormats.map(format => <option key={format} value={format}>{t(`regionalFormat.${format}`)}</option>)}
+              </select>
             </fieldset>
 
             <div className="text-end">

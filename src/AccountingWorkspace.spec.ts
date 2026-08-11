@@ -39,20 +39,20 @@ describe('accounting workspace request ordering', () => {
     expect(workspaceSections('dashboard')).toEqual({ booking: false, journal: false, metrics: true })
   })
 
-  it('shows all imported Lexware dates and period while keeping manual entries compact', () => {
+  test('keeps imported Lexware calendar values canonical for browser-local rendering while keeping manual entries compact', () => {
     expect(journalEntrySourceMetadata({
       bookingDate: '2025-02-14',
       sourcePostingDate: '2025-02-15',
       sourceJournalDate: '2025-02-16',
       sourcePeriod: 2,
     })).toEqual([
-      { label: 'sourcePostingDate', value: '15.02.2025' },
-      { label: 'sourceJournalDate', value: '16.02.2025' },
-      { label: 'voucherDate', value: '14.02.2025' },
+      { label: 'sourcePostingDate', value: '2025-02-15', date: '2025-02-15' },
+      { label: 'sourceJournalDate', value: '2025-02-16', date: '2025-02-16' },
+      { label: 'voucherDate', value: '2025-02-14', date: '2025-02-14' },
       { label: 'sourcePeriod', value: 2 },
     ])
     expect(journalEntrySourceMetadata({ bookingDate: '2025-02-14' })).toEqual([
-      { label: null, value: '14.02.2025' },
+      { label: null, value: '2025-02-14', date: '2025-02-14' },
     ])
   })
 

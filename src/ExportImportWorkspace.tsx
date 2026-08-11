@@ -3,9 +3,12 @@
 import { useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { PageHeading } from './PageHeading'
+import { localizeErrorDates } from './errorFormatting'
+import { useRegionalFormat } from './RegionalFormatProvider'
 
 export function ExportImportWorkspace() {
   const t = useTranslations('Workspaces')
+  const { locale } = useRegionalFormat()
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [issues, setIssues] = useState<string[]>([])
@@ -64,7 +67,7 @@ export function ExportImportWorkspace() {
           <button className="btn btn-primary" disabled={busy || files.length === 0 || format === 'UNKNOWN'}>{busy ? t('accountingImportBusy') : t('accountingImportAction')}</button>
         </div>
         {files.length > 0 && <p className="badge text-bg-light hint">{t('accountingFilesSelected', { count: files.length, format: formatLabel(format) })}</p>}
-        {issues.length > 0 && <div className="alert alert-danger" role="alert"><strong>{t('pleaseReview')}</strong><ul>{issues.map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
+        {issues.length > 0 && <div className="alert alert-danger" role="alert"><strong>{t('pleaseReview')}</strong><ul>{issues.map(issue => <li key={issue}>{localizeErrorDates(issue, locale)}</li>)}</ul></div>}
         {success && <p className="alert alert-success" role="status">{success}</p>}
       </form>
     </section>

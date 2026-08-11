@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, test, vi } from 'vitest'
 import enMessages from '../messages/en.json'
 import deMessages from '../messages/de.json'
-import { complianceHref, complianceOperationExamples, compliancePolicyRequest, historicalHgbOnboardingRequests, parseJsonObject, preparedAnnualPackages, profileRefreshMayApply, requestComplianceAction, requireEffectiveDate, supportsCapitalCompanyTaxProfile } from './ComplianceWorkspace'
+import { complianceHref, complianceOperationExamples, compliancePolicyRequest, historicalHgbOnboardingRequests, localizedComplianceJson, parseJsonObject, preparedAnnualPackages, profileRefreshMayApply, requestComplianceAction, requireEffectiveDate, supportsCapitalCompanyTaxProfile } from './ComplianceWorkspace'
 
 describe('tenant compliance workspace', () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -71,6 +71,14 @@ describe('tenant compliance workspace', () => {
     await expect(requestComplianceAction({ action: 'period.create', ownerId: 'ignored-by-route' })).resolves.toEqual({ id: 'period' })
     expect(fetch).toHaveBeenCalledWith('/api/compliance', expect.objectContaining({ method: 'POST' }))
     await expect(requestComplianceAction({ action: 'period.reopen.decide' })).rejects.toThrow(/Four-eyes/)
+  })
+
+  test('localizes structured status dates without changing non-date fields', () => {
+    const formatted = localizedComplianceJson([{ id: 'artifact-1', retainUntil: '2026-08-09', createdAt: '2026-08-09T10:15:00.000Z', status: 'ACTIVE' }], 'de-DE')
+
+    expect(formatted).toContain('09.08.2026')
+    expect(formatted).toContain('artifact-1')
+    expect(formatted).toContain('ACTIVE')
   })
 })
 

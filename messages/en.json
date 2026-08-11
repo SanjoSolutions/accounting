@@ -716,6 +716,13 @@
     "EU acquisition hint": "Separate controls for intra-community acquisitions from other EU member countries. Enter the exact approved accounts for 19% acquisition VAT and deductible input VAT; the software does not infer them.",
     "EU acquisition input account": "Intra-community acquisition deductible input VAT account (19%)",
     "EU acquisition output account": "Intra-community acquisition VAT liability account (19%)",
+    "Regional format": "Regional format",
+    "Regional format hint": "Controls dates, times, numbers, percentages, and currency display independently of the interface language.",
+    "regionalFormat": {
+      "system": "System / browser default",
+      "de-DE": "German (Germany)",
+      "en-US": "English (United States)"
+    },
     "Save": "Save",
     "Load failed": "Settings could not be loaded."
   },
@@ -994,6 +1001,7 @@
     "empty": "No open booking drafts",
     "emptyHint": "New bookings appear here for review.",
     "untitled": "Untitled booking",
+    "updatedAtLabel": "Updated",
     "updatedAt": "Updated {date}",
     "editor": "Edit booking draft",
     "selectDraft": "Select a draft to edit it.",

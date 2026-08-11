@@ -2,7 +2,11 @@ const dateOnlyPattern = /^(\d{4})-(\d{2})-(\d{2})$/
 
 export type DisplayDateFormatter = (date: Date) => string
 
-function parseDisplayDate(value: string): Date {
+export const displayDateOptions: Intl.DateTimeFormatOptions = { dateStyle: 'medium' }
+export const displayDateTimeOptions: Intl.DateTimeFormatOptions = { dateStyle: 'medium', timeStyle: 'short' }
+
+/** Parses a date-only API value as a local calendar date, avoiding UTC day shifts. */
+export function parseDisplayDate(value: string): Date {
   const dateOnly = dateOnlyPattern.exec(value)
   if (!dateOnly) return new Date(value)
 
@@ -18,12 +22,42 @@ function parseDisplayDate(value: string): Date {
     : new Date(Number.NaN)
 }
 
-function browserDisplayDateFormatter(date: Date): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
+function browserDisplayDateFormatter(date: Date, locale?: string): string {
+  return new Intl.DateTimeFormat(locale, displayDateOptions).format(date)
+}
+
+function browserDisplayDateTimeFormatter(date: Date, locale?: string): string {
+  return new Intl.DateTimeFormat(locale, displayDateTimeOptions).format(date)
 }
 
 /** Formats an API date for display using the browser's locale while preserving invalid values. */
 export function formatDisplayDate(value: string, formatter: DisplayDateFormatter = browserDisplayDateFormatter): string {
   const date = parseDisplayDate(value)
   return Number.isNaN(date.valueOf()) ? value : formatter(date)
+}
+
+/** Formats with an explicit regional locale while keeping date-only values local-calendar-safe. */
+export function formatDisplayDateForLocale(value: string, locale?: string): string {
+  return formatDisplayDate(value, date => browserDisplayDateFormatter(date, locale))
+}
+
+/** Formats an API instant for display using the browser's locale and time zone. */
+export function formatDisplayDateTime(value: string, formatter: DisplayDateFormatter = browserDisplayDateTimeFormatter): string {
+  const date = parseDisplayDate(value)
+  return Number.isNaN(date.valueOf()) ? value : formatter(date)
+}
+
+/** Formats an instant with an explicit regional locale and the browser time zone. */
+export function formatDisplayDateTimeForLocale(value: string, locale?: string): string {
+  return formatDisplayDateTime(value, date => browserDisplayDateTimeFormatter(date, locale))
+}
+
+/** Escapes JSON for safe insertion into an inline script. */
+export function serializeInlineScriptValue(value: unknown): string {
+  return (JSON.stringify(value) ?? 'null')
+    .replaceAll('<', '\\u003c')
+    .replaceAll('>', '\\u003e')
+    .replaceAll('&', '\\u0026')
+    .replaceAll('\u2028', '\\u2028')
+    .replaceAll('\u2029', '\\u2029')
 }

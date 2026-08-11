@@ -11,6 +11,7 @@ import {
   type AccountingReportResponse,
 } from './accountingReports'
 import { PageHeading } from './PageHeading'
+import { LocalDate } from './LocalDate'
 
 function formatAddress(address: AccountingReportAddress) {
   return `${address.street} ${address.houseNumber}, ${address.postalCode} ${address.city}${address.region ? `, ${address.region}` : ''}`
@@ -29,9 +30,9 @@ function EntryRows({ entries, currency, voucherLabel }: {
   voucherLabel: string
 }) {
   return entries.map(entry => <tr key={entry.id}>
-    <td>{entry.sourcePostingDate ?? '—'}</td>
-    <td>{entry.sourceJournalDate ?? '—'}</td>
-    <td>{entry.voucherDate}</td>
+    <td>{entry.sourcePostingDate ? <LocalDate value={entry.sourcePostingDate} /> : '—'}</td>
+    <td>{entry.sourceJournalDate ? <LocalDate value={entry.sourceJournalDate} /> : '—'}</td>
+    <td><LocalDate value={entry.voucherDate} /></td>
     <td>{entry.sourcePeriod ?? '—'}</td>
     <td><Link href={entry.journalVoucherHref}>{voucherLabel}: {entry.voucherNumber}</Link></td>
     <td>{entry.postingText}</td>
@@ -66,7 +67,7 @@ export function AccountingReportsView({ report }: { report: AccountingReportResp
       <section className="card panel">
         <h2>{t('setup')}</h2>
         <dl className="report-definition-list">
-          <dt>{t('fiscalPeriod')}</dt><dd>{report.setup.fiscalYearStartsAt} – {report.setup.fiscalYearEndsAt}</dd>
+          <dt>{t('fiscalPeriod')}</dt><dd><LocalDate value={report.setup.fiscalYearStartsAt} /> – <LocalDate value={report.setup.fiscalYearEndsAt} /></dd>
           <dt>{t('chart')}</dt><dd>{report.setup.chart}</dd>
           <dt>{t('accountingMethod')}</dt><dd>{report.setup.accountingMethod}</dd>
           <dt>{t('profitDetermination')}</dt><dd>{report.setup.profitDetermination}</dd>
@@ -92,7 +93,7 @@ export function AccountingReportsView({ report }: { report: AccountingReportResp
       <h2>{t('trialBalance')}</h2>
       <div className="table-responsive"><table className="table">
         <thead><tr><th>{t('account')}</th><th>{t('name')}</th><th>{t('lastBookingDate')}</th><th className="text-end">{t('openingDebit')}</th><th className="text-end">{t('openingCredit')}</th><th className="text-end">{t('annualDebit')}</th><th className="text-end">{t('annualCredit')}</th><th className="text-end">{t('cumulativeDebit')}</th><th className="text-end">{t('cumulativeCredit')}</th><th className="text-end">{t('closingDebit')}</th><th className="text-end">{t('closingCredit')}</th></tr></thead>
-        <tbody>{report.trialBalance.map(row => <tr key={row.accountNumber}><td>{row.accountNumber}</td><td>{row.accountName}</td><td>{row.lastBookingDate ?? '—'}</td>{[row.openingDebitCents, row.openingCreditCents, row.annualDebitCents, row.annualCreditCents, row.cumulativeDebitCents, row.cumulativeCreditCents, row.closingDebitCents, row.closingCreditCents].map((cents, index) => <td className="text-end" key={index}><Money cents={cents} currency={currency} /></td>)}</tr>)}</tbody>
+        <tbody>{report.trialBalance.map(row => <tr key={row.accountNumber}><td>{row.accountNumber}</td><td>{row.accountName}</td><td>{row.lastBookingDate ? <LocalDate value={row.lastBookingDate} /> : '—'}</td>{[row.openingDebitCents, row.openingCreditCents, row.annualDebitCents, row.annualCreditCents, row.cumulativeDebitCents, row.cumulativeCreditCents, row.closingDebitCents, row.closingCreditCents].map((cents, index) => <td className="text-end" key={index}><Money cents={cents} currency={currency} /></td>)}</tr>)}</tbody>
       </table></div>
     </section>
 

@@ -716,6 +716,13 @@
     "EU acquisition hint": "Separate Konten für innergemeinschaftliche Erwerbe aus anderen EU-Mitgliedstaaten. Erfassen Sie die fachlich freigegebenen Konten für Erwerbsteuer und abziehbare Vorsteuer zu 19 %; die Software leitet sie nicht ab.",
     "EU acquisition input account": "Konto abziehbare Vorsteuer aus innergemeinschaftlichem Erwerb (19 %)",
     "EU acquisition output account": "Konto Umsatzsteuer auf innergemeinschaftlichen Erwerb (19 %)",
+    "Regional format": "Regionales Format",
+    "Regional format hint": "Steuert Datums-, Zeit-, Zahlen-, Prozent- und Währungsdarstellung unabhängig von der Oberflächensprache.",
+    "regionalFormat": {
+      "system": "System-/Browserstandard",
+      "de-DE": "Deutsch (Deutschland)",
+      "en-US": "Englisch (USA)"
+    },
     "Save": "Speichern",
     "Load failed": "Die Einstellungen konnten nicht geladen werden."
   },
@@ -994,6 +1001,7 @@
     "empty": "Keine offenen Buchungsentwürfe",
     "emptyHint": "Neue Buchungen erscheinen hier zur Prüfung.",
     "untitled": "Ohne Buchungstext",
+    "updatedAtLabel": "Geändert am",
     "updatedAt": "Geändert am {date}",
     "editor": "Buchungsentwurf bearbeiten",
     "selectDraft": "Wählen Sie einen Entwurf aus, um ihn zu bearbeiten.",

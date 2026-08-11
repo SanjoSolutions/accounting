@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useTranslations } from 'next-intl'
 import { PageHeading } from './PageHeading'
+import { formatDisplayDateForLocale, formatDisplayDateTimeForLocale } from './dateFormatting'
+import { useRegionalFormat } from './RegionalFormatProvider'
+import { localizeErrorDates } from './errorFormatting'
 
 type Profile = {
   companyName: string; legalForm: string; registerCourt?: string; registerNumber?: string; taxNumber: string; vatId?: string; taxOffice: string
@@ -42,6 +45,7 @@ export async function requestComplianceAction(payload: Record<string, unknown>) 
 
 export function ComplianceWorkspace() {
   const t = useTranslations('Compliance')
+  const { locale } = useRegionalFormat()
   const [overview, setOverview] = useState<Overview | null>(null)
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE)
   const [reason, setReason] = useState('')
@@ -167,7 +171,7 @@ export function ComplianceWorkspace() {
     <PageHeading title={t('title')} subtitle={t('subtitle')}>
       <button type="button" className="btn btn-outline-secondary" disabled={busy} onClick={() => void refresh()}>{t('refresh')}</button>
     </PageHeading>
-    {error && <div className="alert alert-danger" role="alert">{error}</div>}
+    {error && <div className="alert alert-danger" role="alert">{localizeErrorDates(error, locale)}</div>}
     {success && <p className="alert alert-success" role="status">{success}</p>}
 
     <section className="card panel"><div className="panel-title"><div><span className="step">1</span><h2>{t('profile')}</h2></div><span className={`badge status ${overview?.audit.verified ? 'closed' : 'open'}`}>{overview?.audit.verified ? t('auditVerified') : t('auditUnverified')}</span></div>
@@ -216,24 +220,24 @@ export function ComplianceWorkspace() {
 
     <section className="card panel"><div className="panel-title"><div><span className="step">2</span><h2>{t('periods')}</h2></div><span className="badge text-bg-light hint">{t('periodHint')}</span></div>
       <form onSubmit={createPeriod}><div className="form-grid"><Text label={t('referenceYear')} type="number" value={String(period.referenceYear)} onChange={referenceYear => setPeriod({ ...period, referenceYear: Number(referenceYear) })} /><Text label={t('label')} value={period.label} onChange={label => setPeriod({ ...period, label })} /><Text label={t('startsAt')} type="date" value={period.startsAt} onChange={startsAt => setPeriod({ ...period, startsAt })} /><Text label={t('endsAt')} type="date" value={period.endsAt} onChange={endsAt => setPeriod({ ...period, endsAt })} /><Text label={t('reason')} value={period.reason} onChange={reason => setPeriod({ ...period, reason })} required /></div><button className="btn btn-primary" disabled={busy}>{t('createPeriod')}</button></form>
-      <ul className="history-list">{overview?.periods.map(item => <li key={item.id}><strong>{item.label}</strong> · {item.startsAt}–{item.endsAt} · {item.status}<br/><code>{item.id}</code></li>)}</ul>
+      <ul className="history-list">{overview?.periods.map(item => <li key={item.id}><strong>{item.label}</strong> · {formatDisplayDateForLocale(item.startsAt, locale)}–{formatDisplayDateForLocale(item.endsAt, locale)} · {item.status}<br/><code>{item.id}</code></li>)}</ul>
     </section>
 
     <section className="card panel"><div className="panel-title"><div><span className="step">3</span><h2>{t('chartLifecycle')}</h2></div><span className="badge text-bg-light hint">{overview?.chart?.chart ?? '—'}</span></div>
       <form onSubmit={activateCustomChart}><div className="form-grid"><Text label={t('customChartId')} value={customChartId} onChange={setCustomChartId} required /><Text label={t('mappingEffectiveFrom')} type="date" value={mappingEffectiveFrom} onChange={setMappingEffectiveFrom} required /><label className="full-width">{t('mappingJson')}<textarea className="form-control" rows={8} value={customMappings} onChange={event => setCustomMappings(event.target.value)} /></label><Text label={t('changeReason')} value={reason} onChange={setReason} required /></div><button className="btn btn-primary" disabled={busy}>{t('activateChart')}</button></form>
-      <details><summary>{t('mappingHistory')} ({overview?.chart?.mappings.length ?? 0})</summary><pre>{JSON.stringify(overview?.chart?.mappings ?? [], null, 2)}</pre></details>
+      <details><summary>{t('mappingHistory')} ({overview?.chart?.mappings.length ?? 0})</summary><pre>{localizedComplianceJson(overview?.chart?.mappings ?? [], locale)}</pre></details>
       <form onSubmit={onboardHistoricalHgb} className="mt-4"><fieldset><legend>{t('historicalHgbLegend')}</legend><p>{t('historicalHgbDescription')}</p><div className="form-grid"><Text label={t('historicalHgbYears')} value={historicalHgbYears} onChange={setHistoricalHgbYears} required /><Text label={t('retainedEvidenceDocumentId')} value={historicalHgbEvidenceId} onChange={setHistoricalHgbEvidenceId} required /><Text label={t('changeReason')} value={reason} onChange={setReason} required /></div><button className="btn btn-outline-primary" disabled={busy || refreshing}>{t('onboardHistoricalHgb')}</button></fieldset></form>
     </section>
 
     <section className="card panel"><div className="panel-title"><div><span className="step">4</span><h2>{t('workflows')}</h2></div><span className="badge text-bg-light hint">{t('workflowHint')}</span></div>
       <form onSubmit={saveOperatorPolicy} className="mb-4"><fieldset><legend>{t('policyLegend')}</legend><div className="form-grid"><Text label={t('operatorUserIds')} value={policyOperators} onChange={setPolicyOperators} required /><Text label={t('allowedStorageRegions')} value={policyRegions} onChange={setPolicyRegions} required /><Text label={t('recoveryPointObjective')} type="number" value={String(policyRpo)} onChange={value => setPolicyRpo(Number(value))} required /><Text label={t('recoveryTimeObjective')} type="number" value={String(policyRto)} onChange={value => setPolicyRto(Number(value))} required /><Text label={t('backupKeyId')} value={policyKeyId} onChange={setPolicyKeyId} required /><Text label={t('policyReason')} value={policyReason} onChange={setPolicyReason} required /></div><button className="btn btn-outline-primary" disabled={busy}>{t('savePolicy')}</button></fieldset></form>
-      <div className="form-grid mb-4"><form onSubmit={createAnnualPackage}><fieldset><legend>{t('annualPackageLegend')}</legend><label>{t('fiscalPeriod')}<select className="form-select" value={annualPackagePeriodId} onChange={event => setAnnualPackagePeriodId(event.target.value)} required><option value="">{t('selectPeriod')}</option>{overview?.periods.map(item => <option key={item.id} value={item.id}>{item.label} · {item.startsAt}–{item.endsAt}</option>)}</select></label><Text label={t('preparationReason')} value={annualPackageReason} onChange={setAnnualPackageReason} required /><button className="btn btn-primary" disabled={busy || !annualPackagePeriodId}>{t('prepareAnnualAccounts')}</button></fieldset></form>
+      <div className="form-grid mb-4"><form onSubmit={createAnnualPackage}><fieldset><legend>{t('annualPackageLegend')}</legend><label>{t('fiscalPeriod')}<select className="form-select" value={annualPackagePeriodId} onChange={event => setAnnualPackagePeriodId(event.target.value)} required><option value="">{t('selectPeriod')}</option>{overview?.periods.map(item => <option key={item.id} value={item.id}>{item.label} · {formatDisplayDateForLocale(item.startsAt, locale)}–{formatDisplayDateForLocale(item.endsAt, locale)}</option>)}</select></label><Text label={t('preparationReason')} value={annualPackageReason} onChange={setAnnualPackageReason} required /><button className="btn btn-primary" disabled={busy || !annualPackagePeriodId}>{t('prepareAnnualAccounts')}</button></fieldset></form>
       <form onSubmit={approveAnnualPackage}><fieldset><legend>{t('annualApprovalLegend')}</legend><label>{t('preparedAnnualPackage')}<select className="form-select" value={approvalPackageId} onChange={event => setApprovalPackageId(event.target.value)} required><option value="">{t('selectPreparedPackage')}</option>{preparedAnnualPackages(overview?.reportingPackages ?? []).map(item => <option key={item.id} value={item.id}>{t('version', { version: item.version })} · {item.id}</option>)}</select></label><Text label={t('approvalReason')} value={approvalReason} onChange={setApprovalReason} required /><button className="btn btn-primary" disabled={busy || !approvalPackageId}>{t('approveAnnualAccounts')}</button></fieldset></form></div>
       <form onSubmit={runOperation}><div className="form-grid"><label>{t('operation')}<select className="form-select" value={operation} onChange={event => setOperation(event.target.value)}>{Object.keys(operationExamples).map(name => <option key={name}>{name}</option>)}</select></label><label className="full-width">{t('operationPayload')}<textarea className="form-control" rows={12} value={operationPayload} onChange={event => setOperationPayload(event.target.value)} /></label></div><button className="btn btn-primary" disabled={busy}>{t('execute')}</button></form>
       {downloadableGobdPackages(overview?.reportingPackages ?? []).length > 0 && <div className="mt-4"><h3>{t('gobdPackages')}</h3><ul className="history-list">{downloadableGobdPackages(overview?.reportingPackages ?? []).map(item => <li key={item.id}><strong>{item.kind === 'AUDIT_EXPORT' ? t('auditExport') : t('migrationExport')} {t('version', { version: item.version })}</strong> · <code>{item.checksum}</code><br/><a className="btn btn-outline-secondary" href={`/api/compliance/packages/${encodeURIComponent(item.id)}`} download>{t('downloadVerifiedGobdPackage')}</a></li>)}</ul></div>}
-      <div className="compliance-status-grid"><StatusList title={t('drafts')} items={overview?.operations.drafts ?? []} /><StatusList title={t('reopenRequests')} items={overview?.operations.reopenRequests ?? []} /><StatusList title={t('amendments')} items={overview?.operations.amendments ?? []} /><StatusList title={t('profileAddressMigrations')} items={overview?.operations.profileAddressMigrations ?? []} /><StatusList title={t('retainedArtifacts')} items={overview?.operations.artifacts ?? []} /><StatusList title={t('backups')} items={overview?.operations.backups ?? []} /></div>
+      <div className="compliance-status-grid"><StatusList title={t('drafts')} items={overview?.operations.drafts ?? []} locale={locale} /><StatusList title={t('reopenRequests')} items={overview?.operations.reopenRequests ?? []} locale={locale} /><StatusList title={t('amendments')} items={overview?.operations.amendments ?? []} locale={locale} /><StatusList title={t('profileAddressMigrations')} items={overview?.operations.profileAddressMigrations ?? []} locale={locale} /><StatusList title={t('retainedArtifacts')} items={overview?.operations.artifacts ?? []} locale={locale} /><StatusList title={t('backups')} items={overview?.operations.backups ?? []} locale={locale} /></div>
       {overview?.operations.backups[0] && <p><a className="btn btn-outline-secondary" href={`/api/compliance/backups/${overview.operations.backups[0].id}`} download>{t('downloadBackup')}</a></p>}
-      <details><summary>{t('operatorPolicy')}</summary><pre>{JSON.stringify(overview?.operations.policy ?? null, null, 2)}</pre></details>
+      <details><summary>{t('operatorPolicy')}</summary><pre>{localizedComplianceJson(overview?.operations.policy ?? null, locale)}</pre></details>
     </section>
   </div>
 }
@@ -241,7 +245,22 @@ export function ComplianceWorkspace() {
 function Text({ label, value, onChange, required = false, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; type?: string }) { return <label>{label}<input className="form-control" type={type} required={required} value={value} onChange={event => onChange(event.target.value)} /></label> }
 function Select({ label, value, values, onChange }: { label: string; value: string; values: string[]; onChange: (value: string) => void }) { return <label>{label}<select className="form-select" value={value} onChange={event => onChange(event.target.value)}>{values.map(item => <option key={item}>{item}</option>)}</select></label> }
 function BooleanFact({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) { return <label className="form-check"><input className="form-check-input" type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} /> {label}</label> }
-function StatusList({ title, items }: { title: string; items: unknown[] }) { return <div><h3>{title}</h3>{items.length ? <pre>{JSON.stringify(items, null, 2)}</pre> : <p>—</p>}</div> }
+const instantDateKeys = new Set(['createdAt', 'updatedAt', 'requestedAt', 'respondedAt', 'verifiedAt', 'restoredAt', 'changedAt', 'approvedAt', 'signedAt', 'occurredAt'])
+const calendarDateKeys = new Set(['bookingDate', 'postingDate', 'sourcePostingDate', 'sourceJournalDate', 'voucherDate', 'dueDate', 'paymentDueDate', 'issuedOn', 'issueDate', 'deadline', 'startsAt', 'endsAt', 'effectiveFrom', 'effectiveTo', 'retainUntil', 'legalHoldUntil', 'disposedAt', 'recoveryPointAt', 'disposedOn', 'businessDate'])
+
+function localizeComplianceValue(value: unknown, key: string | undefined, locale: string): unknown {
+  if (typeof value === 'string' && key && instantDateKeys.has(key)) return formatDisplayDateTimeForLocale(value, locale)
+  if (typeof value === 'string' && key && calendarDateKeys.has(key)) return formatDisplayDateForLocale(value, locale)
+  if (Array.isArray(value)) return value.map(item => localizeComplianceValue(item, undefined, locale))
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, localizeComplianceValue(childValue, childKey, locale)]))
+  return value
+}
+
+export function localizedComplianceJson(value: unknown, locale: string): string {
+  return JSON.stringify(localizeComplianceValue(value, undefined, locale), null, 2)
+}
+
+function StatusList({ title, items, locale }: { title: string; items: unknown[]; locale: string }) { return <div><h3>{title}</h3>{items.length ? <pre>{localizedComplianceJson(items, locale)}</pre> : <p>—</p>}</div> }
 
 export function complianceOperationExamples(overview: Overview | null): Record<string, Record<string, unknown>> {
   const periodId = overview?.periods[0]?.id ?? 'period-id'

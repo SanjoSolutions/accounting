@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { BookingDocuments, type BookingDocument } from './BookingDocuments'
-import { formatDisplayDate } from './dateFormatting'
+import { LocalDate, LocalDateTime } from './LocalDate'
 import { PageHeading } from './PageHeading'
 
 export type BookingBatchVatTreatment = '' | 'DE_STANDARD_SALE_NET' | 'DE_STANDARD_PURCHASE_NET' | 'DE_STANDARD_SALE_GROSS' | 'DE_STANDARD_PURCHASE_GROSS' | 'EU_13B_SERVICE_RECIPIENT_NET'
@@ -368,8 +368,8 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
             {drafts.length > 0 && <div className="list-group" role="listbox" aria-label={t('draftList')}>
               {drafts.map(draft => <button key={draft.id} type="button" role="option" aria-selected={draft.id === selectedDraft?.id} className={`list-group-item list-group-item-action text-start${draft.id === selectedDraft?.id ? ' active' : ''}`} onClick={() => selectDraft(draft.id)}>
                 <span className="d-flex justify-content-between align-items-start gap-2"><strong className="text-truncate">{draft.posting.description || t('untitled')}</strong><span className={`badge ${draftStatusClass(draft.status)}`}>{draft.status === 'DRAFT' ? t('status.DRAFT') : draft.status}</span></span>
-                <span className="d-block small mt-1">{formatDisplayDate(draft.posting.bookingDate)}</span>
-                <span className="d-block small opacity-75">{t('updatedAt', { date: formatDisplayDate(draft.updatedAt) })}</span>
+                <span className="d-block small mt-1"><LocalDate value={draft.posting.bookingDate} /></span>
+                <span className="d-block small opacity-75">{t('updatedAtLabel')} <LocalDateTime value={draft.updatedAt} /></span>
               </button>)}
             </div>}
           </div>

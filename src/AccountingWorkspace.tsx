@@ -5,6 +5,9 @@ import { useTranslations } from 'next-intl'
 import { BookingDocuments, type BookingDocument } from './BookingDocuments'
 import { AccountSelector } from './AccountSelector'
 import { availableBookingAccounts, sanitizeBookingAccountSelections, type AccountCategory } from './core/doubleEntry'
+import { LocalDate } from './LocalDate'
+import { localizeErrorDates } from './errorFormatting'
+import { useRegionalFormat } from './RegionalFormatProvider'
 
 type Account = { id: string; number: number; name: string; category: AccountCategory }
 export type VatTreatment = '' | 'DE_STANDARD_SALE_NET' | 'DE_STANDARD_PURCHASE_NET' | 'DE_STANDARD_SALE_GROSS' | 'DE_STANDARD_PURCHASE_GROSS'
@@ -51,6 +54,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
   restoreStoredYear?: boolean
 }) {
   const t = useTranslations('Workspaces')
+  const { locale: regionalLocale } = useRegionalFormat()
   const [year, setYear] = useState(initialYear)
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [lines, setLines] = useState<Line[]>([emptyLine(), emptyLine()])
@@ -235,7 +239,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
             </div>})}
           </div>
           <button className="btn btn-link add-line" type="button" onClick={() => setLines(current => [...current, emptyLine()])}>+ {t('addSplitLine')}</button>
-          {issues.length > 0 && <div className="alert alert-danger" role="alert"><strong>{t('pleaseReview')}</strong><ul>{issues.map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
+          {issues.length > 0 && <div className="alert alert-danger" role="alert"><strong>{t('pleaseReview')}</strong><ul>{issues.map(issue => <li key={issue}>{localizeErrorDates(issue, regionalLocale)}</li>)}</ul></div>}
           {success && <p className="alert alert-success" role="status">{success}</p>}
           <label className="form-check">
             <input className="form-check-input" type="checkbox" checked={continueWithSameDocuments} onChange={event => setContinueWithSameDocuments(event.target.checked)} />
@@ -257,8 +261,8 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
         {currentWorkspace && currentWorkspace.entries.length === 0 && <div className="empty"><strong>{t('noBookings')}</strong><p>{t('noBookingsHelp')}</p></div>}
         <div className="journal-list">{currentWorkspace?.entries.map(entry => <article className="journal-entry" id={`journal-entry-${entry.id}`} key={entry.id}>
           <div className="journal-meta"><span className="sequence">#{String(entry.sequenceNumber).padStart(4, '0')}</span><span>{entry.documentNumber}</span>{journalEntrySourceMetadata(entry).map((item, index) => item.label
-            ? <span key={item.label}>{t(item.label)}: {item.value}</span>
-            : <time key={index}>{item.value}</time>)}</div>
+            ? <span key={item.label}>{t(item.label)}: {item.date ? <LocalDate value={item.date} /> : item.value}</span>
+            : <span key={index}>{item.date ? <LocalDate value={item.date} /> : item.value}</span>)}</div>
           <strong>{entry.description}</strong>
           {entry.documents?.length > 0 && <div className="journal-documents">{entry.documents.map(document => <a key={document.id} href={document.url} target="_blank" rel="noreferrer"><i className="bi bi-paperclip" />{document.fileName || t('unnamedDocument')}</a>)}</div>}
           <div className="journal-lines" role="list" aria-label={t('journal')}>
@@ -295,7 +299,6 @@ export function bookingLineRequest(line: Line) {
   }
 }
 function localDate() { const date = new Date(); const offset = date.getTimezoneOffset() * 60_000; return new Date(date.getTime() - offset).toISOString().slice(0, 10) }
-function formatCalendarDate(value: string) { const [year, month, day] = value.slice(0, 10).split('-'); return `${day}.${month}.${year}` }
 export function journalEntryDisplayLines(lines: readonly JournalEntryLine[]): JournalDisplayLine[] {
   const debitLines: JournalDisplayLine[] = []
   const creditLines: JournalDisplayLine[] = []
@@ -326,12 +329,12 @@ export function journalEntrySourceMetadata(entry: {
   sourcePeriod?: number | null
 }) {
   const isLexwareEntry = Boolean(entry.sourcePostingDate || entry.sourceJournalDate || entry.sourcePeriod !== null && entry.sourcePeriod !== undefined)
-  if (!isLexwareEntry) return [{ label: null, value: formatCalendarDate(entry.bookingDate) }]
+  if (!isLexwareEntry) return [{ label: null, value: entry.bookingDate, date: entry.bookingDate }]
   return [
-    { label: 'sourcePostingDate', value: entry.sourcePostingDate ? formatCalendarDate(entry.sourcePostingDate) : '—' },
-    { label: 'sourceJournalDate', value: entry.sourceJournalDate ? formatCalendarDate(entry.sourceJournalDate) : '—' },
-    { label: 'voucherDate', value: formatCalendarDate(entry.bookingDate) },
-    { label: 'sourcePeriod', value: entry.sourcePeriod ?? '—' },
+    { label: 'sourcePostingDate', value: entry.sourcePostingDate ?? '—', date: entry.sourcePostingDate ?? undefined },
+    { label: 'sourceJournalDate', value: entry.sourceJournalDate ?? '—', date: entry.sourceJournalDate ?? undefined },
+    { label: 'voucherDate', value: entry.bookingDate, date: entry.bookingDate },
+    { label: 'sourcePeriod', value: entry.sourcePeriod ?? '—', date: undefined },
   ]
 }
 export function shouldApplyWorkspace(requestedYear: number, currentYear: number, aborted: boolean, requestId = 0, currentRequestId = requestId) {

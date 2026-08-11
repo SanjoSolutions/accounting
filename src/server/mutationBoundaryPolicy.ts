@@ -66,6 +66,7 @@ export const apiMutationBoundaryPolicy = {
 
 export const serverActionBoundaryPolicy = {
   'src/i18n/actions.ts#setLocale': 'session_preference',
+  'src/regionalFormatActions.ts#setRegionalFormat': 'session_preference',
 } as const satisfies Record<string, MutationBoundaryPolicy>
 
 export const sideEffectingReadBoundaryPolicy = {
