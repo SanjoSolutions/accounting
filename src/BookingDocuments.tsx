@@ -14,6 +14,44 @@ export type BookingDocument = {
   thumbnailUrl?: string
 }
 
+type DocumentKind = 'pdf' | 'xml' | 'generic'
+
+/**
+ * Select the icon used when a document has no usable thumbnail.
+ *
+ * Stored metadata is not always complete (older documents may only have a
+ * filename), so a recognized MIME type takes precedence and the filename
+ * extension is used as a fallback. Both values are normalized before they
+ * are inspected to handle casing and MIME parameters consistently.
+ */
+export function documentIconClass(document: Pick<BookingDocument, 'contentType' | 'fileName'>): string {
+  const kind = documentKind(document)
+  if (kind === 'pdf') return 'bi bi-file-earmark-pdf'
+  if (kind === 'xml') return 'bi bi-file-earmark-code'
+  return 'bi bi-file-earmark'
+}
+
+function documentKind(document: Pick<BookingDocument, 'contentType' | 'fileName'>): DocumentKind {
+  const contentType = document.contentType?.split(';', 1)[0]?.trim().toLowerCase()
+  if (contentType === 'application/pdf') return 'pdf'
+  if (contentType === 'application/xml' || contentType === 'text/xml' || contentType?.endsWith('+xml')) return 'xml'
+
+  const extension = document.fileName?.trim().match(/\.([^.\\/]+)$/)?.[1]?.toLowerCase()
+  if (extension === 'pdf') return 'pdf'
+  if (extension === 'xml') return 'xml'
+  return 'generic'
+}
+
+function DocumentThumbnail({ document }: { document: BookingDocument }) {
+  const [thumbnailFailed, setThumbnailFailed] = useState(false)
+
+  return <span className="document-thumbnail" aria-hidden="true">
+    {document.thumbnailUrl && !thumbnailFailed
+      ? <img src={document.thumbnailUrl} alt="" loading="lazy" onError={() => setThumbnailFailed(true)} />
+      : <i className={documentIconClass(document)} />}
+  </span>
+}
+
 export type BookingDocumentsRenderContext = {
   /** The compact attached-document region, ready to place inside the editor. */
   attachedDocuments: ReactNode
@@ -348,11 +386,7 @@ export function AttachedDocumentRow({
   const accessibleRemoveLabel = removeAccessibleLabel || removeLabel
   return <article className="attached-document-row" role="listitem">
     <div className="attached-document-details">
-      <span className="document-thumbnail" aria-hidden="true">
-        {document.thumbnailUrl
-          ? <img src={document.thumbnailUrl} alt="" loading="lazy" />
-          : <i className="bi bi-file-earmark-pdf" />}
-      </span>
+      <DocumentThumbnail document={document} />
       <strong className="document-name" title={name}>{name}</strong>
     </div>
     <div className="attached-document-actions">
@@ -380,7 +414,6 @@ export function DocumentCard({
   const name = documentDisplayName(document.fileName || fallbackName, fallbackName)
   const longTouchGesture = useRef<LongTouchSelectionGesture | null>(null)
   longTouchGesture.current ??= new LongTouchSelectionGesture()
-  const [thumbnailFailed, setThumbnailFailed] = useState(false)
 
   useEffect(() => () => longTouchGesture.current?.dispose(), [])
 
@@ -405,11 +438,7 @@ export function DocumentCard({
       onSelect(selectionExtendsForActivation(event.shiftKey, false))
     }}
   >
-    <span className="document-thumbnail" aria-hidden="true">
-      {document.thumbnailUrl && !thumbnailFailed
-        ? <img src={document.thumbnailUrl} alt="" loading="lazy" onError={() => setThumbnailFailed(true)} />
-        : <i className="bi bi-file-earmark-pdf" />}
-    </span>
+    <DocumentThumbnail document={document} />
     <strong className="document-name">{name}</strong>
   </button>
 }

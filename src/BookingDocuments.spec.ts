@@ -81,6 +81,45 @@ describe('booking document selection', () => {
     expect(html).not.toContain('<iframe')
   })
 
+  test('uses an XML code icon for XML metadata and a neutral icon for unknown documents', () => {
+    const xmlMimeHtml = renderToStaticMarkup(createElement(DocumentCard, {
+      document: { id: 'xml-mime', url: '/api/documents/xml-mime/file', contentType: 'APPLICATION/XML; charset=utf-8', fileName: 'invoice.bin' },
+      selected: false,
+      fallbackName: 'Unnamed document',
+      onSelect: () => undefined,
+    }))
+    const xmlExtensionHtml = renderToStaticMarkup(createElement(AttachedDocumentRow, {
+      document: { id: 'xml-extension', url: '/api/documents/xml-extension/file', fileName: 'Invoice.XML' },
+      fallbackName: 'Unnamed document',
+      openLabel: 'Open document',
+      removeLabel: 'Remove',
+    }))
+    const unknownHtml = renderToStaticMarkup(createElement(DocumentCard, {
+      document: { id: 'unknown', url: '/api/documents/unknown/file', contentType: 'text/plain', fileName: 'notes.txt' },
+      selected: false,
+      fallbackName: 'Unnamed document',
+      onSelect: () => undefined,
+    }))
+
+    expect(xmlMimeHtml).toContain('bi-file-earmark-code')
+    expect(xmlExtensionHtml).toContain('bi-file-earmark-code')
+    expect(unknownHtml).toContain('bi-file-earmark"')
+    expect(unknownHtml).not.toContain('bi-file-earmark-pdf')
+  })
+
+  test('keeps a supplied thumbnail instead of rendering a fallback icon for XML documents', () => {
+    const html = renderToStaticMarkup(createElement(AttachedDocumentRow, {
+      document: { id: 'xml-thumbnail', url: '/api/documents/xml-thumbnail/file', contentType: 'application/xml', fileName: 'invoice.xml', thumbnailUrl: '/api/documents/xml-thumbnail/thumbnail' },
+      fallbackName: 'Unnamed document',
+      openLabel: 'Open document',
+      removeLabel: 'Remove',
+    }))
+
+    expect(html).toContain('src="/api/documents/xml-thumbnail/thumbnail"')
+    expect(html).not.toContain('bi-file-earmark-code')
+    expect(html).not.toContain('bi-file-earmark-pdf')
+  })
+
   test('removes only the trailing PDF extension from document display names', () => {
     expect(documentDisplayName('Invoice.final.PDF')).toBe('Invoice.final')
     expect(documentDisplayName('Invoice.XML')).toBe('Invoice')
