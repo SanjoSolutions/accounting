@@ -226,6 +226,7 @@ function draftStatusClass(status: string) {
 
 export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }: { initialYear?: number }) {
   const t = useTranslations('BookingBatches')
+  const postReasonHint = t('postReasonHint')
   const [year, setYear] = useState(initialYear)
   const [workspace, setWorkspace] = useState<BookingBatchWorkspaceResponse | null>(null)
   const [selectedDraftId, setSelectedDraftId] = useState('')
@@ -402,7 +403,7 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
                 {!pickerOpen && attachedDocuments}
               </fieldset>
               {dirty && <p className="small text-warning-emphasis mt-3 mb-0" role="status"><i className="bi bi-pencil me-1" aria-hidden="true" />{t('unsavedChanges')}</p>}
-              <div className="d-flex flex-wrap gap-2 align-items-end border-top pt-3 mt-3"><button className="btn btn-primary" type="submit" disabled={busy || documentsUploading || !dirty}>{busy ? t('saving') : t('save')}</button><div className="flex-grow-1"><label htmlFor="booking-batch-reason">{t('postReason')}<span className="small text-muted fw-normal">{t('postReasonHint')}</span><input id="booking-batch-reason" className="form-control" value={reason} disabled={busy || dirty} onChange={event => setReason(event.target.value)} /></label></div><button type="button" className="btn btn-success" disabled={busy || documentsUploading || dirty} onClick={() => void postToJournal()}><i className="bi bi-journal-check me-1" aria-hidden="true" />{busy ? t('posting') : t('postToJournal')}</button></div>
+              <div className="d-flex flex-wrap gap-2 align-items-end border-top pt-3 mt-3"><button className="btn btn-primary" type="submit" disabled={busy || documentsUploading || !dirty}>{busy ? t('saving') : t('save')}</button><div className="flex-grow-1"><label htmlFor="booking-batch-reason">{t('postReason')}{postReasonHint ? <span className="small text-muted fw-normal">{' '}{postReasonHint}</span> : null}<input id="booking-batch-reason" className="form-control" value={reason} disabled={busy || dirty} onChange={event => setReason(event.target.value)} /></label></div><button type="button" className="btn btn-success" disabled={busy || documentsUploading || dirty} onClick={() => void postToJournal()}><i className="bi bi-journal-check me-1" aria-hidden="true" />{busy ? t('posting') : t('postToJournal')}</button></div>
             </form>
           </div>
           </section>}

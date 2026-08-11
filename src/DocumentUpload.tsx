@@ -3,6 +3,12 @@ import { useTranslations } from 'next-intl'
 import type { Document as AccountingDocument } from './core/Document'
 import { api, getJSON } from './Requester'
 
+export type DocumentUploadStage = 'upload' | 'parsing'
+
+export function documentUploadErrorKey(stage: DocumentUploadStage) {
+  return stage === 'parsing' ? 'parsingFailed' : 'uploadFailed'
+}
+
 export function DocumentUpload({
   onDocumentUploaded,
 }: {
@@ -22,28 +28,30 @@ export function DocumentUpload({
       setIsUploading(true)
       setError(null)
 
+      let failureStage: DocumentUploadStage = 'upload'
       try {
         const uploadResponse = await api.postFile('/api/documents', file)
         const uploadResult = await getJSON(uploadResponse)
         if (!uploadResponse.ok) {
-          throw new Error(uploadResult.error || 'Document upload failed')
+          throw new Error(documentUploadErrorKey(failureStage))
         }
 
+        failureStage = 'parsing'
         const parsingResponse = await api.post(
           `/api/documents/${ uploadResult.data.id }/parsing-requests`,
           {},
         )
         const parsingResult = await getJSON(parsingResponse)
-        if (!parsingResponse.ok) throw new Error('Document parsing failed')
+        if (!parsingResponse.ok) throw new Error(documentUploadErrorKey(failureStage))
 
         onDocumentUploaded(parsingResult.data)
-      } catch (uploadError) {
-        setError(uploadError instanceof Error ? uploadError.message : 'Document upload failed')
+      } catch {
+        setError(t(documentUploadErrorKey(failureStage)))
       } finally {
         setIsUploading(false)
       }
     },
-    [onDocumentUploaded],
+    [onDocumentUploaded, t],
   )
 
   return (
