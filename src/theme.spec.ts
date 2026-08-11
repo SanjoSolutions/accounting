@@ -35,7 +35,7 @@ describe('Bootstrap theme integration', () => {
 
     expect(styles).toContain('.app-shell { max-width: 1540px; padding: 1rem clamp(16px, 3vw, 48px) 0;')
     expect(styles).toContain('.app-shell--full-width { max-width: none; padding: 1rem 16px 0; }')
-    expect(styles).toContain('.workspace-toolbar { display: flex; justify-content: flex-end; }')
+    expect(styles).toContain('.navbar-fiscal-year { margin-left: auto; }')
     expect(styles).toContain('padding: 0 0 4px;')
     expect(workspaces).not.toContain('workspace py-4')
     expect(workspaces).not.toContain('} py-4`')

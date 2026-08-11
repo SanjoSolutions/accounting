@@ -63,6 +63,12 @@ export function navigationItemIsActive(pathname: string, item: Pick<NavigationIt
   return pathname === activePath || pathname.startsWith(`${activePath}/`)
 }
 
+export function primaryNavigationHref(href: string, year: number) {
+  return href === bookingHref || href === bookingBatchesHref || href === journalHref
+    ? `${href}?year=${year}`
+    : href
+}
+
 export function Navbar({
   authMode,
   signUpEnabled,
@@ -110,9 +116,11 @@ export function Navbar({
     }
   }, [otherOpen])
 
-  const otherItems = otherNavigationItems(new Date().getFullYear())
+  const currentYear = new Date().getFullYear()
   const fiscalYearContext = fiscalYearContextFromPath(pathname, searchParams.get('year'))
-  const otherActive = otherItems.some(item => navigationItemIsActive(pathname, item))
+  const navigationYear = fiscalYearContext?.year ?? currentYear
+  const otherItems = otherNavigationItems(navigationYear)
+  const otherActive = pathname === '/access' || otherItems.some(item => navigationItemIsActive(pathname, item))
   const navClassName = (href: string) => `nav-link${navigationItemIsActive(pathname, { href }) ? ' active' : ''}`
 
   return (
@@ -132,7 +140,7 @@ export function Navbar({
         <div className={`collapse navbar-collapse${menuOpen ? ' show' : ''}`} id="navbarSupportedContent">
           {user && <ul className="navbar-nav me-auto mb-2 mb-lg-0">
             {primaryNavigation.map(item => <li className="nav-item" key={item.href}>
-              <Link href={item.href} className={navClassName(item.href)} onClick={() => setMenuOpen(false)}>{t(item.label)}</Link>
+              <Link href={primaryNavigationHref(item.href, navigationYear)} className={navClassName(item.href)} onClick={() => setMenuOpen(false)}>{t(item.label)}</Link>
             </li>)}
             <li className={`nav-item dropdown${otherOpen ? ' show' : ''}`}>
               <button

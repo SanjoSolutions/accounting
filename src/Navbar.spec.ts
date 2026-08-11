@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
 import { accountingRouteViews } from './accountingRoutes'
-import { accountingNavigation, bankingHref, bookingBatchesHref, bookingHref, complianceHref, exportImportHref, fixedAssetsHref, invoicesHref, journalHref, otherNavigationItems, primaryNavigation, receivablesHref, reportsHref } from './Navbar'
+import { accountingNavigation, bankingHref, bookingBatchesHref, bookingHref, complianceHref, exportImportHref, fixedAssetsHref, invoicesHref, journalHref, otherNavigationItems, primaryNavigation, primaryNavigationHref, receivablesHref, reportsHref } from './Navbar'
 
 describe('main navigation', () => {
   test('keeps booking, booking batches, and journal as the primary destinations', () => {
@@ -19,6 +19,12 @@ describe('main navigation', () => {
     expect(otherNavigationItems(2026).map(item => item.href)).toEqual([
       '/receivables', '/invoices', '/banking', '/fixed-assets', '/annual-close/2026', '/e-bilanz/2026', '/tax/2026', '/reports/2026', '/export-import', '/compliance', '/settings',
     ])
+  })
+  test('preserves the selected fiscal year when switching between primary workspaces', () => {
+    expect(primaryNavigation.map(item => primaryNavigationHref(item.href, 2025))).toEqual([
+      '/bookings?year=2025', '/booking-batches?year=2025', '/journal?year=2025',
+    ])
+    expect(otherNavigationItems(2025).map(item => item.href)).toContain('/annual-close/2025')
   })
   test('uses the home page for metrics and keeps booking and journal content separate', () => {
     expect(accountingRouteViews).toEqual({ '/': 'dashboard', '/bookings': 'booking', '/journal': 'journal' })

@@ -54,6 +54,21 @@ function parseDraftPayload(payload: string, draftId: string): Record<string, unk
   }
 }
 
+export function publicBookingBatchDraft<T extends {
+  id: string
+  payload: string
+  createdAt: Date
+  updatedAt: Date
+}>(draft: T) {
+  const { payload, createdAt, updatedAt, ...metadata } = draft
+  return {
+    ...metadata,
+    createdAt: createdAt.toISOString(),
+    updatedAt: updatedAt.toISOString(),
+    posting: parseDraftPayload(payload, draft.id),
+  }
+}
+
 function safeDocumentMetadata(record: { id: string; payload: string }): BookingBatchDocument {
   let payload: Record<string, unknown> = {}
   try {

@@ -23,7 +23,10 @@ describe('booking batches API', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.getCurrentUser.mockResolvedValue({ id: 'tenant-a', actorId: 'actor-a', role: 'ADMIN' })
-    mocks.reviseBookingBatch.mockResolvedValue({ id: 'draft-a', version: 2, status: 'DRAFT' })
+    mocks.reviseBookingBatch.mockResolvedValue({
+      id: 'draft-a', version: 2, status: 'DRAFT', payload: JSON.stringify({ bookingDate: '2026-01-02', description: 'Reviewed', lines: [] }),
+      createdAt: new Date('2026-08-11T09:00:00.000Z'), updatedAt: new Date('2026-08-11T10:00:00.000Z'),
+    })
     mocks.postBookingBatch.mockResolvedValue({ id: 'entry-a', documentNumber: 'JOURNAL-entry-a' })
   })
 
@@ -55,6 +58,9 @@ describe('booking batches API', () => {
     const response = await PATCH(json('/api/booking-batches/draft-a', { expectedVersion: 1, posting, reason: 'reviewed' }), { params: Promise.resolve({ id: 'draft-a' }) })
     expect(response.status).toBe(200)
     expect(mocks.reviseBookingBatch).toHaveBeenCalledWith('tenant-a', 'actor-a', 'draft-a', { expectedVersion: 1, posting, reason: 'reviewed' })
+    expect(await response.json()).toMatchObject({
+      id: 'draft-a', version: 2, status: 'DRAFT', updatedAt: '2026-08-11T10:00:00.000Z', posting,
+    })
   })
 
   test('maps optimistic concurrency conflicts to a 409 response', async () => {
@@ -74,4 +80,3 @@ describe('booking batches API', () => {
 function json(path: string, body: unknown) {
   return new Request(`http://localhost${path}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 }
-

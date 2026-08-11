@@ -2,7 +2,7 @@ import 'server-only'
 
 import { getCurrentUser } from '@/server/authentication'
 import { forbiddenUnless } from '@/server/authorization'
-import { bookingBatchError, reviseBookingBatch } from '@/server/bookingBatches'
+import { bookingBatchError, publicBookingBatchDraft, reviseBookingBatch } from '@/server/bookingBatches'
 
 export const runtime = 'nodejs'
 
@@ -12,9 +12,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   try {
     const body = await request.json()
-    return Response.json(await reviseBookingBatch(user.id, user.actorId, (await params).id, body))
+    const draft = await reviseBookingBatch(user.id, user.actorId, (await params).id, body)
+    return Response.json(publicBookingBatchDraft(draft))
   } catch (error) {
     return bookingBatchError(error)
   }
 }
-
