@@ -2,10 +2,7 @@ import { describe, expect, test, vi } from 'vitest'
 
 const { requirePageUser } = vi.hoisted(() => ({ requirePageUser: vi.fn(async () => ({ id: 'owner-1' })) }))
 vi.mock('@/server/authentication', () => ({ requirePageUser }))
-vi.mock('@/BookingBatchWorkspace', async () => {
-  const actual = await vi.importActual<typeof import('@/BookingBatchWorkspace')>('@/BookingBatchWorkspace')
-  return { ...actual, BookingBatchWorkspace: vi.fn(() => null) }
-})
+vi.mock('@/BookingBatchWorkspace', () => ({ BookingBatchWorkspace: vi.fn(() => null) }))
 
 import BookingBatchesPage from './page'
 
