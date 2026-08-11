@@ -1,6 +1,7 @@
 "use client"
 
 import Link from 'next/link'
+import { useTranslations } from 'next-intl'
 import { useRouter } from 'next/navigation'
 import { useState, type FormEvent } from 'react'
 import { authClient } from './auth-client'
@@ -12,6 +13,7 @@ export function AuthenticationForm({
   mode: 'sign-in' | 'sign-up'
   signUpEnabled?: boolean
 }) {
+  const t = useTranslations('Authentication')
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -33,7 +35,7 @@ export function AuthenticationForm({
     setIsSubmitting(false)
 
     if (result.error) {
-      setError(result.error.message ?? 'Authentication failed.')
+      setError(result.error.message ?? t('authenticationFailed'))
       return
     }
 
@@ -48,11 +50,11 @@ export function AuthenticationForm({
   return (
     <div className="row justify-content-center">
       <div className="col-md-6 col-lg-4">
-        <h1>{isSignUp ? 'Create account' : 'Sign in'}</h1>
+        <h1>{t(isSignUp ? 'createAccount' : 'signIn')}</h1>
         <form onSubmit={onSubmit}>
           {isSignUp && (
             <div className="mb-3">
-              <label htmlFor="name" className="form-label">Name</label>
+              <label htmlFor="name" className="form-label">{t('name')}</label>
               <input
                 id="name"
                 name="name"
@@ -63,7 +65,7 @@ export function AuthenticationForm({
             </div>
           )}
           <div className="mb-3">
-            <label htmlFor="email" className="form-label">Email</label>
+            <label htmlFor="email" className="form-label">{t('email')}</label>
             <input
               id="email"
               name="email"
@@ -74,7 +76,7 @@ export function AuthenticationForm({
             />
           </div>
           <div className="mb-3">
-            <label htmlFor="password" className="form-label">Password</label>
+            <label htmlFor="password" className="form-label">{t('password')}</label>
             <input
               id="password"
               name="password"
@@ -87,14 +89,14 @@ export function AuthenticationForm({
           </div>
           {error && <div className="alert alert-danger" role="alert">{error}</div>}
           <button className="btn btn-primary w-100" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Please wait…' : (isSignUp ? 'Create account' : 'Sign in')}
+            {isSubmitting ? t('pleaseWait') : t(isSignUp ? 'createAccount' : 'signIn')}
           </button>
         </form>
         <p className="mt-3 text-center">
           {isSignUp ? (
-            <>Already have an account? <Link href="/sign-in">Sign in</Link></>
+            <>{t('alreadyHaveAccount')} <Link href="/sign-in">{t('signIn')}</Link></>
           ) : signUpEnabled && (
-            <>Need an account? <Link href="/sign-up">Create one</Link></>
+            <>{t('needAccount')} <Link href="/sign-up">{t('createOne')}</Link></>
           )}
         </p>
       </div>

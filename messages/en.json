@@ -22,7 +22,50 @@
     "Create booking record": "Create booking record",
     "Create balance sheet": "Create balance sheet",
     "Settings": "Settings",
-    "Users": "Users"
+    "Users": "Users",
+    "toggleNavigation": "Toggle navigation",
+    "signOut": "Sign out",
+    "signOutFailed": "Sign out failed.",
+    "signIn": "Sign in",
+    "createAccount": "Create account"
+  },
+  "Authentication": {
+    "createAccount": "Create account",
+    "signIn": "Sign in",
+    "name": "Name",
+    "email": "Email",
+    "password": "Password",
+    "pleaseWait": "Please wait…",
+    "authenticationFailed": "Authentication failed.",
+    "alreadyHaveAccount": "Already have an account?",
+    "needAccount": "Need an account?",
+    "createOne": "Create one"
+  },
+  "Access": {
+    "loadFailed": "Access settings could not be loaded.",
+    "saveFailed": "Access could not be changed.",
+    "saved": "Access saved and recorded in the audit trail.",
+    "companySelectFailed": "Company could not be selected.",
+    "title": "Users and roles",
+    "loading": "Loading access settings…",
+    "activeCompany": "Active company:",
+    "yourRole": "Your role:",
+    "availableCompanies": "Companies available to you",
+    "useCompany": "Use this company",
+    "owner": "owner",
+    "members": "Company members",
+    "name": "Name",
+    "email": "Email",
+    "role": "Role",
+    "addMember": "Add or change a member",
+    "registeredEmail": "Registered user email",
+    "reason": "Reason",
+    "save": "Save access",
+    "roles": {
+      "ADMIN": "Administrator",
+      "ACCOUNTANT": "Accountant",
+      "READ_ONLY": "Read only"
+    }
   },
   "FixedAssets": {
     "title": "Fixed-asset register",

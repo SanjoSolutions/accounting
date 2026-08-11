@@ -22,7 +22,50 @@
     "Create booking record": "Buchungssatz erstellen",
     "Create balance sheet": "Bilanz erstellen",
     "Settings": "Einstellungen",
-    "Users": "Benutzer"
+    "Users": "Benutzer",
+    "toggleNavigation": "Navigation ein- oder ausblenden",
+    "signOut": "Abmelden",
+    "signOutFailed": "Abmeldung fehlgeschlagen.",
+    "signIn": "Anmelden",
+    "createAccount": "Konto erstellen"
+  },
+  "Authentication": {
+    "createAccount": "Konto erstellen",
+    "signIn": "Anmelden",
+    "name": "Name",
+    "email": "E-Mail",
+    "password": "Passwort",
+    "pleaseWait": "Bitte warten …",
+    "authenticationFailed": "Anmeldung fehlgeschlagen.",
+    "alreadyHaveAccount": "Sie haben bereits ein Konto?",
+    "needAccount": "Noch kein Konto?",
+    "createOne": "Konto erstellen"
+  },
+  "Access": {
+    "loadFailed": "Die Zugriffseinstellungen konnten nicht geladen werden.",
+    "saveFailed": "Der Zugriff konnte nicht geändert werden.",
+    "saved": "Zugriff gespeichert und im Prüfprotokoll erfasst.",
+    "companySelectFailed": "Das Unternehmen konnte nicht ausgewählt werden.",
+    "title": "Benutzer und Rollen",
+    "loading": "Zugriffseinstellungen werden geladen …",
+    "activeCompany": "Aktives Unternehmen:",
+    "yourRole": "Ihre Rolle:",
+    "availableCompanies": "Verfügbare Unternehmen",
+    "useCompany": "Dieses Unternehmen verwenden",
+    "owner": "Inhaber",
+    "members": "Unternehmensmitglieder",
+    "name": "Name",
+    "email": "E-Mail",
+    "role": "Rolle",
+    "addMember": "Mitglied hinzufügen oder ändern",
+    "registeredEmail": "E-Mail des registrierten Benutzers",
+    "reason": "Grund",
+    "save": "Zugriff speichern",
+    "roles": {
+      "ADMIN": "Administrator",
+      "ACCOUNTANT": "Buchhalter",
+      "READ_ONLY": "Nur Lesen"
+    }
   },
   "FixedAssets": {
     "title": "Anlagenverzeichnis",

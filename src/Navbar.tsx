@@ -132,7 +132,7 @@ export function Navbar({
           type="button"
           aria-controls="navbarSupportedContent"
           aria-expanded={menuOpen}
-          aria-label="Toggle navigation"
+          aria-label={t('toggleNavigation')}
           onClick={() => setMenuOpen(open => !open)}
         >
           <span className="navbar-toggler-icon" />
@@ -183,19 +183,19 @@ export function Navbar({
                     setSignOutError(null)
                     const result = await authClient.signOut()
                     if (result.error) {
-                      setSignOutError(result.error.message ?? 'Sign out failed.')
+                      setSignOutError(result.error.message ?? t('signOutFailed'))
                       return
                     }
                     router.push('/sign-in')
                     router.refresh()
                   }}
-                >Sign out</button>
+                >{t('signOut')}</button>
                 {signOutError && <span className="text-danger" role="alert">{signOutError}</span>}
               </div>
             ) : (
               <div className="d-flex gap-2">
-                <Link className="btn btn-outline-primary" href="/sign-in">Sign in</Link>
-                {signUpEnabled && <Link className="btn btn-primary" href="/sign-up">Create account</Link>}
+                <Link className="btn btn-outline-primary" href="/sign-in">{t('signIn')}</Link>
+                {signUpEnabled && <Link className="btn btn-primary" href="/sign-up">{t('createAccount')}</Link>}
               </div>
             )
           )}
