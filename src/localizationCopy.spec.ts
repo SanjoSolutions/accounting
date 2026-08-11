@@ -47,6 +47,13 @@ describe('localized copy clusters', () => {
     expect(messages.de.Commercial.paymentTerm).toBe('Zahlungsziel')
   })
 
+  test('uses formatted regional values for commercial levels and payment terms', () => {
+    expect(messages.en.Commercial.days).toContain('{countFormatted}')
+    expect(messages.en.Commercial.reminderIssued).toContain('{levelFormatted}')
+    expect(messages.de.Commercial.days).toContain('{countFormatted}')
+    expect(messages.de.Commercial.reminderIssued).toContain('{levelFormatted}')
+  })
+
   test('does not encode layout whitespace in booking-batch hints', () => {
     expect(messages.en.BookingBatches.documentsHint).not.toMatch(/^\s/)
     expect(messages.de.BookingBatches.documentsHint).not.toMatch(/^\s/)
