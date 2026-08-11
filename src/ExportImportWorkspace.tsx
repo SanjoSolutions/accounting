@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { PageHeading } from './PageHeading'
 import { localizeErrorDates } from './errorFormatting'
 import { useRegionalFormat } from './RegionalFormatProvider'
+import { formatCount } from './LocalNumber'
 
 export function ExportImportWorkspace() {
   const t = useTranslations('Workspaces')
@@ -25,9 +26,13 @@ export function ExportImportWorkspace() {
       const response = await fetch('/api/accounting-import', { method: 'POST', body: form })
       const body = await response.json()
       if (!response.ok) { setIssues(body.issues ?? [t('accountingImportFailed')]); return }
+      const imported = typeof body.imported === 'number' ? body.imported : 0
+      const skipped = typeof body.skipped === 'number' ? body.skipped : 0
+      const accounts = typeof body.accounts === 'number' ? body.accounts : 0
+      const documents = typeof body.documents === 'number' ? body.documents : 0
       setSuccess(t('accountingImportSucceeded', {
-        imported: body.imported, skipped: body.skipped, accounts: body.accounts,
-        documents: body.documents ?? 0, years: body.years?.join(', ') ?? '',
+        imported, importedFormatted: formatCount(imported, locale), skipped, skippedFormatted: formatCount(skipped, locale),
+        accounts, accountsFormatted: formatCount(accounts, locale), documents, documentsFormatted: formatCount(documents, locale), years: body.years?.join(', ') ?? '',
       }))
       setFiles([])
       resetDatevForm(formRef.current)
@@ -66,7 +71,7 @@ export function ExportImportWorkspace() {
           <label>{t('datevChooseFiles')}<input className="form-control" disabled={busy} type="file" accept=".csv,text/csv" multiple onChange={event => setFiles(selectDatevFiles(event.target.files))} /></label>
           <button className="btn btn-primary" disabled={busy || files.length === 0 || format === 'UNKNOWN'}>{busy ? t('accountingImportBusy') : t('accountingImportAction')}</button>
         </div>
-        {files.length > 0 && <p className="badge text-bg-light hint">{t('accountingFilesSelected', { count: files.length, format: formatLabel(format) })}</p>}
+        {files.length > 0 && <p className="badge text-bg-light hint">{t('accountingFilesSelected', { count: files.length, countFormatted: formatCount(files.length, locale), format: formatLabel(format) })}</p>}
         {issues.length > 0 && <div className="alert alert-danger" role="alert"><strong>{t('pleaseReview')}</strong><ul>{issues.map(issue => <li key={issue}>{localizeErrorDates(issue, locale)}</li>)}</ul></div>}
         {success && <p className="alert alert-success" role="status">{success}</p>}
       </form>

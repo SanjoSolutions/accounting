@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useTranslations } from 'next-intl'
 import { api, getJSON } from './Requester'
 import { DocumentExtractionPanel } from './DocumentExtractionPanel'
+import { LocalCount } from './LocalNumber'
 
 export type BookingDocument = {
   id: string
@@ -284,7 +285,7 @@ export function BookingDocuments({
   const attachedDocumentsRegion = <section className="attached-documents-region border-top mt-4 pt-4" aria-label={t('attachedDocuments')}>
       <div className="panel-title">
         <h2>{t('attachedDocuments')}</h2>
-        <span className="badge text-bg-light hint">{attachedDocuments.length}</span>
+        <span className="badge text-bg-light hint"><LocalCount value={attachedDocuments.length} /></span>
       </div>
       {attachedDocuments.length === 0
         ? <div className="preview-empty attached-documents-empty"><i className="bi bi-paperclip" aria-hidden="true" /><strong>{t('noSelectedDocuments')}</strong><p>{t('noSelectedDocumentsHelp')}</p></div>
@@ -317,7 +318,7 @@ export function BookingDocuments({
 
     {!pickerOpen ? <div className="booking-workflow-columns booking-workflow-columns--compact">{renderChildren()}</div> : <div className="booking-workflow-columns" style={{ '--document-column': `${documentColumnPercent}%` } as React.CSSProperties}>
     <section className="card panel document-preview-panel">
-      <div className="panel-title"><h2>{t('documentPreview')}</h2><span className="badge text-bg-light hint">{selectedDocuments.length}</span></div>
+      <div className="panel-title"><h2>{t('documentPreview')}</h2><span className="badge text-bg-light hint"><LocalCount value={selectedDocuments.length} /></span></div>
       {selectedDocuments.length === 0
         ? <div className="preview-empty"><i className="bi bi-files" /><strong>{t('noSelectedDocuments')}</strong><p>{t('noSelectedDocumentsHelp')}</p></div>
         : <>

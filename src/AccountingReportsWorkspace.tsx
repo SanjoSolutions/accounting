@@ -12,16 +12,11 @@ import {
 } from './accountingReports'
 import { PageHeading } from './PageHeading'
 import { LocalDate } from './LocalDate'
+import { LocalCurrency, LocalPercentBasisPoints, formatCount } from './LocalNumber'
+import { useRegionalFormat } from './RegionalFormatProvider'
 
 function formatAddress(address: AccountingReportAddress) {
   return `${address.street} ${address.houseNumber}, ${address.postalCode} ${address.city}${address.region ? `, ${address.region}` : ''}`
-}
-
-function Money({ cents, currency }: { cents: number; currency: string }) {
-  return <span className="text-nowrap">{new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency,
-  }).format(cents / 100)}</span>
 }
 
 function EntryRows({ entries, currency, voucherLabel }: {
@@ -37,15 +32,16 @@ function EntryRows({ entries, currency, voucherLabel }: {
     <td><Link href={entry.journalVoucherHref}>{voucherLabel}: {entry.voucherNumber}</Link></td>
     <td>{entry.postingText}</td>
     <td>{entry.counterAccountNumbers.join(', ') || '—'}</td>
-    <td>{entry.vatAccountNumber ? `${entry.vatAccountNumber}${entry.vatRateBasisPoints === undefined ? '' : ` · ${entry.vatRateBasisPoints / 100}%`}` : '—'}</td>
-    <td className="text-end"><Money cents={entry.debitCents} currency={currency} /></td>
-    <td className="text-end"><Money cents={entry.creditCents} currency={currency} /></td>
-    <td className="text-end"><Money cents={entry.runningBalanceCents} currency={currency} /></td>
+    <td>{entry.vatAccountNumber ? <>{entry.vatAccountNumber}{entry.vatRateBasisPoints === undefined ? '' : <> · <LocalPercentBasisPoints value={entry.vatRateBasisPoints} /></>}</> : '—'}</td>
+    <td className="text-end"><LocalCurrency cents={entry.debitCents} currency={currency} /></td>
+    <td className="text-end"><LocalCurrency cents={entry.creditCents} currency={currency} /></td>
+    <td className="text-end"><LocalCurrency cents={entry.runningBalanceCents} currency={currency} /></td>
   </tr>)
 }
 
 export function AccountingReportsView({ report }: { report: AccountingReportResponse }) {
   const t = useTranslations('AccountingReports')
+  const { locale: regionalLocale } = useRegionalFormat()
   const [accountQuery, setAccountQuery] = useState('')
   const accounts = useMemo(
     () => filterAccountingReportAccounts(report.accounts, accountQuery),
@@ -79,7 +75,7 @@ export function AccountingReportsView({ report }: { report: AccountingReportResp
 
     <section className="card panel mt-4">
       <div className="report-section-heading">
-        <div><h2>{t('chartMetadata')}</h2><p>{t('accountsShown', { shown: accounts.length, total: report.accounts.length })}</p></div>
+        <div><h2>{t('chartMetadata')}</h2><p>{t('accountsShown', { shown: accounts.length, total: report.accounts.length, shownFormatted: formatCount(accounts.length, regionalLocale), totalFormatted: formatCount(report.accounts.length, regionalLocale) })}</p></div>
         <label>{t('searchAccounts')}<input className="form-control" type="search" value={accountQuery} onChange={event => setAccountQuery(event.target.value)} /></label>
       </div>
       <div className="table-responsive"><table className="table">
@@ -93,14 +89,14 @@ export function AccountingReportsView({ report }: { report: AccountingReportResp
       <h2>{t('trialBalance')}</h2>
       <div className="table-responsive"><table className="table">
         <thead><tr><th>{t('account')}</th><th>{t('name')}</th><th>{t('lastBookingDate')}</th><th className="text-end">{t('openingDebit')}</th><th className="text-end">{t('openingCredit')}</th><th className="text-end">{t('annualDebit')}</th><th className="text-end">{t('annualCredit')}</th><th className="text-end">{t('cumulativeDebit')}</th><th className="text-end">{t('cumulativeCredit')}</th><th className="text-end">{t('closingDebit')}</th><th className="text-end">{t('closingCredit')}</th></tr></thead>
-        <tbody>{report.trialBalance.map(row => <tr key={row.accountNumber}><td>{row.accountNumber}</td><td>{row.accountName}</td><td>{row.lastBookingDate ? <LocalDate value={row.lastBookingDate} /> : '—'}</td>{[row.openingDebitCents, row.openingCreditCents, row.annualDebitCents, row.annualCreditCents, row.cumulativeDebitCents, row.cumulativeCreditCents, row.closingDebitCents, row.closingCreditCents].map((cents, index) => <td className="text-end" key={index}><Money cents={cents} currency={currency} /></td>)}</tr>)}</tbody>
+        <tbody>{report.trialBalance.map(row => <tr key={row.accountNumber}><td>{row.accountNumber}</td><td>{row.accountName}</td><td>{row.lastBookingDate ? <LocalDate value={row.lastBookingDate} /> : '—'}</td>{[row.openingDebitCents, row.openingCreditCents, row.annualDebitCents, row.annualCreditCents, row.cumulativeDebitCents, row.cumulativeCreditCents, row.closingDebitCents, row.closingCreditCents].map((cents, index) => <td className="text-end" key={index}><LocalCurrency cents={cents} currency={currency} /></td>)}</tr>)}</tbody>
       </table></div>
     </section>
 
     <section className="card panel mt-4">
       <h2>{t('generalLedger')}</h2>
       {report.generalLedger.map(sheet => <details className="report-details" key={sheet.accountNumber}>
-        <summary>{sheet.accountNumber} · {sheet.accountName} — <Money cents={sheet.closingBalanceCents} currency={currency} /></summary>
+        <summary>{sheet.accountNumber} · {sheet.accountName} — <LocalCurrency cents={sheet.closingBalanceCents} currency={currency} /></summary>
         <div className="table-responsive"><table className="table">
           <thead><tr><th>{t('sourcePostingDate')}</th><th>{t('sourceJournalDate')}</th><th>{t('voucherDate')}</th><th>{t('sourcePeriod')}</th><th>{t('voucher')}</th><th>{t('postingText')}</th><th>{t('counterAccounts')}</th><th>{t('vat')}</th><th className="text-end">{t('debit')}</th><th className="text-end">{t('credit')}</th><th className="text-end">{t('balance')}</th></tr></thead>
           <tbody><EntryRows entries={sheet.entries} currency={currency} voucherLabel={t('voucher')} /></tbody>
@@ -111,7 +107,7 @@ export function AccountingReportsView({ report }: { report: AccountingReportResp
     <section className="card panel mt-4">
       <h2>{t('counterparties')}</h2>
       {report.counterparties.map(counterparty => <details className="report-details" key={counterparty.id}>
-        <summary>{t(counterparty.kind)} {counterparty.accountNumber} · {counterparty.name} — <Money cents={counterparty.balanceCents} currency={currency} /></summary>
+        <summary>{t(counterparty.kind)} {counterparty.accountNumber} · {counterparty.name} — <LocalCurrency cents={counterparty.balanceCents} currency={currency} /></summary>
         <p>{t('partyNumber')}: {counterparty.partyNumber} · {formatAddress(counterparty.address)}{counterparty.industry ? ` · ${counterparty.industry}` : ''}</p>
         <div className="table-responsive"><table className="table">
           <thead><tr><th>{t('sourcePostingDate')}</th><th>{t('sourceJournalDate')}</th><th>{t('voucherDate')}</th><th>{t('sourcePeriod')}</th><th>{t('voucher')}</th><th>{t('postingText')}</th><th>{t('counterAccounts')}</th><th>{t('vat')}</th><th className="text-end">{t('debit')}</th><th className="text-end">{t('credit')}</th><th className="text-end">{t('balance')}</th></tr></thead>
@@ -124,7 +120,7 @@ export function AccountingReportsView({ report }: { report: AccountingReportResp
       <h2>{t('annualVatStatement')}</h2>
       <div className="table-responsive"><table className="table">
         <thead><tr><th>{t('code')}</th><th className="text-end">{t('value')}</th></tr></thead>
-        <tbody>{report.annualVatStatement.fields.map(field => <tr key={field.code}><td>{field.code}</td><td className="text-end"><Money cents={field.valueCents} currency={currency} /></td></tr>)}</tbody>
+        <tbody>{report.annualVatStatement.fields.map(field => <tr key={field.code}><td>{field.code}</td><td className="text-end"><LocalCurrency cents={field.valueCents} currency={currency} /></td></tr>)}</tbody>
       </table></div>
     </section>
   </>

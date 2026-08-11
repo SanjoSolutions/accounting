@@ -8,6 +8,7 @@ import { availableBookingAccounts, sanitizeBookingAccountSelections, type Accoun
 import { LocalDate } from './LocalDate'
 import { localizeErrorDates } from './errorFormatting'
 import { useRegionalFormat } from './RegionalFormatProvider'
+import { LocalCurrency, formatCount } from './LocalNumber'
 
 type Account = { id: string; number: number; name: string; category: AccountCategory }
 export type VatTreatment = '' | 'DE_STANDARD_SALE_NET' | 'DE_STANDARD_PURCHASE_NET' | 'DE_STANDARD_SALE_GROSS' | 'DE_STANDARD_PURCHASE_GROSS'
@@ -43,8 +44,6 @@ type Workspace = {
 }
 
 const emptyLine = (): Line => ({ accountId: '', debit: '', credit: '' })
-const money = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' })
-
 export type AccountingWorkspaceView = 'booking' | 'journal' | 'dashboard'
 
 export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = new Date().getFullYear(), restoreStoredYear = true }: {
@@ -246,9 +245,9 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
             <span className="form-check-label">{t('continueWithSameDocuments')}</span>
           </label>
           <div className={`balance-bar ${difference === 0 && totals.debit > 0 ? 'balanced' : ''}`} aria-live="polite">
-            <div><span>{t('totalDebit')}</span><strong>{money.format(totals.debit / 100)}</strong></div>
-            <div><span>{t('totalCredit')}</span><strong>{money.format(totals.credit / 100)}</strong></div>
-            <div><span>{t('difference')}</span><strong>{money.format(difference / 100)}</strong></div>
+            <div><span>{t('totalDebit')}</span><strong><LocalCurrency cents={totals.debit} currency="EUR" /></strong></div>
+            <div><span>{t('totalCredit')}</span><strong><LocalCurrency cents={totals.credit} currency="EUR" /></strong></div>
+            <div><span>{t('difference')}</span><strong><LocalCurrency cents={difference} currency="EUR" /></strong></div>
             <button className="btn btn-primary" disabled={busy || selectedDocumentIds.length === 0 || difference !== 0 || totals.debit === 0 || currentWorkspace?.fiscalYear.status !== 'OPEN'}>{busy ? t('postingBusy') : t('post')}</button>
           </div>
           </fieldset>
@@ -257,7 +256,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
     </BookingDocuments>}
 
       {sections.journal && <section className="card panel journal-panel">
-        <div className="panel-title"><h2>{t('postedEntries')}</h2><span className="badge text-bg-light hint">{t('entryCount', { count: currentWorkspace?.entries.length ?? 0 })}</span></div>
+        <div className="panel-title"><h2>{t('postedEntries')}</h2><span className="badge text-bg-light hint">{(() => { const count = currentWorkspace?.entries.length ?? 0; return t('entryCount', { count, countFormatted: formatCount(count, regionalLocale) }) })()}</span></div>
         {currentWorkspace && currentWorkspace.entries.length === 0 && <div className="empty"><strong>{t('noBookings')}</strong><p>{t('noBookingsHelp')}</p></div>}
         <div className="journal-list">{currentWorkspace?.entries.map(entry => <article className="journal-entry" id={`journal-entry-${entry.id}`} key={entry.id}>
           <div className="journal-meta"><span className="sequence">#{String(entry.sequenceNumber).padStart(4, '0')}</span><span>{entry.documentNumber}</span>{journalEntrySourceMetadata(entry).map((item, index) => item.label
@@ -271,7 +270,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
                 {line.connector && <span className="journal-connector">{t('journalConnector')}</span>}
                 <span>{line.account.number} · {line.account.name}</span>
               </span>
-              <span><span className="visually-hidden">{line.side === 'debit' ? t('debit') : t('credit')}: </span>{money.format(line.amountCents / 100)}</span>
+              <span><span className="visually-hidden">{line.side === 'debit' ? t('debit') : t('credit')}: </span><LocalCurrency cents={line.amountCents} currency="EUR" /></span>
             </div>)}
           </div>
         </article>)}</div>
@@ -282,7 +281,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
 function MoneyInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return <div className="input-group money-input"><input className="form-control" aria-label={label} inputMode="decimal" type="number" min="0" step="0.01" value={value} onChange={event => onChange(event.target.value)} /><span className="input-group-text">€</span></div>
 }
-function Metric({ label, value }: { label: string; value: number }) { return <div className="card metric"><span>{label}</span><strong>{money.format(value / 100)}</strong></div> }
+function Metric({ label, value }: { label: string; value: number }) { return <div className="card metric"><span>{label}</span><strong><LocalCurrency cents={value} currency="EUR" /></strong></div> }
 function toCents(value: string) { const number = Number(value || 0); return Number.isFinite(number) ? Math.round(number * 100) : 0 }
 export function bookingLineRequest(line: Line) {
   const treatment = line.vatTreatment ?? ''

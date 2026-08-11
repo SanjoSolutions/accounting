@@ -6,6 +6,7 @@ import { PageHeading } from './PageHeading'
 import { formatDisplayDateForLocale, formatDisplayDateTimeForLocale } from './dateFormatting'
 import { useRegionalFormat } from './RegionalFormatProvider'
 import { localizeErrorDates } from './errorFormatting'
+import { LocalCount } from './LocalNumber'
 
 type Profile = {
   companyName: string; legalForm: string; registerCourt?: string; registerNumber?: string; taxNumber: string; vatId?: string; taxOffice: string
@@ -225,7 +226,7 @@ export function ComplianceWorkspace() {
 
     <section className="card panel"><div className="panel-title"><div><span className="step">3</span><h2>{t('chartLifecycle')}</h2></div><span className="badge text-bg-light hint">{overview?.chart?.chart ?? '—'}</span></div>
       <form onSubmit={activateCustomChart}><div className="form-grid"><Text label={t('customChartId')} value={customChartId} onChange={setCustomChartId} required /><Text label={t('mappingEffectiveFrom')} type="date" value={mappingEffectiveFrom} onChange={setMappingEffectiveFrom} required /><label className="full-width">{t('mappingJson')}<textarea className="form-control" rows={8} value={customMappings} onChange={event => setCustomMappings(event.target.value)} /></label><Text label={t('changeReason')} value={reason} onChange={setReason} required /></div><button className="btn btn-primary" disabled={busy}>{t('activateChart')}</button></form>
-      <details><summary>{t('mappingHistory')} ({overview?.chart?.mappings.length ?? 0})</summary><pre>{localizedComplianceJson(overview?.chart?.mappings ?? [], locale)}</pre></details>
+      <details><summary>{t('mappingHistory')} (<LocalCount value={overview?.chart?.mappings.length ?? 0} />)</summary><pre>{localizedComplianceJson(overview?.chart?.mappings ?? [], locale)}</pre></details>
       <form onSubmit={onboardHistoricalHgb} className="mt-4"><fieldset><legend>{t('historicalHgbLegend')}</legend><p>{t('historicalHgbDescription')}</p><div className="form-grid"><Text label={t('historicalHgbYears')} value={historicalHgbYears} onChange={setHistoricalHgbYears} required /><Text label={t('retainedEvidenceDocumentId')} value={historicalHgbEvidenceId} onChange={setHistoricalHgbEvidenceId} required /><Text label={t('changeReason')} value={reason} onChange={setReason} required /></div><button className="btn btn-outline-primary" disabled={busy || refreshing}>{t('onboardHistoricalHgb')}</button></fieldset></form>
     </section>
 
@@ -260,7 +261,7 @@ export function localizedComplianceJson(value: unknown, locale: string): string 
   return JSON.stringify(localizeComplianceValue(value, undefined, locale), null, 2)
 }
 
-function StatusList({ title, items, locale }: { title: string; items: unknown[]; locale: string }) { return <div><h3>{title}</h3>{items.length ? <pre>{localizedComplianceJson(items, locale)}</pre> : <p>—</p>}</div> }
+function StatusList({ title, items, locale }: { title: string; items: unknown[]; locale: string }) { return <div><h3>{title} <span className="badge text-bg-light"><LocalCount value={items.length} /></span></h3>{items.length ? <pre>{localizedComplianceJson(items, locale)}</pre> : <p>—</p>}</div> }
 
 export function complianceOperationExamples(overview: Overview | null): Record<string, Record<string, unknown>> {
   const periodId = overview?.periods[0]?.id ?? 'period-id'

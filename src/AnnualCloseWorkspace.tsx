@@ -7,6 +7,7 @@ import { HgbCloseWorkbench } from './HgbCloseWorkbench'
 import { PageHeading } from './PageHeading'
 import { localizeErrorDates } from './errorFormatting'
 import { useRegionalFormat } from './RegionalFormatProvider'
+import { LocalCurrency, formatCount } from './LocalNumber'
 
 type CloseData = {
   fiscalYear: { year: number; status: string; lockedAt: string | null }
@@ -14,8 +15,6 @@ type CloseData = {
   statements: { assetsCents: number; liabilitiesCents: number; equityCents: number; revenueCents: number; expenseCents: number; netIncomeCents: number; balanceDifferenceCents: number }
   entries?: unknown[]
 }
-const money = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' })
-
 export function getCloseSteps(data: CloseData | null, t: (key: string) => string = key => key) {
   const ready = Boolean(data && data.closingIssues.length === 0)
   const closed = data?.fiscalYear.status === 'CLOSED'
@@ -97,7 +96,7 @@ export function AnnualCloseWorkspace({ year }: { year: number }) {
     </div>
     <HgbCloseWorkbench year={year} onChanged={() => void load()} />
     <section className={`card panel readiness ${unavailable || displayIssues.length ? 'blocked' : 'ready'}`}>
-      <div><span className="step">{t('closeReview')}</span><h2>{transitioning ? t('closingBusy') : unavailable ? t('closeFailed') : displayIssues.length ? t('closeBlockers', { count: displayIssues.length }) : t('readyForApproval')}</h2>
+      <div><span className="step">{t('closeReview')}</span><h2>{transitioning ? t('closingBusy') : unavailable ? t('closeFailed') : displayIssues.length ? t('closeBlockers', { count: displayIssues.length, countFormatted: formatCount(displayIssues.length, locale) }) : t('readyForApproval')}</h2>
       {!unavailable && (displayIssues.length ? <ul>{displayIssues.map(issue => <li key={issue}>{localizeErrorDates(issue, locale)}</li>)}</ul> : <p>{t('professionalReviewNote')}</p>)}</div>
       {closeError && <p className="alert alert-danger" role="alert">{localizeErrorDates(closeError, locale)}</p>}
       <div className="action-stack"><Link className="btn btn-outline-secondary" href={`/e-bilanz/${year}`}>{t('reviewEBalance')}</Link><button className="btn btn-primary" disabled={!canCloseYear(data, displayIssues, loading, busy, year, hgbReady)} onClick={close}>{data?.fiscalYear.status === 'CLOSED' ? t('yearLocked') : busy ? t('closingBusy') : t('reviewAndLock')}</button></div>
@@ -107,4 +106,4 @@ export function AnnualCloseWorkspace({ year }: { year: number }) {
 export function canCloseYear(data: CloseData | null, issues: string[], loading: boolean, busy: boolean, selectedYear = data?.fiscalYear.year, hgbReady = false) {
   return Boolean(data && data.fiscalYear.year === selectedYear && data.entries?.length && !loading && !busy && hgbReady && issues.length === 0 && ['OPEN', 'REOPENED'].includes(data.fiscalYear.status))
 }
-function Statement({ label, value = 0, important = false }: { label: string; value?: number; important?: boolean }) { return <div className={important ? 'important' : ''}><dt>{label}</dt><dd>{money.format(value / 100)}</dd></div> }
+function Statement({ label, value = 0, important = false }: { label: string; value?: number; important?: boolean }) { return <div className={important ? 'important' : ''}><dt>{label}</dt><dd><LocalCurrency cents={value} currency="EUR" /></dd></div> }

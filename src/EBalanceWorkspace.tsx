@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { PageHeading } from './PageHeading'
 import { LocalDateTime } from './LocalDate'
+import { LocalCount, LocalPercentUnits, formatCount } from './LocalNumber'
+import { useRegionalFormat } from './RegionalFormatProvider'
 
 type LoadState = 'loading' | 'ready' | 'failed'
 type EricReadiness = { validationReady: boolean; submissionReady: boolean; testMode: boolean; issues: string[] }
@@ -72,6 +74,7 @@ export async function resolveJsonRequest(request: () => Promise<Response>, fallb
 
 export function EBalanceWorkspace({ year }: { year: number }) {
   const t = useTranslations('Workspaces')
+  const { locale: regionalLocale } = useRegionalFormat()
   const [companyName, setCompanyName] = useState('')
   const [street, setStreet] = useState('')
   const [postalCode, setPostalCode] = useState('')
@@ -253,8 +256,8 @@ export function EBalanceWorkspace({ year }: { year: number }) {
         <div className="col-12"><button className="btn btn-primary w-100" disabled={!canRegenerateAgainstCloseEvidence(lifecycle.closeEvidence) || !canRunEBalanceAction(combinedLoadState(ledgerLoadState, masterDataLoadState), ledgerIssues, exportBusy)}>{exportBusy ? t('eBalanceExporting') : lifecycleView.regenerationRequired ? t('regenerateAndRevalidateXbrlPackage') : t('createXbrlPackage')}</button></div>
         </fieldset>
       </form>
-      <section className="card panel"><div className="panel-title"><div><span className="step">{t('accountDetails')}</span><h2>{t('mappingCoverage')}</h2></div><strong className="coverage-number">{percent} %</strong></div>
-        <div className="progress-track"><span style={{ width: `${percent}%` }} /></div><p>{t('mappingCount', { mapped: coverage.mapped, total: coverage.total })}</p>
+      <section className="card panel"><div className="panel-title"><div><span className="step">{t('accountDetails')}</span><h2>{t('mappingCoverage')}</h2></div><strong className="coverage-number"><LocalPercentUnits value={percent} /></strong></div>
+        <div className="progress-track"><span style={{ width: `${percent}%` }} /></div><p>{t('mappingCount', { mapped: coverage.mapped, total: coverage.total, mappedFormatted: formatCount(coverage.mapped, regionalLocale), totalFormatted: formatCount(coverage.total, regionalLocale) })}</p>
         <hr /><div className="panel-title"><div><span className="step">ERiC 44 · Bilanz 6.9</span><h2>{t('officialValidation')}</h2></div><span className="taxonomy">{eric.testMode ? t('testMode') : t('productionMode')}</span></div>
         {eric.issues.length > 0 && <div className="legal-note"><strong>{t('ericSetupRequired')}</strong><ul>{eric.issues.map(issue => <li key={issue}>{issue}</li>)}</ul></div>}
         {ericMessage && <p className="alert alert-success" role="status">{ericMessage}</p>}
@@ -265,10 +268,10 @@ export function EBalanceWorkspace({ year }: { year: number }) {
         {history.length > 0 && <div><h3>{t('submissionHistory')}</h3><ul>{history.map(item => <li key={item.id}><strong>{item.kind === 'SUBMISSION' ? t('submission') : t('validation')}</strong> · {item.status} · <LocalDateTime value={item.createdAt} /> {item.ericMessage ? `— ${item.ericMessage}` : ''}</li>)}</ul></div>}
         <div className="legal-note"><strong>{t('productBoundary')}</strong><p>{t('ericBoundary')}</p></div>
       </section>
-      <section className="card panel"><div className="panel-title"><div><span className="step">{t('lifecycleEvidence')}</span><h2>{t('immutableReportVersions')}</h2></div><span className="badge text-bg-secondary">{lifecycle.reports.length}</span></div>
+      <section className="card panel"><div className="panel-title"><div><span className="step">{t('lifecycleEvidence')}</span><h2>{t('immutableReportVersions')}</h2></div><span className="badge text-bg-secondary"><LocalCount value={lifecycle.reports.length} /></span></div>
         {lifecycle.closeEvidence && <p className={`alert ${lifecycle.closeEvidence.sourceStatus === 'CURRENT' ? 'alert-success' : 'alert-danger'}`} role="status"><strong>{t('closeEvidence')}</strong> · {lifecycle.closeEvidence.sourceStatus}{lifecycle.closeEvidence.issue ? ` · ${lifecycle.closeEvidence.issue}` : ''}</p>}
         {lifecycle.reports.length ? <ul className="list-group list-group-flush">{lifecycle.reports.map(report => <li className="list-group-item" key={report.id}><strong>v{report.version} · {report.status} · {sourceEdited ? 'STALE' : report.sourceStatus}</strong><br/>{t('closeGeneration')} <code>{report.closeGenerationId ?? '—'}</code><br/>{t('taxonomy')} {report.taxonomyVersion}<br/><code>{report.reportChecksum}</code></li>)}</ul> : <p>{t('noLifecycleReports')}</p>}
-        <p className="small text-body-secondary">{t('reconciliationEvidenceCount', { count: lifecycle.reconciliations.length })}</p>
+        <p className="small text-body-secondary">{t('reconciliationEvidenceCount', { count: lifecycle.reconciliations.length, countFormatted: formatCount(lifecycle.reconciliations.length, regionalLocale) })}</p>
       </section>
     </div>
   </div>

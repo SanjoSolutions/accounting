@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { BookingDocuments, type BookingDocument } from './BookingDocuments'
 import { LocalDate, LocalDateTime } from './LocalDate'
+import { LocalCount } from './LocalNumber'
 import { PageHeading } from './PageHeading'
 
 export type BookingBatchVatTreatment = '' | 'DE_STANDARD_SALE_NET' | 'DE_STANDARD_PURCHASE_NET' | 'DE_STANDARD_SALE_GROSS' | 'DE_STANDARD_PURCHASE_GROSS' | 'EU_13B_SERVICE_RECIPIENT_NET'
@@ -362,7 +363,7 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
           <div className="card-body">
             <div className="d-flex justify-content-between align-items-start gap-2 mb-3">
               <div><h2 className="h5 mb-1">{t('draftList')}</h2><p className="small text-muted mb-0">{t('draftListHint', { year })}</p></div>
-              <span className="badge text-bg-light">{drafts.length}</span>
+              <span className="badge text-bg-light"><LocalCount value={drafts.length} /></span>
             </div>
             {drafts.length === 0 && <div className="text-center text-muted py-4"><i className="bi bi-inbox fs-2 d-block mb-2" aria-hidden="true" /><strong className="d-block text-body">{t('empty')}</strong><span className="small">{t('emptyHint')}</span></div>}
             {drafts.length > 0 && <div className="list-group" role="listbox" aria-label={t('draftList')}>

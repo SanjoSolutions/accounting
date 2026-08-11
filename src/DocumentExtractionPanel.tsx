@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { getJSON } from './Requester'
+import { useRegionalFormat } from './RegionalFormatProvider'
+import { LocalCurrency, formatCurrencyFromCents, formatPercentBasisPoints } from './LocalNumber'
 
 type ExtractionData = { supplierName: string; invoiceNumber: string; issueDate: string; netAmountCents: number; taxAmountCents: number; grossAmountCents: number; provenance: string }
 type Extraction = { documentId: string; status: string; provider: string; providerVersion: string; inputHash: string; data: ExtractionData | null; failureCode: string | null; failureMessage: string | null; retryable: boolean; reviewedAt: string | null }
@@ -83,6 +85,7 @@ export function DocumentExtractionPanel({ documentId }: { documentId: string }) 
 
 function IncomingSupplierCreditPosting({ documentId, initialContext }: { documentId: string; initialContext: SupplierCreditContext }) {
   const t = useTranslations('DocumentExtraction')
+  const { locale: regionalLocale } = useRegionalFormat()
   const [context, setContext] = useState(initialContext)
   const [effectiveDate, setEffectiveDate] = useState('')
   const [reason, setReason] = useState('Reviewed structured supplier credit note and exact original reference')
@@ -98,10 +101,10 @@ function IncomingSupplierCreditPosting({ documentId, initialContext }: { documen
     } catch (postingError) { setError(postingError instanceof Error ? postingError.message : t('creditPostingFailed')) }
     finally { setBusy(false) }
   }
-  if (context.correction) return <div className="alert alert-success mt-3 mb-0" role="status">{t('creditPosted', { credit: context.correction.documentNumber, journal: context.correction.postingJournalEntry.documentNumber, unapplied: ((context.correction.openItem.originalAmountCents - context.correction.openItem.allocatedAmountCents) / 100).toFixed(2) })}</div>
+  if (context.correction) return <div className="alert alert-success mt-3 mb-0" role="status">{t('creditPosted', { credit: context.correction.documentNumber, journal: context.correction.postingJournalEntry.documentNumber, unapplied: formatCurrencyFromCents(context.correction.openItem.originalAmountCents - context.correction.openItem.allocatedAmountCents, context.original.currency, regionalLocale) })}</div>
   return <section className="card mt-3" aria-label={t('creditPostingTitle')}><div className="card-body">
     <h4 className="h6">{t('creditPostingTitle')}</h4><p className="small text-muted">{t('creditPostingHint')}</p>
-    <dl className="row small"><dt className="col-sm-4">{t('creditDocument')}</dt><dd className="col-sm-8">{context.credit.syntax} {context.credit.documentNumber}</dd><dt className="col-sm-4">{t('creditOriginal')}</dt><dd className="col-sm-8">{context.original.documentNumber} · {context.original.supplier}</dd><dt className="col-sm-4">{t('creditAmount')}</dt><dd className="col-sm-8">{(context.credit.grossAmountCents / 100).toFixed(2)} {context.original.currency}</dd></dl>
+    <dl className="row small"><dt className="col-sm-4">{t('creditDocument')}</dt><dd className="col-sm-8">{context.credit.syntax} {context.credit.documentNumber}</dd><dt className="col-sm-4">{t('creditOriginal')}</dt><dd className="col-sm-8">{context.original.documentNumber} · {context.original.supplier}</dd><dt className="col-sm-4">{t('creditAmount')}</dt><dd className="col-sm-8"><LocalCurrency cents={context.credit.grossAmountCents} currency={context.original.currency} /></dd></dl>
     <form onSubmit={post}><label className="form-label d-block">{t('creditEffectiveDate')}<input className="form-control" type="date" required value={effectiveDate} onChange={event => setEffectiveDate(event.target.value)} /></label><label className="form-label d-block">{t('postingReason')}<input className="form-control" required value={reason} onChange={event => setReason(event.target.value)} /></label><button className="btn btn-primary btn-sm" type="submit" disabled={busy || !effectiveDate}>{busy ? t('posting') : t('postCredit')}</button></form>
     {error && <div className="alert alert-danger mt-2 mb-0" role="alert">{error}</div>}
   </div></section>
@@ -166,11 +169,12 @@ function IncomingPayablePosting({ documentId, issueDate }: { documentId: string;
 
 function RecipientAssessedVatConfirmation({ treatment, assessmentRate, supplyClassification, onAssessmentRate, onSupplyClassification }: { treatment: NonNullable<RecipientAssessedVatTreatment>; assessmentRate: string; supplyClassification: string; onAssessmentRate: (value: string) => void; onSupplyClassification: (value: string) => void }) {
   const t = useTranslations('DocumentExtraction')
+  const { locale: regionalLocale } = useRegionalFormat()
   const acquisition = treatment.kind === 'DE_EU_GOODS_ACQUISITION'
   const service = treatment.kind === 'DE_13B_EU_SERVICE'
   const title = acquisition ? 'euAcquisitionTitle' : service ? 'euReverseChargeTitle' : 'reverseChargeTitle'
   const hint = acquisition ? 'euAcquisitionHint' : service ? 'euReverseChargeHint' : 'reverseChargeHint'
-  return <div className="alert alert-warning"><strong>{t(title)}</strong><p>{t(hint)}</p>{(service || acquisition) && <label className="d-block mb-2">{t('supplyClassification')}<select className="form-select" required value={supplyClassification} onChange={event => onSupplyClassification(event.target.value)}><option value="">{t('supplyClassificationSelect')}</option>{service && <option value="SERVICE">{t('supplyClassificationService')}</option>}{acquisition && <option value="STANDARD_GOODS">{t('supplyClassificationStandardGoods')}</option>}</select></label>}<label>{t('reverseChargeRate')}<select className="form-select" required value={assessmentRate} onChange={event => onAssessmentRate(event.target.value)}><option value="">{t('reverseChargeSelect')}</option><option value="1900">19 %</option></select></label>{!treatment.configured && <p className="text-danger mt-2 mb-0">{t(acquisition ? 'euAcquisitionAccountsMissing' : 'reverseChargeAccountsMissing')}</p>}</div>
+  return <div className="alert alert-warning"><strong>{t(title)}</strong><p>{t(hint)}</p>{(service || acquisition) && <label className="d-block mb-2">{t('supplyClassification')}<select className="form-select" required value={supplyClassification} onChange={event => onSupplyClassification(event.target.value)}><option value="">{t('supplyClassificationSelect')}</option>{service && <option value="SERVICE">{t('supplyClassificationService')}</option>}{acquisition && <option value="STANDARD_GOODS">{t('supplyClassificationStandardGoods')}</option>}</select></label>}<label>{t('reverseChargeRate')}<select className="form-select" required value={assessmentRate} onChange={event => onAssessmentRate(event.target.value)}><option value="">{t('reverseChargeSelect')}</option><option value="1900">{formatPercentBasisPoints(1900, regionalLocale)}</option></select></label>{!treatment.configured && <p className="text-danger mt-2 mb-0">{t(acquisition ? 'euAcquisitionAccountsMissing' : 'reverseChargeAccountsMissing')}</p>}</div>
 }
 
 function Money({ label, value, disabled, onChange }: { label: string; value: number; disabled: boolean; onChange: (value: number) => void }) {

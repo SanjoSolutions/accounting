@@ -8,10 +8,12 @@ const messages = {
 
 describe('localized copy clusters', () => {
   test('uses singular and plural close-blocker grammar in both locales', () => {
-    expect(messages.en.Workspaces.closeBlockers).toContain('one {# blocker prevents closing}')
-    expect(messages.en.Workspaces.closeBlockers).toContain('other {# blockers prevent closing}')
-    expect(messages.de.Workspaces.closeBlockers).toContain('one {# Blocker verhindert den Abschluss}')
-    expect(messages.de.Workspaces.closeBlockers).toContain('other {# Blocker verhindern den Abschluss}')
+    expect(messages.en.Workspaces.closeBlockers).toContain('one {{countFormatted} blocker prevents closing}')
+    expect(messages.en.Workspaces.closeBlockers).toContain('other {{countFormatted} blockers prevent closing}')
+    expect(messages.de.Workspaces.closeBlockers).toContain('one {{countFormatted} Blocker verhindert den Abschluss}')
+    expect(messages.de.Workspaces.closeBlockers).toContain('other {{countFormatted} Blocker verhindern den Abschluss}')
+    expect(messages.en.Workspaces.closeBlockers).toContain('{count, plural,')
+    expect(messages.de.Workspaces.closeBlockers).toContain('{count, plural,')
   })
 
   test('provides localized HGB schema enum and run-status labels while preserving technical codes', () => {
