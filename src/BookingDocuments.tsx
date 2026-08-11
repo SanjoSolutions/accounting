@@ -20,6 +20,7 @@ export function BookingDocuments({
   selectedDocumentIds,
   unavailableDocumentIds = [],
   initialDocuments = [],
+  compactByDefault = false,
   onSelectionChange,
   onUploadingChange,
   onRemoveDocument,
@@ -33,6 +34,11 @@ export function BookingDocuments({
    * while the library is loading and for legacy records without a full URL.
    */
   initialDocuments?: BookingDocument[]
+  /**
+   * Render only the attached-document list until the user explicitly starts
+   * the add flow. The full picker and preview remain available after that.
+   */
+  compactByDefault?: boolean
   onSelectionChange: (ids: string[]) => void
   onUploadingChange: (uploading: boolean) => void
   onRemoveDocument?: (id: string) => void
@@ -50,6 +56,8 @@ export function BookingDocuments({
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const [documentColumnPercent, setDocumentColumnPercent] = useState(60)
+  const [addFlowOpen, setAddFlowOpen] = useState(!compactByDefault)
+  const pickerOpen = documentPickerIsOpen(compactByDefault, addFlowOpen)
 
   useEffect(() => {
     if (initialDocuments.length) setDocuments(current => mergeDocumentLists(current, initialDocuments))
@@ -61,6 +69,7 @@ export function BookingDocuments({
   }, [])
 
   useEffect(() => {
+    if (!pickerOpen) return
     const controller = new AbortController()
     void fetch('/api/documents', { signal: controller.signal })
       .then(async response => {
@@ -72,21 +81,23 @@ export function BookingDocuments({
         if (fetchError?.name !== 'AbortError') setError(t('documentsLoadFailed'))
       })
     return () => controller.abort()
-  }, [t])
+  }, [pickerOpen, t])
 
   const upload = useCallback(async (fileList: ArrayLike<File>) => {
-    if (uploadingRef.current) return
+    if (uploadingRef.current || (compactByDefault && !addFlowOpen)) return
     const files = acceptedBookingDocumentFiles(fileList)
     if (!files.length) { setError(t('pdfOnly')); return }
     uploadingRef.current = true
     setUploading(true)
     onUploadingChange(true)
     setError('')
+    let uploadedAny = false
     try {
       for (const file of files) {
         const response = await api.postFile('/api/documents', file)
         const uploadedDocument = await readDocumentUploadResponse(response, t('documentUploadFailed'))
         setDocuments(current => mergeUploadedDocument(current, uploadedDocument))
+        uploadedAny = true
         const nextSelection = mergeDocumentSelection(selectedDocumentIdsRef.current, uploadedDocument.id)
         selectedDocumentIdsRef.current = nextSelection
         onSelectionChange(nextSelection)
@@ -99,10 +110,12 @@ export function BookingDocuments({
       setUploading(false)
       onUploadingChange(false)
       if (inputRef.current) inputRef.current.value = ''
+      if (compactByDefault && uploadedAny) setAddFlowOpen(documentPickerOpenAfterAddition(compactByDefault))
     }
-  }, [onSelectionChange, onUploadingChange, t])
+  }, [addFlowOpen, compactByDefault, onSelectionChange, onUploadingChange, t])
 
   useEffect(() => {
+    if (!pickerOpen) return
     const hasFiles = (event: DragEvent) => event.dataTransfer?.types.includes('Files') ?? false
     const enter = (event: DragEvent) => {
       if (!hasFiles(event)) return
@@ -133,24 +146,41 @@ export function BookingDocuments({
       window.removeEventListener('dragleave', leave, true)
       window.removeEventListener('drop', drop, true)
     }
-  }, [upload])
+  }, [pickerOpen, upload])
 
-  const selectedDocuments = useMemo(
-    () => selectedDocumentIds.flatMap(id => documents.find(document => document.id === id) ?? []),
+  useEffect(() => {
+    if (pickerOpen) return
+    dragDepth.current = 0
+    setDragging(false)
+  }, [pickerOpen])
+
+  const attachedDocuments = useMemo(
+    () => attachedBookingDocuments(selectedDocumentIds, documents),
     [documents, selectedDocumentIds],
+  )
+  const selectedDocuments = useMemo(
+    () => compactByDefault
+      ? attachedDocuments
+      : selectedDocumentIds.flatMap(id => documents.find(document => document.id === id) ?? []),
+    [attachedDocuments, compactByDefault, documents, selectedDocumentIds],
   )
   const unavailableDocumentIdSet = useMemo(() => new Set(unavailableDocumentIds), [unavailableDocumentIds])
   const availableDocuments = useMemo(
-    () => availableBookingDocuments(documents, unavailableDocumentIdSet),
-    [documents, unavailableDocumentIdSet],
+    () => availableBookingDocuments(documents, unavailableDocumentIdSet)
+      .filter(document => !compactByDefault || !selectedDocumentIds.includes(document.id)),
+    [compactByDefault, documents, selectedDocumentIds, unavailableDocumentIdSet],
   )
   const activeDocument = selectedDocuments.find(document => document.id === activeDocumentId) ?? selectedDocuments[0]
 
   function select(documentId: string, extendSelection: boolean) {
-    const next = selectDocument(selectedDocumentIds, documentId, extendSelection)
+    const isNewAttachment = compactByDefault && !selectedDocumentIds.includes(documentId)
+    const next = compactByDefault
+      ? addDocumentSelection(selectedDocumentIds, documentId)
+      : selectDocument(selectedDocumentIds, documentId, extendSelection)
     onSelectionChange(next)
     if (next.includes(documentId)) setActiveDocumentId(documentId)
     else if (activeDocumentId === documentId) setActiveDocumentId(next[0] ?? null)
+    if (isNewAttachment) setAddFlowOpen(documentPickerOpenAfterAddition(compactByDefault))
   }
 
   function resizeColumns(event: React.PointerEvent<HTMLDivElement>) {
@@ -175,21 +205,20 @@ export function BookingDocuments({
     window.localStorage.setItem(documentColumnStorageKey, String(next))
   }
 
-  return <>
-    {dragging && <div className="viewport-drop-target" role="status"><div><i className="bi bi-cloud-arrow-up" /><strong>{t('dropDocuments')}</strong><span>{t('dropDocumentsHelp')}</span></div></div>}
-    <section className="card panel document-picker-panel">
+  const pickerPanel = <section className="card panel document-picker-panel">
       <div className="panel-title">
         <h2>{t('documents')}</h2>
         <div className="document-actions">
           <button className="btn btn-outline-secondary" type="button" disabled={uploading} onClick={() => inputRef.current?.click()}>
-            <i className="bi bi-plus-lg" /> {uploading ? t('uploadingDocuments') : t('chooseDocuments')}
+            <i className="bi bi-plus-lg" aria-hidden="true" /> {uploading ? t('uploadingDocuments') : t('chooseDocuments')}
           </button>
+          {compactByDefault && <button className="btn btn-link" type="button" disabled={uploading} onClick={() => setAddFlowOpen(false)}>{t('cancelAddDocument')}</button>}
           <input ref={inputRef} className="visually-hidden" type="file" accept="application/pdf,application/xml,text/xml,.pdf,.xml" multiple onChange={event => event.target.files && void upload(event.target.files)} />
         </div>
       </div>
       {error && <div className="alert alert-danger" role="alert">{error}</div>}
       {availableDocuments.length === 0 && !uploading
-        ? <div className="document-empty" onClick={() => inputRef.current?.click()}><i className="bi bi-file-earmark-arrow-up" /><strong>{t('noDocuments')}</strong><span>{t('noDocumentsHelp')}</span></div>
+        ? <div className="document-empty" onClick={() => inputRef.current?.click()}><i className="bi bi-file-earmark-arrow-up" aria-hidden="true" /><strong>{t('noDocuments')}</strong><span>{t('noDocumentsHelp')}</span></div>
         : <div className="document-strip" aria-label={t('availableDocuments')}>{availableDocuments.map(document => {
           const selected = selectedDocumentIds.includes(document.id)
           return <DocumentCard
@@ -202,7 +231,36 @@ export function BookingDocuments({
         })}</div>}
     </section>
 
-    <div className="booking-workflow-columns" style={{ '--document-column': `${documentColumnPercent}%` } as React.CSSProperties}>
+  const compactPanel = <section className="card panel document-picker-panel attached-documents-panel">
+      <div className="panel-title">
+        <div><span className="step">{t('documents')}</span><h2>{t('attachedDocuments')}</h2></div>
+        <span className="badge text-bg-light hint">{attachedDocuments.length}</span>
+      </div>
+      {attachedDocuments.length === 0
+        ? <div className="preview-empty attached-documents-empty"><i className="bi bi-paperclip" aria-hidden="true" /><strong>{t('noSelectedDocuments')}</strong><p>{t('noSelectedDocumentsHelp')}</p></div>
+        : <div className="attached-document-list" role="list" aria-label={t('attachedDocuments')}>{attachedDocuments.map(document => {
+          const name = documentDisplayName(document.fileName || t('unnamedDocument'), t('unnamedDocument'))
+          return <AttachedDocumentRow
+            key={document.id}
+            document={document}
+            fallbackName={t('unnamedDocument')}
+            openLabel={t('openDocument')}
+            removeLabel={t('removeDocument', { name })}
+            onRemove={onRemoveDocument ? () => onRemoveDocument(document.id) : undefined}
+          />
+        })}</div>}
+      <div className="document-actions attached-documents-actions">
+        <button className="btn btn-primary" type="button" onClick={() => setAddFlowOpen(true)}>
+          <i className="bi bi-plus-lg me-1" aria-hidden="true" />{t('addDocument')}
+        </button>
+      </div>
+    </section>
+
+  return <>
+    {pickerOpen && dragging && <div className="viewport-drop-target" role="status"><div><i className="bi bi-cloud-arrow-up" aria-hidden="true" /><strong>{t('dropDocuments')}</strong><span>{t('dropDocumentsHelp')}</span></div></div>}
+    {compactByDefault && !pickerOpen ? compactPanel : pickerPanel}
+
+    {!pickerOpen ? <div className="booking-workflow-columns booking-workflow-columns--compact">{children}</div> : <div className="booking-workflow-columns" style={{ '--document-column': `${documentColumnPercent}%` } as React.CSSProperties}>
     <section className="card panel document-preview-panel">
       <div className="panel-title"><div><span className="step">{t('selectedDocuments')}</span><h2>{t('documentPreview')}</h2></div><span className="badge text-bg-light hint">{selectedDocuments.length}</span></div>
       {selectedDocuments.length === 0
@@ -250,8 +308,42 @@ export function BookingDocuments({
         onKeyDown={resizeColumnsWithKeyboard}
       ><span /></div>
       {children}
-    </div>
+    </div>}
   </>
+}
+
+export function AttachedDocumentRow({
+  document,
+  fallbackName,
+  openLabel,
+  removeLabel,
+  onRemove,
+}: {
+  document: BookingDocument
+  fallbackName: string
+  openLabel: string
+  removeLabel: string
+  onRemove?: () => void
+}) {
+  const name = documentDisplayName(document.fileName || fallbackName, fallbackName)
+  return <article className="attached-document-row" role="listitem">
+    <div className="attached-document-details">
+      <span className="document-thumbnail" aria-hidden="true">
+        {document.thumbnailUrl
+          ? <img src={document.thumbnailUrl} alt="" loading="lazy" />
+          : <i className="bi bi-file-earmark-pdf" />}
+      </span>
+      <strong className="document-name" title={name}>{name}</strong>
+    </div>
+    <div className="attached-document-actions">
+      <a className="btn btn-sm btn-outline-secondary" href={document.url} target="_blank" rel="noreferrer">
+        <i className="bi bi-box-arrow-up-right me-1" aria-hidden="true" />{openLabel}
+      </a>
+      {onRemove && <button type="button" className="btn btn-sm btn-outline-danger" aria-label={removeLabel} onClick={onRemove}>
+        <i className="bi bi-x-lg me-1" aria-hidden="true" />{removeLabel}
+      </button>}
+    </div>
+  </article>
 }
 
 export function DocumentCard({
@@ -305,6 +397,21 @@ export function DocumentCard({
 export function selectDocument(selectedIds: string[], documentId: string, extendSelection: boolean): string[] {
   if (!extendSelection) return [documentId]
   return selectedIds.includes(documentId) ? selectedIds.filter(id => id !== documentId) : [...selectedIds, documentId]
+}
+
+/** Add one document to an existing attachment set without dropping prior choices. */
+export function addDocumentSelection(selectedIds: string[], documentId: string): string[] {
+  return selectedIds.includes(documentId) ? [...selectedIds] : [...selectedIds, documentId]
+}
+
+/** Whether the full picker/preview should be rendered for a compact document flow. */
+export function documentPickerIsOpen(compactByDefault: boolean, addFlowOpen: boolean): boolean {
+  return !compactByDefault || addFlowOpen
+}
+
+/** Collapse the compact add flow after a successful existing-document selection or upload. */
+export function documentPickerOpenAfterAddition(compactByDefault: boolean): boolean {
+  return !compactByDefault
 }
 
 export const longTouchSelectionDelayMs = 500
@@ -402,6 +509,18 @@ export function mergeDocumentLists(current: BookingDocument[], fetched: BookingD
 
 export function availableBookingDocuments(documents: BookingDocument[], unavailableDocumentIds: ReadonlySet<string>): BookingDocument[] {
   return documents.filter(document => !unavailableDocumentIds.has(document.id))
+}
+
+/** Keep attached documents visible while the document library request is pending. */
+export function attachedBookingDocuments(selectedIds: string[], documents: BookingDocument[]): BookingDocument[] {
+  return selectedIds.map(id => documents.find(document => document.id === id) ?? {
+    id,
+    url: documentFileUrl(id),
+  })
+}
+
+export function documentFileUrl(documentId: string): string {
+  return `/api/documents/${encodeURIComponent(documentId)}/file`
 }
 
 export function acceptedPdfFiles(files: ArrayLike<{ name: string; type: string }>): File[] {

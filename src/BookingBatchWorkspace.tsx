@@ -387,6 +387,8 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
 
       <section className="col-lg-8" aria-label={t('editor')}>
         {!selectedDraft || !posting ? <div className="card"><div className="card-body text-center text-muted py-5"><i className="bi bi-pencil-square fs-2 d-block mb-2" aria-hidden="true" />{t('selectDraft')}</div></div> : <BookingDocuments
+          key={selectedDraft.id}
+          compactByDefault
           selectedDocumentIds={posting.documentIds}
           initialDocuments={selectedDraftDocuments}
           onSelectionChange={documentIds => setPosting(current => current ? { ...current, documentIds } : current)}

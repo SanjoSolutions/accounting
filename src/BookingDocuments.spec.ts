@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, test, vi } from 'vitest'
 import de from '../messages/de.json'
 import en from '../messages/en.json'
 import { readFileSync } from 'node:fs'
-import { acceptedBookingDocumentFiles, acceptedPdfFiles, availableBookingDocuments, clampDocumentColumnPercent, DocumentCard, documentDisplayName, LongTouchSelectionGesture, longTouchSelectionDelayMs, mergeDocumentLists, mergeDocumentSelection, mergeUploadedDocument, parseSavedDocumentColumnPercent, readDocumentUploadResponse, selectDocument, selectionExtendsForActivation } from './BookingDocuments'
+import { acceptedBookingDocumentFiles, acceptedPdfFiles, addDocumentSelection, attachedBookingDocuments, availableBookingDocuments, clampDocumentColumnPercent, AttachedDocumentRow, DocumentCard, documentDisplayName, documentPickerIsOpen, documentPickerOpenAfterAddition, LongTouchSelectionGesture, longTouchSelectionDelayMs, mergeDocumentLists, mergeDocumentSelection, mergeUploadedDocument, parseSavedDocumentColumnPercent, readDocumentUploadResponse, selectDocument, selectionExtendsForActivation } from './BookingDocuments'
 
 afterEach(() => vi.useRealTimers())
 
@@ -163,5 +163,43 @@ describe('booking document selection', () => {
   it('keeps spacing below a document loading error', () => {
     const css = readFileSync(new URL('./index.css', import.meta.url), 'utf8')
     expect(css).toMatch(/\.document-picker-panel \.alert\s*\{[^}]*margin-bottom:\s*14px/)
+  })
+})
+
+describe('compact attached-document flow', () => {
+  test('renders only attached documents as human-friendly rows with view and remove actions', () => {
+    const attached = attachedBookingDocuments(['document-1'], [
+      { id: 'document-1', url: '/api/documents/document-1/file', fileName: 'Invoice.pdf' },
+      { id: 'available', url: '/api/documents/available/file', fileName: 'Other.pdf' },
+    ])
+    expect(attached.map(document => document.fileName)).toEqual(['Invoice.pdf'])
+
+    const html = renderToStaticMarkup(createElement(AttachedDocumentRow, {
+      document: attached[0],
+      fallbackName: 'Unnamed document',
+      openLabel: 'Open document',
+      removeLabel: 'Remove Invoice from booking',
+      onRemove: () => undefined,
+    }))
+    expect(html).toContain('<strong class="document-name" title="Invoice">Invoice</strong>')
+    expect(html).toContain('>Open document</a>')
+    expect(html).toContain('>Remove Invoice from booking</button>')
+    expect(html).not.toContain('>document-1<')
+  })
+
+  test('keeps existing selections when an available document is added', () => {
+    expect(addDocumentSelection(['attached'], 'new-document')).toEqual(['attached', 'new-document'])
+    expect(addDocumentSelection(['attached'], 'attached')).toEqual(['attached'])
+  })
+
+  test('keeps the full picker hidden until the add flow is opened', () => {
+    expect(documentPickerIsOpen(true, false)).toBe(false)
+    expect(documentPickerIsOpen(true, true)).toBe(true)
+    expect(documentPickerIsOpen(false, false)).toBe(true)
+  })
+
+  test('collapses the compact add flow after a successful addition while preserving the regular picker', () => {
+    expect(documentPickerOpenAfterAddition(true)).toBe(false)
+    expect(documentPickerOpenAfterAddition(false)).toBe(true)
   })
 })
