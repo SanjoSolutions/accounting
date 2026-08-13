@@ -1,10 +1,16 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, test } from 'vitest'
 import { AccountingValidationError } from './doubleEntry'
-import { consumeDatevRecordBudget, inferDatevAccountCategory, parseCsv, parseDatevFiles } from './datev'
+import { consumeDatevRecordBudget, datevRecipientAssessedProfile, inferDatevAccountCategory, parseCsv, parseDatevFiles } from './datev'
 
 const bookingHeaders = ['Umsatz (ohne Soll/Haben-Kz)', 'Soll/Haben-Kennzeichen', 'Konto', 'Gegenkonto (ohne BU-Schlüssel)', 'BU-Schlüssel', 'Belegdatum', 'Belegfeld 1', 'Buchungstext', 'Buchungs GUID']
 
 describe('DATEV EXTF parser', () => {
+  test('Given DATEV recipient-assessed base accounts, when their profile is resolved, then EU services remain distinct from other foreign services', () => {
+    expect(datevRecipientAssessedProfile(3123, 'SKR03')).toEqual({ ruleId: 'EU_13B_SERVICE_RECIPIENT', inputTaxAccountNumber: 1577, outputTaxAccountNumber: 1787 })
+    expect(datevRecipientAssessedProfile(3125, 'SKR03')).toEqual({ ruleId: 'DE_13B', inputTaxAccountNumber: 1577, outputTaxAccountNumber: 1787 })
+    expect(datevRecipientAssessedProfile(59230, 'SKR04', 5)).toEqual({ ruleId: 'EU_13B_SERVICE_RECIPIENT', inputTaxAccountNumber: 14070, outputTaxAccountNumber: 38370 })
+    expect(datevRecipientAssessedProfile(8400, 'SKR03')).toBeUndefined()
+  })
   it('parses quoted semicolon CSV and escaped quotes', () => {
     expect(parseCsv('a;"b;c";"d""e"\r\n')).toEqual([['a', 'b;c', 'd"e']])
     expect(() => parseCsv('a\nb\nc\n', 2)).toThrow(/syntaktisch ungültig/)

@@ -1,7 +1,8 @@
 import { describe, expect, it, test } from 'vitest'
 import enMessages from '../messages/en.json'
 import deMessages from '../messages/de.json'
-import { annualAdjustmentRuleVersion, declarationPreparationRequest, parseAnnualValues, parseDeclarationFields, preparationSourceAfterValidation, requestKeyAfterPreparation, shouldReplaySubmissionFailure, submissionOutcomeMessage, submissionRequestKey, submissionSuccessMessage, taxWorkflowKindLabel, taxWorkflowStateLabel, workspaceLoadStatus } from './TaxWorkspace'
+import { annualAdjustmentRuleVersion, declarationPreparationRequest, parseAnnualValues, parseDeclarationFields, parseTaxApiResponse, preparationSourceAfterValidation, requestKeyAfterPreparation, shouldReplaySubmissionFailure, submissionOutcomeMessage, submissionRequestKey, submissionSuccessMessage, taxWorkflowKindLabel, taxWorkflowStateLabel, ustvaPreviewRequest, workspaceLoadStatus } from './TaxWorkspace'
+import { ustvaPeriodOptions } from './core/ustvaCopy'
 
 describe('tax filing workspace', () => {
   it('accepts official integer-cent fields for the usable validation/submission form', () => expect(parseDeclarationFields('{"KZ81":10000,"USTID_OK":true}')).toEqual({ KZ81: 10000, USTID_OK: true }))
@@ -40,6 +41,18 @@ describe('tax filing workspace', () => {
     expect(declarationPreparationRequest('USTVA', '2026-01', 2026, '{}')).toEqual(['/api/tax/vat-reconciliation?period=2026-01'])
     expect(declarationPreparationRequest('KST', '2025', 2025, '[]')).toEqual(['/api/tax/annual/narrow', expect.objectContaining({ method: 'POST', body: '{"year":2025}' })])
     expect(declarationPreparationRequest('GEWST', '2026', 2026, '[]')).toEqual(['/api/tax/annual/narrow', expect.objectContaining({ method: 'POST', body: '{"year":2026}' })])
+  })
+  test('Given a quarterly company profile, when UStVA is selected, then the workspace offers quarter keys accepted by preparation', () => {
+    expect(ustvaPeriodOptions(2026, 'QUARTERLY')).toEqual(['2026-Q1', '2026-Q2', '2026-Q3', '2026-Q4'])
+    expect(declarationPreparationRequest('USTVA', '2026-Q3', 2026, '{}')).toEqual(['/api/tax/vat-reconciliation?period=2026-Q3'])
+  })
+  test('Given a selected UStVA quarter, when Preview is used, then the request is explicitly read-only', () => {
+    expect(ustvaPreviewRequest('2026-Q3')).toBe('/api/tax/vat-reconciliation?period=2026-Q3&preview=1')
+    expect(enMessages.Tax.preview).toBe('Preview')
+    expect(deMessages.Tax.preview).toBe('Vorschau')
+  })
+  test('Given an empty API response, when validation reads it, then a useful fallback replaces the JSON parser exception', async () => {
+    await expect(parseTaxApiResponse(new Response(null, { status: 500 }), 'Validation failed.')).rejects.toThrow('Validation failed.')
   })
   it('selects the installed year-specific adjustment authority for both capital-company periods', () => {
     expect(annualAdjustmentRuleVersion('income-tax', 2026)).toBe('KStG-2026.1')

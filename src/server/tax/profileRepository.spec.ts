@@ -20,4 +20,11 @@ describe('effective tax company profile', () => {
     ]
     expect(() => selectProfileVersionForPeriod(versions, new Date('2026-01-01'), new Date('2026-12-31'))).toThrow(/transitions inside/)
   })
+  it('treats an identical onboarding confirmation inside the period as the same continuous profile facts', () => {
+    const versions = [
+      { effectiveFrom: new Date('2020-01-01'), effectiveTo: null, payload: JSON.stringify(profile) },
+      { effectiveFrom: new Date('2026-08-13'), effectiveTo: null, payload: JSON.stringify({ ...profile }) },
+    ]
+    expect(selectProfileVersionForPeriod(versions, new Date('2026-07-01'), new Date('2026-09-30'))).toMatchObject(profile)
+  })
 })

@@ -1,12 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useTranslations } from 'next-intl'
 import { PageHeading } from './PageHeading'
 import { formatDisplayDateForLocale, formatDisplayDateTimeForLocale } from './dateFormatting'
 import { useRegionalFormat } from './RegionalFormatProvider'
 import { localizeErrorDates } from './errorFormatting'
 import { LocalCount } from './LocalNumber'
+import { localizeComplianceError } from './complianceErrorLocalization'
 
 type Profile = {
   companyName: string; legalForm: string; registerCourt?: string; registerNumber?: string; taxNumber: string; vatId?: string; taxOffice: string
@@ -36,6 +37,7 @@ export function parseJsonObject(value: string): Record<string, unknown> {
 }
 export function requireEffectiveDate(value: string) { if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())) throw new TypeError('Valid effective date required'); return value }
 export function supportsCapitalCompanyTaxProfile(legalForm: string) { return legalForm === 'UG' || legalForm === 'GMBH' }
+export function complianceEnumLabel(value: string, labels: Readonly<Record<string, string>>) { return labels[value] ?? labels.unknown ?? value }
 
 export async function requestComplianceAction(payload: Record<string, unknown>) {
   const response = await fetch('/api/compliance', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
@@ -47,10 +49,25 @@ export async function requestComplianceAction(payload: Record<string, unknown>) 
 export function ComplianceWorkspace() {
   const t = useTranslations('Compliance')
   const { locale } = useRegionalFormat()
+  const optionLabels = {
+    legalForms: Object.fromEntries(['SOLE_TRADER', 'GMBH', 'UG', 'AG', 'OHG', 'KG', 'GBR', 'PARTNERSHIP', 'OTHER', 'unknown'].map(value => [value, t(`optionLabels.legalForms.${value}`)])),
+    vatRegimes: Object.fromEntries(['STANDARD', 'SMALL_BUSINESS', 'EXEMPT', 'unknown'].map(value => [value, t(`optionLabels.vatRegimes.${value}`)])),
+    filingFrequencies: Object.fromEntries(['MONTHLY', 'QUARTERLY', 'ANNUAL', 'unknown'].map(value => [value, t(`optionLabels.filingFrequencies.${value}`)])),
+    sizeClasses: Object.fromEntries(['MICRO', 'SMALL', 'MEDIUM', 'LARGE', 'unknown'].map(value => [value, t(`optionLabels.sizeClasses.${value}`)])),
+    accountingStandards: Object.fromEntries(['HGB', 'OTHER', 'unknown'].map(value => [value, t(`optionLabels.accountingStandards.${value}`)])),
+    incomeStatementMethods: Object.fromEntries(['GKV', 'UKV', 'unknown'].map(value => [value, t(`optionLabels.incomeStatementMethods.${value}`)])),
+    statementTypes: Object.fromEntries(['E', 'K', 'PB', 'unknown'].map(value => [value, t(`optionLabels.statementTypes.${value}`)])),
+    reportStatuses: Object.fromEntries(['E', 'F', 'unknown'].map(value => [value, t(`optionLabels.reportStatuses.${value}`)])),
+    consolidationRanges: Object.fromEntries(['EA', 'KA', 'unknown'].map(value => [value, t(`optionLabels.consolidationRanges.${value}`)])),
+    reportKinds: Object.fromEntries(['VAT_ADVANCE', 'VAT_ANNUAL', 'E_BILANZ', 'HGB_FINANCIAL_STATEMENTS', 'unknown'].map(value => [value, t(`optionLabels.reportKinds.${value}`)])),
+    applicabilityBases: Object.fromEntries(['derived from authoritative profile', 'documented profile override', 'unknown'].map(value => [value, t(`optionLabels.applicabilityBases.${value}`)])),
+    periodStatuses: Object.fromEntries(['OPEN', 'CLOSED', 'REOPENED', 'unknown'].map(value => [value, t(`optionLabels.periodStatuses.${value}`)])),
+  }
   const [overview, setOverview] = useState<Overview | null>(null)
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE)
   const [reason, setReason] = useState('')
   const [profileEffectiveFrom, setProfileEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10))
+  const [confirmProfilePreviouslyValid, setConfirmProfilePreviouslyValid] = useState(false)
   const [mappingEffectiveFrom, setMappingEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10))
   const [overridesText, setOverridesText] = useState('{}')
   const [period, setPeriod] = useState({ referenceYear: new Date().getFullYear(), label: '', startsAt: `${new Date().getFullYear()}-01-01`, endsAt: `${new Date().getFullYear()}-12-31`, reason: '' })
@@ -115,9 +132,9 @@ export function ComplianceWorkspace() {
       const applicabilityOverrides = parseJsonObject(overridesText)
       if (Object.values(applicabilityOverrides).some(value => typeof value !== 'boolean')) throw new Error(t('overrideBooleanRequired'))
       const profileToSave = { ...profile, applicabilityOverrides }
-      const response = await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companyProfile: profileToSave, companyProfileEffectiveFrom: requireEffectiveDate(profileEffectiveFrom), changeReason: reason }) })
+      const response = await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companyProfile: profileToSave, companyProfileEffectiveFrom: requireEffectiveDate(profileEffectiveFrom), confirmProfilePreviouslyValid, changeReason: reason }) })
       const body = await response.json(); if (!response.ok) throw new Error(body.error ?? t('actionFailed'))
-      setReason('')
+      setReason(''); setConfirmProfilePreviouslyValid(false)
     }, t('profileSaved'))
   }
 
@@ -172,37 +189,50 @@ export function ComplianceWorkspace() {
     <PageHeading title={t('title')} subtitle={t('subtitle')}>
       <button type="button" className="btn btn-outline-secondary" disabled={busy} onClick={() => void refresh()}>{t('refresh')}</button>
     </PageHeading>
-    {error && <div className="alert alert-danger" role="alert">{localizeErrorDates(error, locale)}</div>}
+    {error && <div className="alert alert-danger" role="alert">{localizeErrorDates(localizeComplianceError(error, locale), locale)}</div>}
     {success && <p className="alert alert-success" role="status">{success}</p>}
 
     <section className="card panel"><div className="panel-title"><div><span className="step">1</span><h2>{t('profile')}</h2></div><span className={`badge status ${overview?.audit.verified ? 'closed' : 'open'}`}>{overview?.audit.verified ? t('auditVerified') : t('auditUnverified')}</span></div>
-      <form onSubmit={saveProfile} onChange={() => { profileEditRevision.current++ }}>
-        <div className="form-grid">
-          <Text label={t('companyName')} value={profile.companyName} onChange={companyName => setProfile(current => ({ ...current, companyName }))} />
+      <form className="compliance-profile-form" onSubmit={saveProfile} onChange={() => { profileEditRevision.current++ }}>
+        <div className="compliance-profile-groups">
+          <fieldset className="compliance-profile-group"><legend>{t('groupCompany')}</legend>
+            <Text label={t('companyName')} value={profile.companyName} onChange={companyName => setProfile(current => ({ ...current, companyName }))} />
+            <Select label={t('legalForm')} value={profile.legalForm} values={['SOLE_TRADER', 'GMBH', 'UG', 'AG', 'OHG', 'KG', 'GBR', 'PARTNERSHIP', 'OTHER']} labels={optionLabels.legalForms} onChange={legalForm => setProfile(current => ({ ...current, legalForm, ...(supportsCapitalCompanyTaxProfile(legalForm) ? { annualTaxProfile: current.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE } : {}) }))} />
+            <Text label={t('registerCourt')} value={profile.registerCourt ?? ''} onChange={registerCourt => setProfile(current => ({ ...current, registerCourt: registerCourt || undefined }))} />
+            <Text label={t('registerNumber')} value={profile.registerNumber ?? ''} onChange={registerNumber => setProfile(current => ({ ...current, registerNumber: registerNumber || undefined }))} />
+          </fieldset>
+          <fieldset className="compliance-profile-group"><legend>{t('groupAddress')}</legend>
           <Text label={t('street')} value={profile.registeredAddress?.streetAndHouseNumber ?? ''} onChange={streetAndHouseNumber => setProfile(current => ({ ...current, registeredAddress: { streetAndHouseNumber, zipCode: current.registeredAddress?.zipCode ?? '', city: current.registeredAddress?.city ?? '', country: current.registeredAddress?.country ?? 'DE' } }))} />
           <Text label={t('postalCode')} value={profile.registeredAddress?.zipCode ?? ''} onChange={zipCode => setProfile(current => ({ ...current, registeredAddress: { streetAndHouseNumber: current.registeredAddress?.streetAndHouseNumber ?? '', zipCode, city: current.registeredAddress?.city ?? '', country: current.registeredAddress?.country ?? 'DE' } }))} />
           <Text label={t('city')} value={profile.registeredAddress?.city ?? ''} onChange={city => setProfile(current => ({ ...current, registeredAddress: { streetAndHouseNumber: current.registeredAddress?.streetAndHouseNumber ?? '', zipCode: current.registeredAddress?.zipCode ?? '', city, country: current.registeredAddress?.country ?? 'DE' } }))} />
           <Text label={t('country')} value={profile.registeredAddress?.country ?? ''} onChange={country => setProfile(current => ({ ...current, registeredAddress: { streetAndHouseNumber: current.registeredAddress?.streetAndHouseNumber ?? '', zipCode: current.registeredAddress?.zipCode ?? '', city: current.registeredAddress?.city ?? '', country } }))} />
-          <Select label={t('legalForm')} value={profile.legalForm} values={['SOLE_TRADER', 'GMBH', 'UG', 'AG', 'OHG', 'KG', 'GBR', 'PARTNERSHIP', 'OTHER']} onChange={legalForm => setProfile(current => ({ ...current, legalForm, ...(supportsCapitalCompanyTaxProfile(legalForm) ? { annualTaxProfile: current.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE } : {}) }))} />
-          <Text label={t('registerCourt')} value={profile.registerCourt ?? ''} onChange={registerCourt => setProfile(current => ({ ...current, registerCourt: registerCourt || undefined }))} />
-          <Text label={t('registerNumber')} value={profile.registerNumber ?? ''} onChange={registerNumber => setProfile(current => ({ ...current, registerNumber: registerNumber || undefined }))} />
-          <Text label={t('taxNumber')} value={profile.taxNumber} onChange={taxNumber => setProfile(current => ({ ...current, taxNumber }))} />
-          <Text label={t('vatId')} value={profile.vatId ?? ''} onChange={vatId => setProfile({ ...profile, vatId: vatId || undefined })} />
-          <Text label={t('taxOffice')} value={profile.taxOffice} onChange={taxOffice => setProfile(current => ({ ...current, taxOffice }))} />
-          <Select label={t('vatRegime')} value={profile.vatRegime} values={['STANDARD', 'SMALL_BUSINESS', 'EXEMPT']} onChange={vatRegime => setProfile({ ...profile, vatRegime })} />
-          <Select label={t('filingFrequency')} value={profile.vatFilingFrequency} values={['MONTHLY', 'QUARTERLY', 'ANNUAL']} onChange={vatFilingFrequency => setProfile({ ...profile, vatFilingFrequency })} />
-          <Text label={t('activity')} value={profile.activity} onChange={activity => setProfile(current => ({ ...current, activity }))} />
-          <Select label={t('sizeClass')} value={profile.sizeClass} values={['MICRO', 'SMALL', 'MEDIUM', 'LARGE']} onChange={sizeClass => setProfile({ ...profile, sizeClass })} />
-          <Text label={t('chart')} value={profile.chart} onChange={chart => setProfile(current => ({ ...current, chart }))} />
-          <Text label={t('elections')} value={profile.elections.join(', ')} onChange={value => setProfile({ ...profile, elections: value.split(',').map(item => item.trim()).filter(Boolean) })} />
-          <Text label={t('profileEffectiveFrom')} type="date" value={profileEffectiveFrom} onChange={setProfileEffectiveFrom} required />
-          <Select label={t('eBilanzAccountingStandard')} value={profile.eBilanz?.accountingStandard ?? 'HGB'} values={['HGB', 'OTHER']} onChange={accountingStandard => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), accountingStandard: accountingStandard as 'HGB' | 'OTHER' } })} />
-          <Select label={t('eBilanzIncomeStatement')} value={profile.eBilanz?.incomeStatementMethod ?? 'GKV'} values={['GKV', 'UKV']} onChange={incomeStatementMethod => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), incomeStatementMethod: incomeStatementMethod as 'GKV' | 'UKV' } })} />
-          <Select label={t('eBilanzStatementType')} value={profile.eBilanz?.statementType ?? 'E'} values={['E', 'K', 'PB']} onChange={statementType => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), statementType: statementType as 'E' | 'K' | 'PB' } })} />
-          <Select label={t('eBilanzReportStatus')} value={profile.eBilanz?.reportStatus ?? 'E'} values={['E', 'F']} onChange={reportStatus => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), reportStatus: reportStatus as 'E' | 'F' } })} />
-          <Select label={t('eBilanzConsolidation')} value={profile.eBilanz?.consolidationRange ?? 'EA'} values={['EA', 'KA']} onChange={consolidationRange => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), consolidationRange: consolidationRange as 'EA' | 'KA' } })} />
-          <Text label={t('eBilanzIncomeClassification')} value={profile.eBilanz?.incomeClassification ?? ''} onChange={incomeClassification => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), incomeClassification } })} required />
-          {supportsCapitalCompanyTaxProfile(profile.legalForm) && <>
+          </fieldset>
+          <fieldset className="compliance-profile-group"><legend>{t('groupTaxAuthorities')}</legend>
+            <Text label={t('taxNumber')} value={profile.taxNumber} onChange={taxNumber => setProfile(current => ({ ...current, taxNumber }))} />
+            <Text label={t('vatId')} value={profile.vatId ?? ''} onChange={vatId => setProfile({ ...profile, vatId: vatId || undefined })} />
+            <Text label={t('taxOffice')} value={profile.taxOffice} onChange={taxOffice => setProfile(current => ({ ...current, taxOffice }))} />
+            <Select label={t('vatRegime')} value={profile.vatRegime} values={['STANDARD', 'SMALL_BUSINESS', 'EXEMPT']} labels={optionLabels.vatRegimes} onChange={vatRegime => setProfile({ ...profile, vatRegime })} />
+            <Select label={t('filingFrequency')} value={profile.vatFilingFrequency} values={['MONTHLY', 'QUARTERLY', 'ANNUAL']} labels={optionLabels.filingFrequencies} onChange={vatFilingFrequency => setProfile({ ...profile, vatFilingFrequency })} />
+          </fieldset>
+          <fieldset className="compliance-profile-group"><legend>{t('groupBusiness')}</legend>
+            <Text label={t('activity')} value={profile.activity} onChange={activity => setProfile(current => ({ ...current, activity }))} />
+            <Select label={t('sizeClass')} value={profile.sizeClass} values={['MICRO', 'SMALL', 'MEDIUM', 'LARGE']} labels={optionLabels.sizeClasses} onChange={sizeClass => setProfile({ ...profile, sizeClass })} />
+            <Text label={t('chart')} value={profile.chart} onChange={chart => setProfile(current => ({ ...current, chart }))} />
+            <Text label={t('elections')} value={profile.elections.join(', ')} onChange={value => setProfile({ ...profile, elections: value.split(',').map(item => item.trim()).filter(Boolean) })} />
+          </fieldset>
+          <fieldset className="compliance-profile-group"><legend>{t('groupValidity')}</legend>
+            <Text label={t('profileEffectiveFrom')} type="date" value={profileEffectiveFrom} onChange={setProfileEffectiveFrom} required />
+            {profileEffectiveFrom < new Date().toISOString().slice(0, 10) && <div><BooleanFact label={t('confirmProfilePreviouslyValid')} checked={confirmProfilePreviouslyValid} onChange={setConfirmProfilePreviouslyValid} /><small className="form-text text-body-secondary d-block mt-1">{t('profilePriorValidityHint')}</small></div>}
+          </fieldset>
+          <fieldset className="compliance-profile-group"><legend>{t('groupEBilanz')}</legend>
+            <Select label={t('eBilanzAccountingStandard')} value={profile.eBilanz?.accountingStandard ?? 'HGB'} values={['HGB', 'OTHER']} labels={optionLabels.accountingStandards} onChange={accountingStandard => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), accountingStandard: accountingStandard as 'HGB' | 'OTHER' } })} />
+            <Select label={t('eBilanzIncomeStatement')} value={profile.eBilanz?.incomeStatementMethod ?? 'GKV'} values={['GKV', 'UKV']} labels={optionLabels.incomeStatementMethods} onChange={incomeStatementMethod => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), incomeStatementMethod: incomeStatementMethod as 'GKV' | 'UKV' } })} />
+            <Select label={t('eBilanzStatementType')} value={profile.eBilanz?.statementType ?? 'E'} values={['E', 'K', 'PB']} labels={optionLabels.statementTypes} onChange={statementType => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), statementType: statementType as 'E' | 'K' | 'PB' } })} />
+            <Select label={t('eBilanzReportStatus')} value={profile.eBilanz?.reportStatus ?? 'E'} values={['E', 'F']} labels={optionLabels.reportStatuses} onChange={reportStatus => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), reportStatus: reportStatus as 'E' | 'F' } })} />
+            <Select label={t('eBilanzConsolidation')} value={profile.eBilanz?.consolidationRange ?? 'EA'} values={['EA', 'KA']} labels={optionLabels.consolidationRanges} onChange={consolidationRange => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), consolidationRange: consolidationRange as 'EA' | 'KA' } })} />
+            <Text label={t('eBilanzIncomeClassification')} value={profile.eBilanz?.incomeClassification ?? ''} onChange={incomeClassification => setProfile({ ...profile, eBilanz: { ...(profile.eBilanz ?? EMPTY_PROFILE.eBilanz!), incomeClassification } })} required />
+          </fieldset>
+          {supportsCapitalCompanyTaxProfile(profile.legalForm) && <fieldset className="compliance-profile-group"><legend>{t('groupTradeTax')}</legend>
             <Text label={t('municipalityCode')} value={profile.annualTaxProfile?.municipalityCode ?? ''} onChange={municipalityCode => setProfile(current => ({ ...current, annualTaxProfile: { ...(current.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), municipalityCode } }))} required />
             <Text label={t('tradeTaxMultiplier')} type="number" value={String((profile.annualTaxProfile?.tradeTaxMultiplierBasisPoints ?? 40000) / 100)} onChange={value => setProfile(current => ({ ...current, annualTaxProfile: { ...(current.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), tradeTaxMultiplierBasisPoints: Math.round(Number(value) * 100) } }))} required />
             <BooleanFact label={t('foreignIncome')} checked={profile.annualTaxProfile?.foreignIncome ?? false} onChange={foreignIncome => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), foreignIncome } })} />
@@ -211,17 +241,19 @@ export function ComplianceWorkspace() {
             <BooleanFact label={t('specialRegime')} checked={profile.annualTaxProfile?.specialRegime ?? false} onChange={specialRegime => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), specialRegime } })} />
             <BooleanFact label={t('withholdingOrCredits')} checked={profile.annualTaxProfile?.withholdingOrCredits ?? false} onChange={withholdingOrCredits => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), withholdingOrCredits } })} />
             <BooleanFact label={t('payroll')} checked={profile.annualTaxProfile?.payroll ?? false} onChange={payroll => setProfile({ ...profile, annualTaxProfile: { ...(profile.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE), payroll } })} />
-          </>}
-          <label className="full-width">{t('applicabilityOverrides')}<textarea rows={4} value={overridesText} onChange={event => setOverridesText(event.target.value)} /></label>
-          <Text label={t('changeReason')} value={reason} onChange={setReason} required />
+          </fieldset>}
+          <fieldset className="compliance-profile-group"><legend>{t('groupDocumentation')}</legend>
+            <label>{t('applicabilityOverrides')}<textarea rows={4} value={overridesText} onChange={event => setOverridesText(event.target.value)} /></label>
+            <Text label={t('changeReason')} value={reason} onChange={setReason} required />
+          </fieldset>
         </div><button className="btn btn-primary" disabled={busy}>{t('saveProfile')}</button>
       </form>
-      <div className="table-responsive"><table className="table"><thead><tr><th>{t('report')}</th><th>{t('applicable')}</th><th>{t('basis')}</th></tr></thead><tbody>{Object.entries(applicability).map(([kind, item]) => <tr key={kind}><td>{kind}</td><td>{item.applicable ? t('yes') : t('no')}</td><td>{item.overridden ? t('override') : item.basis}</td></tr>)}</tbody></table></div>
+      <div className="table-responsive"><table className="table"><thead><tr><th>{t('report')}</th><th>{t('applicable')}</th><th>{t('basis')}</th></tr></thead><tbody>{Object.entries(applicability).map(([kind, item]) => <tr key={kind}><td>{complianceEnumLabel(kind, optionLabels.reportKinds)}</td><td>{item.applicable ? t('yes') : t('no')}</td><td>{item.overridden ? t('override') : complianceEnumLabel(item.basis, optionLabels.applicabilityBases)}</td></tr>)}</tbody></table></div>
     </section>
 
     <section className="card panel"><div className="panel-title"><div><span className="step">2</span><h2>{t('periods')}</h2></div><span className="badge text-bg-light hint">{t('periodHint')}</span></div>
       <form onSubmit={createPeriod}><div className="form-grid"><Text label={t('referenceYear')} type="number" value={String(period.referenceYear)} onChange={referenceYear => setPeriod({ ...period, referenceYear: Number(referenceYear) })} /><Text label={t('label')} value={period.label} onChange={label => setPeriod({ ...period, label })} /><Text label={t('startsAt')} type="date" value={period.startsAt} onChange={startsAt => setPeriod({ ...period, startsAt })} /><Text label={t('endsAt')} type="date" value={period.endsAt} onChange={endsAt => setPeriod({ ...period, endsAt })} /><Text label={t('reason')} value={period.reason} onChange={reason => setPeriod({ ...period, reason })} required /></div><button className="btn btn-primary" disabled={busy}>{t('createPeriod')}</button></form>
-      <ul className="history-list">{overview?.periods.map(item => <li key={item.id}><strong>{item.label}</strong> · {formatDisplayDateForLocale(item.startsAt, locale)}–{formatDisplayDateForLocale(item.endsAt, locale)} · {item.status}<br/><code>{item.id}</code></li>)}</ul>
+      <ul className="history-list">{overview?.periods.map(item => <li key={item.id}><strong>{item.label}</strong> · {formatDisplayDateForLocale(item.startsAt, locale)}–{formatDisplayDateForLocale(item.endsAt, locale)} · {complianceEnumLabel(item.status, optionLabels.periodStatuses)}<br/><code>{item.id}</code></li>)}</ul>
     </section>
 
     <section className="card panel"><div className="panel-title"><div><span className="step">3</span><h2>{t('chartLifecycle')}</h2></div><span className="badge text-bg-light hint">{overview?.chart?.chart ?? '—'}</span></div>
@@ -244,8 +276,8 @@ export function ComplianceWorkspace() {
 }
 
 function Text({ label, value, onChange, required = false, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; type?: string }) { return <label>{label}<input className="form-control" type={type} required={required} value={value} onChange={event => onChange(event.target.value)} /></label> }
-function Select({ label, value, values, onChange }: { label: string; value: string; values: string[]; onChange: (value: string) => void }) { return <label>{label}<select className="form-select" value={value} onChange={event => onChange(event.target.value)}>{values.map(item => <option key={item}>{item}</option>)}</select></label> }
-function BooleanFact({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) { return <label className="form-check"><input className="form-check-input" type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} /> {label}</label> }
+function Select({ label, value, values, labels, onChange }: { label: string; value: string; values: string[]; labels: Readonly<Record<string, string>>; onChange: (value: string) => void }) { return <label>{label}<select className="form-select" value={value} onChange={event => onChange(event.target.value)}>{values.map(item => <option key={item} value={item}>{complianceEnumLabel(item, labels)}</option>)}</select></label> }
+function BooleanFact({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) { const id = useId(); return <div className="form-check"><input id={id} className="form-check-input" type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} /><label className="form-check-label" htmlFor={id}>{label}</label></div> }
 const instantDateKeys = new Set(['createdAt', 'updatedAt', 'requestedAt', 'respondedAt', 'verifiedAt', 'restoredAt', 'changedAt', 'approvedAt', 'signedAt', 'occurredAt'])
 const calendarDateKeys = new Set(['bookingDate', 'postingDate', 'sourcePostingDate', 'sourceJournalDate', 'voucherDate', 'dueDate', 'paymentDueDate', 'issuedOn', 'issueDate', 'deadline', 'startsAt', 'endsAt', 'effectiveFrom', 'effectiveTo', 'retainUntil', 'legalHoldUntil', 'disposedAt', 'recoveryPointAt', 'disposedOn', 'businessDate'])
 

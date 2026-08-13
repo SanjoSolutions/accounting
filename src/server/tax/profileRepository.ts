@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { validateCompanyProfile, type CompanyProfile } from '@/server/compliance/companyProfile'
+import { profilesSemanticallyEqual, validateCompanyProfile, type CompanyProfile } from '@/server/compliance/companyProfile'
 import { TaxDeclarationError } from '@/core/taxDeclarations'
 import { prisma } from '@/server/persistence/client'
 
@@ -11,13 +11,16 @@ export function selectProfileVersionForPeriod(versions: readonly StoredProfileVe
   const date = (value: Date) => value.toISOString().slice(0, 10)
   const covering = versions.filter(version => date(version.effectiveFrom) <= start && (!version.effectiveTo || date(version.effectiveTo) >= end)).sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime())[0]
   if (!covering) throw new TaxDeclarationError(['A canonical company-profile version covering the complete filing period is required.'])
-  const transition = versions.some(version => date(version.effectiveFrom) > date(covering.effectiveFrom) && date(version.effectiveFrom) <= end)
+  let coveringProfile: unknown
+  try { coveringProfile = JSON.parse(covering.payload) } catch { throw new TaxDeclarationError(['The effective company-profile version is invalid.']) }
+  const transition = versions.some(version => {
+    if (date(version.effectiveFrom) <= date(covering.effectiveFrom) || date(version.effectiveFrom) > end) return false
+    try { return !profilesSemanticallyEqual(JSON.parse(version.payload), coveringProfile) } catch { return true }
+  })
   if (transition) throw new TaxDeclarationError(['Company-profile transitions inside a filing period must be resolved before binding tax preparation.'])
-  let profile: unknown
-  try { profile = JSON.parse(covering.payload) } catch { throw new TaxDeclarationError(['The effective company-profile version is invalid.']) }
-  const issues = validateCompanyProfile(profile)
+  const issues = validateCompanyProfile(coveringProfile)
   if (issues.length) throw new TaxDeclarationError(issues.map(issue => `Effective company profile: ${issue}`))
-  return profile as CompanyProfile
+  return coveringProfile as CompanyProfile
 }
 
 export async function companyProfileForPeriod(ownerId: string, startsAt: Date, endsAt: Date) {

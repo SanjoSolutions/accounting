@@ -7,12 +7,15 @@ import { formatDisplayDateForLocale } from './dateFormatting'
 import { useRegionalFormat } from './RegionalFormatProvider'
 import { localizeErrorDates } from './errorFormatting'
 import { LocalCurrency } from './LocalNumber'
+import { UstvaCopyView, type UstvaCopyContext } from './UstvaCopyView'
+import { ustvaPeriodOptions } from './core/ustvaCopy'
 
 type Workflow = { submissionId: string; kind: string; period: string; state: string; receipt?: string | null; correctsId?: string | null; updatedAt: string }
 type Applicability = { kinds: string[]; deadline: string; professionalValidationRequired: boolean }
 type PreparedDataset = { kind: string; period: string; fields: Record<string, number | string | boolean>; drilldown: Record<string, readonly string[]> }
 type GatewayStatus = { mode: 'LOCAL_LIFECYCLE_EMULATOR' | 'CONFIGURED_EXTERNAL_GATEWAY' | 'NOT_CONFIGURED' }
 type Assessment = { id: string; kind: string; period: string; authority: string; noticeId?: string | null; assessedAmountCents: number; differenceCents: number; needsReview: boolean; receivedAt: string }
+type PreparationResponse = { dataset: PreparedDataset; copyContext?: UstvaCopyContext }
 
 /**
  * Keep persisted declaration kind codes out of the UI while retaining them for
@@ -44,6 +47,10 @@ export function submissionOutcomeMessage(state: unknown, messages: { accepted: s
   return messages.failed
 }
 export function workspaceLoadStatus(workflowOk: boolean, annualOk: boolean) { return { historyAvailable: workflowOk, annualAvailable: annualOk } }
+export async function parseTaxApiResponse(response: Response, fallbackMessage: string) {
+  try { return await response.json() }
+  catch { throw new Error(fallbackMessage) }
+}
 export function preparationSourceAfterValidation(kind: string, currentSource: string, dataset: PreparedDataset) { return ['USTVA', 'UST_ANNUAL'].includes(kind) ? JSON.stringify(dataset.fields, null, 2) : currentSource }
 export function declarationPreparationRequest(kind: string, period: string, year: number, fields: string): [string, RequestInit?] {
   if (kind === 'USTVA') return [`/api/tax/vat-reconciliation?period=${encodeURIComponent(period)}`]
@@ -51,6 +58,7 @@ export function declarationPreparationRequest(kind: string, period: string, year
   if ([2025, 2026].includes(year) && ['KST', 'GEWST'].includes(kind)) return ['/api/tax/annual/narrow', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ year }) }]
   return ['/api/tax/annual', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ year, values: parseAnnualValues(fields) }) }]
 }
+export function ustvaPreviewRequest(period: string) { return `/api/tax/vat-reconciliation?period=${encodeURIComponent(period)}&preview=1` }
 export function annualAdjustmentRuleVersion(layer: string, year: number) {
   if (!['income-tax', 'trade-tax'].includes(layer) || ![2025, 2026].includes(year)) throw new Error('Annual adjustment rules are installed only for income/trade tax in 2025 and 2026.')
   return layer === 'income-tax' ? `KStG-${year}.1` : `GewStG-${year}.1`
@@ -98,6 +106,10 @@ export function TaxWorkspace({ year }: { year: number }) {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [preparedDataset, setPreparedDataset] = useState<PreparedDataset | null>(null)
+  const [ustvaContext, setUstvaContext] = useState<UstvaCopyContext | null>(null)
+  const [previewDataset, setPreviewDataset] = useState<PreparedDataset | null>(null)
+  const [previewContext, setPreviewContext] = useState<UstvaCopyContext | null>(null)
+  const [vatFilingFrequency, setVatFilingFrequency] = useState('MONTHLY')
   const [annualPreview, setAnnualPreview] = useState<{ notice: string; ruleVersion: string; preview: Record<string, number> } | null>(null)
   const [adjustment, setAdjustment] = useState({ layer: 'income-tax', amountCents: 0, reason: '', evidenceIds: '' })
   const [assessment, setAssessment] = useState({ submissionId: '', assessedAmountCents: 0, receivedAt: '', noticeId: '', documentId: '' })
@@ -121,6 +133,15 @@ export function TaxWorkspace({ year }: { year: number }) {
       const body = await response.json()
       setGatewayStatus(response.ok ? body.data : null)
     } catch { setGatewayStatus(null) }
+    try {
+      const response = await fetch('/api/settings'); const body = await response.json()
+      const frequency = response.ok ? body.data?.companyProfile?.vatFilingFrequency : undefined
+      if (frequency === 'MONTHLY' || frequency === 'QUARTERLY') {
+        setVatFilingFrequency(frequency)
+        const options = ustvaPeriodOptions(year, frequency)
+        setPeriod(current => options.includes(current) ? current : options[0] ?? current)
+      }
+    } catch { /* UStVA preparation will surface a missing authoritative profile. */ }
   }, [year])
   useEffect(() => { setMessage(''); void load().catch(() => setMessage(t('loadFailed'))) }, [load, t])
 
@@ -133,7 +154,7 @@ export function TaxWorkspace({ year }: { year: number }) {
       let dataset: PreparedDataset = preparedDataset ?? { kind, period, fields: {}, drilldown: {} }
       if (action === 'validate') {
         const preparationResponse = await fetch(...declarationPreparationRequest(kind, period, year, fields))
-        const preparationBody = await preparationResponse.json()
+        const preparationBody = await parseTaxApiResponse(preparationResponse, t('actionFailed'))
         if (!preparationResponse.ok) throw new Error(Array.isArray(preparationBody.issues) ? preparationBody.issues.join(' ') : t('actionFailed'))
         dataset = ['USTVA', 'UST_ANNUAL'].includes(kind) ? preparationBody.data.dataset : preparationBody.data.datasets.find((candidate: PreparedDataset) => candidate.kind === kind)
         if (!dataset) throw new Error(t('actionFailed'))
@@ -142,6 +163,7 @@ export function TaxWorkspace({ year }: { year: number }) {
         requestKeyRef.current = requestKeyAfterPreparation(requestKeyRef.current, preparedDatasetRef.current, fingerprint)
         preparedDatasetRef.current = fingerprint
         setPreparedDataset(dataset); setFields(preparationSourceAfterValidation(kind, fields, dataset)); setConfirmed(false)
+        setUstvaContext(kind === 'USTVA' ? (preparationBody.data as PreparationResponse).copyContext ?? null : null)
       }
       if (action === 'submit') { if (!preparedDataset) throw new Error(t('actionFailed')); dataset = preparedDataset }
       if (shouldReplaySubmissionFailure(action, requestKey, action === 'submit' ? dataset : null)) submittedRequest = { requestKey: requestKey!, dataset }
@@ -186,8 +208,19 @@ export function TaxWorkspace({ year }: { year: number }) {
     } catch (error) { setMessage(error instanceof Error ? error.message : t('actionFailed')) }
     finally { setBusy(false) }
   }
-  function datasetChanged(update: () => void) { update(); requestKeyRef.current = null; preparedDatasetRef.current = null; setPreparedDataset(null); setConfirmed(false) }
-  function selectKind(nextKind: string) { datasetChanged(() => { setKind(nextKind); setPeriod(nextKind === 'USTVA' ? `${year}-01` : String(year)); setFields(nextKind === 'USTVA' ? '{"KZ81":0,"ZAHLLAST":0}' : nextKind === 'UST_ANNUAL' ? '{}' : '[]'); setAnnualPreview(null) }) }
+  async function previewUstva() {
+    setBusy(true); setMessage('')
+    try {
+      const response = await fetch(ustvaPreviewRequest(period))
+      const body = await parseTaxApiResponse(response, t('actionFailed'))
+      if (!response.ok) throw new Error(Array.isArray(body.issues) ? body.issues.join(' ') : t('actionFailed'))
+      const result = body.data as PreparationResponse
+      setPreviewDataset(result.dataset); setPreviewContext(result.copyContext ?? null)
+    } catch (error) { setMessage(error instanceof Error ? error.message : t('actionFailed')) }
+    finally { setBusy(false) }
+  }
+  function datasetChanged(update: () => void) { update(); requestKeyRef.current = null; preparedDatasetRef.current = null; setPreparedDataset(null); setUstvaContext(null); setPreviewDataset(null); setPreviewContext(null); setConfirmed(false) }
+  function selectKind(nextKind: string) { datasetChanged(() => { setKind(nextKind); setPeriod(nextKind === 'USTVA' ? ustvaPeriodOptions(year, vatFilingFrequency)[0] ?? `${year}-01` : String(year)); setFields(nextKind === 'USTVA' ? '{}' : nextKind === 'UST_ANNUAL' ? '{}' : '[]'); setAnnualPreview(null) }) }
   async function saveAdjustment() {
     setBusy(true); setMessage('')
     try {
@@ -216,12 +249,13 @@ export function TaxWorkspace({ year }: { year: number }) {
     {gatewayStatus?.mode === 'CONFIGURED_EXTERNAL_GATEWAY' && <p className="alert alert-info" role="status">{t('gatewayConfigured')}</p>}
     <div className="close-grid">
       <section className="card panel"><h2>{t('applicability')}</h2>{applicability ? <><p>{t('deadline', { date: formatDisplayDateForLocale(applicability.deadline, locale) })}</p><ul>{applicability.kinds.map(item => <li key={item}>{taxWorkflowKindLabel(item, workflowKindLabels)}</li>)}</ul><p>{t('professionalReview')}</p></> : applicabilityUnavailable ? <p className="alert alert-danger">{t('annualProfileRequired')}</p> : <p>{t('loading')}</p>}</section>
-      <section className="card panel"><h2>{t('prepare')}</h2><label>{t('kind')}<select className="form-select" value={kind} onChange={event => selectKind(event.target.value)}><option value="USTVA">{taxWorkflowKindLabel('USTVA', workflowKindLabels)}</option>{applicability?.kinds.map(item => <option key={item} value={item}>{taxWorkflowKindLabel(item, workflowKindLabels)}</option>)}</select></label><label>{t('period')}<input className="form-control" value={period} readOnly={kind !== 'USTVA'} onChange={event => datasetChanged(() => setPeriod(event.target.value))} /></label>{[2025, 2026].includes(year) && ['KST', 'GEWST'].includes(kind) ? <>
+      <section className="card panel"><h2>{t('prepare')}</h2><label>{t('kind')}<select className="form-select" value={kind} onChange={event => selectKind(event.target.value)}><option value="USTVA">{taxWorkflowKindLabel('USTVA', workflowKindLabels)}</option>{applicability?.kinds.map(item => <option key={item} value={item}>{taxWorkflowKindLabel(item, workflowKindLabels)}</option>)}</select></label><label>{t('period')}{kind === 'USTVA' ? <select className="form-select" value={period} onChange={event => datasetChanged(() => setPeriod(event.target.value))}>{ustvaPeriodOptions(year, vatFilingFrequency).map(option => <option key={option} value={option}>{option}</option>)}</select> : <input className="form-control" value={period} readOnly />}</label>{[2025, 2026].includes(year) && ['KST', 'GEWST'].includes(kind) ? <>
         <p className="alert alert-warning">{t('annualPreviewNotice')}</p>
         {annualPreview && <div className="legal-note"><strong>{annualPreview.ruleVersion}</strong><p>{annualPreview.notice}</p><dl>{Object.entries(annualPreview.preview).filter((entry): entry is [string, number] => typeof entry[1] === 'number').map(([name, value]) => <div key={name}><dt>{name}</dt><dd><LocalCurrency cents={value} currency="EUR" /></dd></div>)}</dl></div>}
         <details><summary>{t('adjustmentSummary')}</summary><label>{t('adjustmentLayer')}<select className="form-select" value={adjustment.layer} onChange={event => setAdjustment({ ...adjustment, layer: event.target.value })}><option value="income-tax">KSt</option><option value="trade-tax">GewSt</option></select></label><label>{t('adjustmentAmount')}<input className="form-control" type="number" value={adjustment.amountCents} onChange={event => setAdjustment({ ...adjustment, amountCents: Number(event.target.value) })} /></label><label>{t('adjustmentReason')}<input className="form-control" value={adjustment.reason} onChange={event => setAdjustment({ ...adjustment, reason: event.target.value })} /></label><label>{t('adjustmentEvidence')}<input className="form-control" value={adjustment.evidenceIds} onChange={event => setAdjustment({ ...adjustment, evidenceIds: event.target.value })} /></label><button type="button" className="btn btn-outline-secondary mt-2" disabled={busy || !adjustment.reason.trim() || !adjustment.evidenceIds.trim()} onClick={() => void saveAdjustment()}>{t('saveAdjustment')}</button></details>
-      </> : <label>{t('fields')}<textarea className="form-control" rows={5} value={fields} readOnly={Boolean(preparedDataset)} onChange={event => datasetChanged(() => setFields(event.target.value))} /></label>}<div className="form-check"><input id="tax-confirm" className="form-check-input" type="checkbox" disabled={!preparedDataset} checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><label className="form-check-label" htmlFor="tax-confirm">{t('confirm')}</label></div><div className="d-flex gap-2 mt-3"><button className="btn btn-outline-secondary" disabled={busy} onClick={() => void action('validate')}>{t('validate')}</button><button className="btn btn-primary" disabled={busy || !confirmed || !preparedDataset} onClick={() => void action('submit')}>{t('submit')}</button></div></section>
+      </> : kind === 'USTVA' ? <p className="alert alert-info mt-3">{t('ustvaPreparationHint')}</p> : <label>{t('fields')}<textarea className="form-control" rows={5} value={fields} readOnly={Boolean(preparedDataset)} onChange={event => datasetChanged(() => setFields(event.target.value))} /></label>}<div className="form-check"><input id="tax-confirm" className="form-check-input" type="checkbox" disabled={!preparedDataset} checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><label className="form-check-label" htmlFor="tax-confirm">{t('confirm')}</label></div><div className="d-flex flex-wrap gap-2 mt-3">{kind === 'USTVA' && <button type="button" className="btn btn-outline-primary" disabled={busy} onClick={() => void previewUstva()}>{t('preview')}</button>}<button className="btn btn-outline-secondary" disabled={busy} onClick={() => void action('validate')}>{t('validate')}</button><button className="btn btn-primary" disabled={busy || !confirmed || !preparedDataset} onClick={() => void action('submit')}>{t('submit')}</button></div></section>
     </div>
+    {kind === 'USTVA' && (previewDataset ?? preparedDataset) && <UstvaCopyView period={(previewDataset ?? preparedDataset)!.period} fields={(previewDataset ?? preparedDataset)!.fields} context={previewDataset ? previewContext : ustvaContext} labels={{ title: t('ustvaCopy.title'), description: t('ustvaCopy.description'), page: t('ustvaCopy.page'), section: t('ustvaCopy.section'), code: t('ustvaCopy.code'), value: t('ustvaCopy.value'), copy: t('ustvaCopy.copy'), copied: t('ustvaCopy.copied'), wholeEuros: t('ustvaCopy.wholeEuros'), eurosAndCents: t('ustvaCopy.eurosAndCents'), leaveEmpty: t('ustvaCopy.leaveEmpty'), identity: t('ustvaCopy.identity'), period: t('period'), unsupported: t('ustvaCopy.unsupported') }} />}
     <section className="card panel mt-4"><h2>{t('history')}</h2>{workflows.length ? <div className="table-responsive"><table className="table"><thead><tr><th>{t('kind')}</th><th>{t('period')}</th><th>{t('state')}</th><th>{t('receipt')}</th><th>{t('action')}</th></tr></thead><tbody>{workflows.map(item => <tr key={item.submissionId}><td>{taxWorkflowKindLabel(item.kind, workflowKindLabels)}</td><td>{item.period}</td><td>{taxWorkflowStateLabel(item.state, workflowStateLabels)}</td><td>{item.receipt ?? t('notAvailable')}</td><td>{['submitting', 'uncertain'].includes(item.state) ? <button className="btn btn-outline-secondary" disabled={busy} onClick={() => void recover(item)}>{t('recover')}</button> : t('notAvailable')}</td></tr>)}</tbody></table></div> : <p>{t('empty')}</p>}</section>
     {[2025, 2026].includes(year) && <section className="card panel mt-4"><h2>{t('assessmentTitle')}</h2><p>{t('assessmentDescription')}</p><div className="form-grid"><label>{t('acceptedDeclaration')}<select className="form-select" value={assessment.submissionId} onChange={event => setAssessment({ ...assessment, submissionId: event.target.value })}><option value="">{t('selectDeclaration')}</option>{workflows.filter(item => item.state === 'accepted' && ['KST', 'GEWST'].includes(item.kind)).map(item => <option value={item.submissionId} key={item.submissionId}>{taxWorkflowKindLabel(item.kind, workflowKindLabels)} · {item.period}</option>)}</select></label><label>{t('noticeId')}<input className="form-control" value={assessment.noticeId} onChange={event => setAssessment({ ...assessment, noticeId: event.target.value })} /></label><label>{t('assessedAmount')}<input className="form-control" type="number" value={assessment.assessedAmountCents} onChange={event => setAssessment({ ...assessment, assessedAmountCents: Number(event.target.value) })} /></label><label>{t('receivedOn')}<input className="form-control" type="date" value={assessment.receivedAt} onChange={event => setAssessment({ ...assessment, receivedAt: event.target.value })} /></label><label>{t('evidenceDocumentId')}<input className="form-control" value={assessment.documentId} onChange={event => setAssessment({ ...assessment, documentId: event.target.value })} /></label></div><button type="button" className="btn btn-primary" disabled={busy || !assessment.submissionId || !assessment.noticeId || !assessment.documentId || !assessment.receivedAt} onClick={() => void saveAssessment()}>{t('recordAssessment')}</button>{assessments.length > 0 && <table className="table mt-3"><thead><tr><th>{t('kind')}</th><th>{t('notice')}</th><th>{t('assessed')}</th><th>{t('difference')}</th><th>{t('status')}</th></tr></thead><tbody>{assessments.map(item => <tr key={item.id}><td>{taxWorkflowKindLabel(item.kind, workflowKindLabels)}</td><td>{item.noticeId ?? t('notAvailable')}</td><td><LocalCurrency cents={item.assessedAmountCents} currency="EUR" /></td><td><LocalCurrency cents={item.differenceCents} currency="EUR" /></td><td>{item.needsReview ? t('reviewRequired') : t('reconciled')}</td></tr>)}</tbody></table>}</section>}
   </div>

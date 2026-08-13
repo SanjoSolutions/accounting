@@ -1,10 +1,24 @@
 import { afterEach, describe, expect, it, test, vi } from 'vitest'
 import enMessages from '../messages/en.json'
 import deMessages from '../messages/de.json'
+import { localizeComplianceError } from './complianceErrorLocalization'
 import { complianceHref, complianceOperationExamples, compliancePolicyRequest, historicalHgbOnboardingRequests, localizedComplianceJson, parseJsonObject, preparedAnnualPackages, profileRefreshMayApply, requestComplianceAction, requireEffectiveDate, supportsCapitalCompanyTaxProfile } from './ComplianceWorkspace'
 
 describe('tenant compliance workspace', () => {
   afterEach(() => vi.unstubAllGlobals())
+
+  test('Given German compliance messages, when enum labels are loaded, then codes have readable German labels', () => {
+    expect(deMessages.Compliance.optionLabels.filingFrequencies.QUARTERLY).toBe('Vierteljährlich')
+    expect(deMessages.Compliance.optionLabels.periodStatuses.CLOSED).toBe('Abgeschlossen')
+  })
+
+  test('Given profile validation errors, when the German locale is active, then all known errors are translated', () => {
+    expect(localizeComplianceError('registeredAddress.streetAndHouseNumber is required; taxNumber has an invalid format', 'de-DE')).toBe('Straße und Hausnummer ist erforderlich. Die Steuernummer hat ein ungültiges Format.')
+  })
+
+  test('Given a server error, when the English locale is active, then its original wording is preserved', () => {
+    expect(localizeComplianceError('Four-eyes approval is required', 'en')).toBe('Four-eyes approval is required')
+  })
 
   it('has a dedicated stable route and rejects non-object operation parameters', () => {
     expect(complianceHref).toBe('/compliance')
@@ -83,6 +97,14 @@ describe('tenant compliance workspace', () => {
 })
 
 describe('compliance workspace localized copy', () => {
+  test('Given the grouped company profile, when either locale is loaded, then every fieldset has translated copy', () => {
+    const keys = ['groupCompany', 'groupAddress', 'groupTaxAuthorities', 'groupBusiness', 'groupValidity', 'groupEBilanz', 'groupTradeTax', 'groupDocumentation'] as const
+    for (const key of keys) {
+      expect(enMessages.Compliance[key]).toBeTruthy()
+      expect(deMessages.Compliance[key]).toBeTruthy()
+    }
+  })
+
   test('Given the historical HGB workflow, when its form copy is loaded, then the evidence and year boundaries are explicit in both locales', () => {
     expect(enMessages.Compliance.historicalHgbLegend).toContain('historical HGB')
     expect(enMessages.Compliance.historicalHgbDescription).toContain('immutable')

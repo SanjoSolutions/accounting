@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   fiscalYear: vi.fn(), mappings: vi.fn(), drafts: vi.fn(), eBilanz: vi.fn(), sequence: vi.fn(), onboarding: vi.fn(), profile: vi.fn(),
@@ -46,6 +46,17 @@ describe('persisted tax operations readiness', () => {
     expect(mocks.drafts).toHaveBeenCalledWith({ where: {
       fiscalYearId: 'fy-1', state: { not: 'POSTED' },
       bookingDate: { gte: new Date('2026-02-01T00:00:00.000Z'), lt: new Date('2026-03-01T00:00:00.000Z') },
+    } })
+  })
+
+  test('Given a quarterly profile, when Q2 readiness is checked, then only April through June drafts are considered', async () => {
+    mocks.profile.mockResolvedValue({ chart: 'SKR04', vatRegime: 'STANDARD', vatFilingFrequency: 'QUARTERLY' })
+    mocks.onboarding.mockResolvedValue({ firstUnusedNumber: 42, importedCount: 3, importedNumbersHash: 'b'.repeat(64), confirmedBy: 'admin-a' })
+    const report = await getTaxReadiness('tenant-a', 'USTVA', '2026-Q2')
+    expect(report.ready).toBe(true)
+    expect(mocks.drafts).toHaveBeenCalledWith({ where: {
+      fiscalYearId: 'fy-1', state: { not: 'POSTED' },
+      bookingDate: { gte: new Date('2026-04-01T00:00:00.000Z'), lt: new Date('2026-07-01T00:00:00.000Z') },
     } })
   })
 

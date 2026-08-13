@@ -107,7 +107,10 @@ export async function getTaxReadiness(ownerId: string, kind: DeclarationKind, pe
     try { profile = await companyProfileForPeriod(ownerId, fiscalYear.startsAt, fiscalYear.endsAt) }
     catch (error) { profileIssues.push(error instanceof Error ? error.message : 'The effective company profile is unavailable.') }
   }
-  if (kind === 'USTVA' && profile && (profile.vatRegime !== 'STANDARD' || profile.vatFilingFrequency !== 'MONTHLY')) profileIssues.push('UStVA production readiness requires an effective STANDARD/MONTHLY VAT profile.')
+  if (kind === 'USTVA' && profile) {
+    const cadence = /^\d{4}-(?:0[1-9]|1[0-2])$/.test(period) ? 'MONTHLY' : /^\d{4}-Q[1-4]$/.test(period) ? 'QUARTERLY' : undefined
+    if (profile.vatRegime !== 'STANDARD' || !cadence || profile.vatFilingFrequency !== cadence) profileIssues.push('UStVA production readiness requires an effective STANDARD VAT profile whose filing frequency matches the requested monthly or quarterly period.')
+  }
   if (kind === 'UST_ANNUAL' && profile?.vatRegime === 'EXEMPT') profileIssues.push('Annual VAT production readiness requires an effective non-EXEMPT VAT profile.')
 
   const mappingIssues: string[] = []
@@ -123,12 +126,10 @@ export async function getTaxReadiness(ownerId: string, kind: DeclarationKind, pe
   const ledgerIssues: string[] = []
   if (!fiscalYear) ledgerIssues.push('The requested fiscal year does not exist.')
   else {
-    const ledgerPeriod = kind === 'USTVA' && /^\d{4}-(?:0[1-9]|1[0-2])$/.test(period) ? {
-      bookingDate: {
-        gte: new Date(`${period}-01T00:00:00.000Z`),
-        lt: new Date(Date.UTC(year, Number(period.slice(5, 7)), 1)),
-      },
-    } : {}
+    const monthly = kind === 'USTVA' ? /^\d{4}-(0[1-9]|1[0-2])$/.exec(period) : null
+    const quarterly = kind === 'USTVA' ? /^\d{4}-Q([1-4])$/.exec(period) : null
+    const startMonth = monthly ? Number(monthly[1]) - 1 : quarterly ? (Number(quarterly[1]) - 1) * 3 : undefined
+    const ledgerPeriod = startMonth === undefined ? {} : { bookingDate: { gte: new Date(Date.UTC(year, startMonth, 1)), lt: new Date(Date.UTC(year, startMonth + (monthly ? 1 : 3), 1)) } }
     if (await prisma.journalEntry.count({ where: { fiscalYearId: fiscalYear.id, state: { not: 'POSTED' }, ...ledgerPeriod } })) ledgerIssues.push(kind === 'USTVA' ? 'Every ledger entry in the filing period must be posted and immutable.' : 'Every ledger entry in the filing year must be posted and immutable.')
   }
 

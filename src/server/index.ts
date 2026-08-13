@@ -3,7 +3,7 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { BookingRecord } from '@/core/BookingRecord'
 import { isChartOfAccountsStandard } from '@/core/ChartOfAccounts'
-import { allocateProfileEffectiveInstant, CompanyProfileValidationError, isLatestIdempotentProfileRetry, legacyProfileBaseline, mergeInvoiceIssuerFields, profilesSemanticallyEqual, upgradeProfileRegisteredAddress, validateAtomicChartTransition, validateChartActivation, validateEffectiveDate, validateLiveEffectiveDate, validateProfileVersions, validateSettingsSnapshot, validateVersionedCompanyProfile } from './compliance/companyProfile'
+import { allocateProfileEffectiveInstant, CompanyProfileValidationError, isLatestIdempotentProfileRetry, legacyProfileBaseline, mergeInvoiceIssuerFields, profilesSemanticallyEqual, upgradeProfileRegisteredAddress, validateAtomicChartTransition, validateChartActivation, validateEffectiveDate, validateLiveEffectiveDate, validateProfileOnboardingEffectiveDate, validateProfileVersions, validateSettingsSnapshot, validateVersionedCompanyProfile } from './compliance/companyProfile'
 import { availableCustomChartsForProfileUpdate, isIdempotentMappingCohort, resolveTargetChart, scaleMappingsForAccountLength, seedChart, shouldGuardActiveRevision, validateActiveChartRevision, validateActiveRevisionEffectiveDate, validateChartSwitch, validateImportedChart, type AccountMapping } from './compliance/chartLifecycle'
 import { prisma } from './persistence/client'
 import { Document } from '@/core/Document'
@@ -89,14 +89,16 @@ export async function updateSettings(data: any, ownerId: string, actorId = owner
   }
   const effectiveFrom = data.companyProfileEffectiveFrom
   const reason = data.changeReason
+  const today = new Date().toISOString().slice(0, 10)
+  const confirmsPriorValidity = data.confirmProfilePreviouslyValid === true
+  const historicalOnboarding = typeof effectiveFrom === 'string' && effectiveFrom < today
   if (profileVersionWrite) {
     const profileIssues = validateVersionedCompanyProfile(versionedProfile)
     const profileDateIssues = validateProfileVersions([{ id: 'candidate', ownerId, effectiveFrom, profile: versionedProfile, actorId, reason }])
-    const liveDateIssues = validateLiveEffectiveDate(effectiveFrom)
+    const liveDateIssues = validateProfileOnboardingEffectiveDate(effectiveFrom, today, confirmsPriorValidity, originalCompanyProfile === undefined || !profileChanging)
     if (profileIssues.length || profileDateIssues.length || liveDateIssues.length || typeof reason !== 'string' || !reason.trim()) throw new CompanyProfileValidationError([...profileIssues, ...profileDateIssues, ...liveDateIssues, ...((typeof reason !== 'string' || !reason.trim()) ? ['Company profile change reason is required'] : [])].join('; '))
   }
   const activatedChart = versionedProfile?.chart ?? data.chartOfAccounts ?? account.activeChart
-  const today = new Date().toISOString().slice(0, 10)
   const chartEffectiveFrom = effectiveFrom ?? data.chartEffectiveFrom ?? today
   if (data.chartOfAccounts !== undefined) {
     const chartDateIssues = [...validateEffectiveDate(chartEffectiveFrom), ...validateLiveEffectiveDate(chartEffectiveFrom, today)]
@@ -198,6 +200,30 @@ export async function updateSettings(data: any, ownerId: string, actorId = owner
       }
       const candidate = { payload: JSON.stringify(versionedProfile), createdBy: actorId, reason: reason.trim() }
       const effectiveDay = new Date(`${effectiveFrom}T00:00:00.000Z`)
+      if (historicalOnboarding) {
+        const overlappingVersions = await transaction.companyProfileVersion.findMany({ where: { ownerId, OR: [{ effectiveFrom: { gte: effectiveDay } }, { effectiveTo: null }, { effectiveTo: { gte: effectiveDay } }] }, select: { payload: true } })
+        const conflicts = overlappingVersions.some(version => {
+          try { return !profilesSemanticallyEqual(JSON.parse(version.payload), versionedProfile) }
+          catch { return true }
+        })
+        if (conflicts) throw new CompanyProfileValidationError('Earlier company profile validity conflicts with an existing different profile version')
+
+        const persistedMappings = await transaction.accountMappingVersion.findMany({ where: { ownerId, chartId: targetChart, effectiveFrom: { gte: effectiveDay } }, orderBy: { effectiveFrom: 'desc' } })
+        const mappingFromRow = (row: typeof persistedMappings[number]): AccountMapping => ({ accountNumber: row.accountNumber, name: row.accountName, accountType: row.accountType as AccountMapping['accountType'], normalBalance: row.normalBalance as AccountMapping['normalBalance'], presentationSign: row.presentationSign as 1 | -1, hgbPosition: row.hgbPosition, eBilanzPosition: row.eBilanzPosition, vatCode: row.vatCode ?? undefined, active: row.active })
+        const expectedMappings = targetChart === 'SKR03' || targetChart === 'SKR04'
+          ? scaleMappingsForAccountLength(seedChart(targetChart), currentLedgerProfile?.accountLength)
+          : persistedMappings.length
+            ? persistedMappings.filter(row => row.effectiveFrom.getTime() === persistedMappings[0].effectiveFrom.getTime()).map(mappingFromRow)
+            : []
+        if (!expectedMappings.length) throw new CompanyProfileValidationError('Earlier company profile validity requires an existing account-mapping cohort for the selected chart')
+        const cohortStarts = [...new Set(persistedMappings.map(row => row.effectiveFrom.getTime()))]
+        if (cohortStarts.some(start => !isIdempotentMappingCohort(persistedMappings.filter(row => row.effectiveFrom.getTime() === start).map(mappingFromRow), expectedMappings))) throw new CompanyProfileValidationError('Earlier company profile validity conflicts with an existing different account-mapping cohort')
+        const sameDayMappings = persistedMappings.filter(row => row.effectiveFrom.getTime() === effectiveDay.getTime())
+        if (sameDayMappings.length && !isIdempotentMappingCohort(sameDayMappings.map(mappingFromRow), expectedMappings)) throw new CompanyProfileValidationError('A different account-mapping cohort already exists for this chart and effective date')
+        if (!sameDayMappings.length) {
+          for (const mapping of expectedMappings) await transaction.accountMappingVersion.create({ data: { ownerId, chartId: targetChart, accountNumber: mapping.accountNumber, effectiveFrom: effectiveDay, accountName: mapping.name, accountType: mapping.accountType, normalBalance: mapping.normalBalance, presentationSign: mapping.presentationSign ?? 1, hgbPosition: mapping.hgbPosition, eBilanzPosition: mapping.eBilanzPosition, vatCode: mapping.vatCode ?? null, active: mapping.active !== false } })
+        }
+      }
       const nextDay = new Date(effectiveDay.getTime() + 86_400_000)
       const sameDay = await transaction.companyProfileVersion.findMany({ where: { ownerId, effectiveFrom: { gte: effectiveDay, lt: nextDay } }, orderBy: { effectiveFrom: 'desc' } })
       if (!isLatestIdempotentProfileRetry(sameDay, candidate)) {
@@ -212,7 +238,7 @@ export async function updateSettings(data: any, ownerId: string, actorId = owner
     const payload = JSON.stringify(account)
     await transaction.accountRecord.upsert({ where: { id: account.id }, create: { id: account.id, ownerId, payload }, update: { ownerId, payload } })
     if (payload !== originalPayload || profileHistoryChanged) await appendAuditEvent(transaction, {
-      ownerId, actorId, action: profileVersionWrite ? 'COMPANY_PROFILE_CHANGED' : 'SETTINGS_CHANGED',
+      ownerId, actorId, action: historicalOnboarding ? 'COMPANY_PROFILE_PRIOR_VALIDITY_CONFIRMED' : profileVersionWrite ? 'COMPANY_PROFILE_CHANGED' : 'SETTINGS_CHANGED',
       reason: typeof reason === 'string' && reason.trim() ? reason : 'User settings update',
       objectType: profileVersionWrite ? 'CompanyProfile' : 'AccountRecord', objectId: account.id,
       before: JSON.parse(originalPayload), after: JSON.parse(payload),

@@ -73,6 +73,15 @@ export function validateAtomicChartTransition(requestedChart: unknown, replaceme
 export function validateLiveEffectiveDate(effectiveFrom: unknown, today = new Date().toISOString().slice(0, 10)): string[] {
   return effectiveFrom === today ? [] : ['Live company profile transitions must use today as effective date; schedule future versions separately']
 }
+export function validateProfileOnboardingEffectiveDate(effectiveFrom: unknown, today: string, priorValidityConfirmed: unknown, isInitialOrUnchanged: boolean): string[] {
+  const dateIssues = validateEffectiveDate(effectiveFrom)
+  if (dateIssues.length) return dateIssues
+  if (effectiveFrom === today) return []
+  if (typeof effectiveFrom !== 'string' || effectiveFrom > today) return ['Live company profile transitions must use today as effective date; schedule future versions separately']
+  if (priorValidityConfirmed !== true) return ['Earlier company profile validity requires explicit onboarding confirmation']
+  if (!isInitialOrUnchanged) return ['Earlier company profile validity can only be confirmed for initial or unchanged profile facts']
+  return []
+}
 const canonicalJson = (value: unknown): string => {
   if (value === null) return 'null'
   if (typeof value === 'string') return JSON.stringify(value)

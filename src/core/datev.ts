@@ -36,6 +36,18 @@ export type DatevImport = {
 
 type DatevTable = { metadata: string[]; headers: string[]; rows: string[][]; name: string }
 export type DatevChart = 'SKR03' | 'SKR04'
+
+export function datevRecipientAssessedProfile(accountNumber: number, chart: DatevChart, accountLength = 4) {
+  if (!Number.isInteger(accountLength) || accountLength < 4 || accountLength > 8) return undefined
+  const scale = 10 ** (accountLength - 4)
+  if (accountNumber % scale !== 0) return undefined
+  const normalized = accountNumber / scale
+  const definitions = chart === 'SKR03'
+    ? { 3123: { ruleId: 'EU_13B_SERVICE_RECIPIENT' as const, inputTaxAccountNumber: 1577, outputTaxAccountNumber: 1787 }, 3125: { ruleId: 'DE_13B' as const, inputTaxAccountNumber: 1577, outputTaxAccountNumber: 1787 } }
+    : { 5923: { ruleId: 'EU_13B_SERVICE_RECIPIENT' as const, inputTaxAccountNumber: 1407, outputTaxAccountNumber: 3837 }, 5925: { ruleId: 'DE_13B' as const, inputTaxAccountNumber: 1407, outputTaxAccountNumber: 3837 } }
+  const definition = definitions[normalized as keyof typeof definitions]
+  return definition ? { ...definition, inputTaxAccountNumber: definition.inputTaxAccountNumber * scale, outputTaxAccountNumber: definition.outputTaxAccountNumber * scale } : undefined
+}
 const MAX_IMPORT_RECORDS = 1_500
 const MAX_BOOKING_TEXT_LENGTH = 60
 const MAX_DOCUMENT_REFERENCE_LENGTH = 40
@@ -264,11 +276,12 @@ function automaticAccountTax(accountNumber: number, contraAccountNumber: number,
   if (inputMatch) return { automaticTax: {
     kind: 'INPUT' as const, rate: inputMatch.rate, accountNumber: inputMatch.tax * scale,
   } }
+  const reverseAccount = [...numbers].map(number => datevRecipientAssessedProfile(number * scale, chart, accountLength)).find(Boolean)
   const reverseAccounts = chart === 'SKR03' ? [3123, 3125] : [5923, 5925]
-  if (reverseAccounts.some(number => numbers.has(number))) return { reverseCharge: {
+  if (reverseAccount) return { reverseCharge: {
     rate: 19 as const,
-    inputTaxAccountNumber: (chart === 'SKR03' ? 1577 : 1407) * scale,
-    outputTaxAccountNumber: (chart === 'SKR03' ? 1787 : 3837) * scale,
+    inputTaxAccountNumber: reverseAccount.inputTaxAccountNumber,
+    outputTaxAccountNumber: reverseAccount.outputTaxAccountNumber,
     baseSide: reverseAccounts.includes(account) ? 'ACCOUNT' as const : 'CONTRA' as const,
   } }
   return undefined

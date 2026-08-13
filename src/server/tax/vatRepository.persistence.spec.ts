@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, test, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 const directory = mkdtempSync(join(tmpdir(), 'accounting-vat-repository-'))
@@ -15,12 +15,21 @@ beforeAll(async () => {
   for (const name of readdirSync(root, { withFileTypes: true }).filter(item => item.isDirectory()).map(item => item.name).sort()) database.exec(readFileSync(join(root, name, 'migration.sql'), 'utf8'))
   database.close(); process.env.DATABASE_URL = `file:${databasePath}`
   api = await import('./vatRepository'); prisma = (await import('@/server/persistence/client')).prisma
-  await prisma.companyProfileVersion.create({ data: { id: 'profile-a', ownerId: 'tenant-a', effectiveFrom: new Date('2026-01-01'), effectiveTo: new Date('2026-12-31'), payload: JSON.stringify({ companyName: 'Tenant GmbH', legalForm: 'GMBH', taxNumber: '12/345/67890', taxOffice: 'Berlin', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', activity: 'Software', sizeClass: 'SMALL', chart: 'SKR03', elections: [] }), createdBy: 'tester', reason: 'test' } })
+  await prisma.companyProfileVersion.create({ data: { id: 'profile-a', ownerId: 'tenant-a', effectiveFrom: new Date('2026-01-01'), effectiveTo: new Date('2026-12-31'), payload: JSON.stringify({ companyName: 'Tenant GmbH', legalForm: 'GMBH', taxNumber: '12/345/67890', taxOffice: 'Berlin', vatRegime: 'STANDARD', vatFilingFrequency: 'QUARTERLY', activity: 'Software', sizeClass: 'SMALL', chart: 'SKR03', elections: [] }), createdBy: 'tester', reason: 'test' } })
   const fiscalYear = await prisma.fiscalYear.create({ data: { id: 'fy-a', ownerId: 'tenant-a', year: 2026, startsAt: new Date('2026-01-01'), endsAt: new Date('2026-12-31') } })
   const account = await prisma.ledgerAccount.create({ data: { id: 'vat-output', ownerId: 'tenant-a', number: 1776, name: 'Umsatzsteuer 19%', category: 'LIABILITY', eBilanzPosition: 'bs.eqLiab.liab.other.theroffTax.vat' } })
   await prisma.ledgerAccount.create({ data: { id: 'vat-output-reduced', ownerId: 'tenant-a', number: 1771, name: 'Umsatzsteuer 7%', category: 'LIABILITY', eBilanzPosition: 'bs.eqLiab.liab.other.theroffTax.vat' } })
   await prisma.ledgerAccount.create({ data: { id: 'vat-input-reduced', ownerId: 'tenant-a', number: 1571, name: 'Vorsteuer 7%', category: 'ASSET', eBilanzPosition: 'bs.ass.currAss.receiv.other.vat' } })
   await prisma.ledgerAccount.create({ data: { id: 'vat-input', ownerId: 'tenant-a', number: 1576, name: 'Vorsteuer 19%', category: 'ASSET', eBilanzPosition: 'bs.ass.currAss.receiv.other.vat' } })
+  await prisma.ledgerAccount.createMany({ data: [
+    { id: 'vat-input-13b', ownerId: 'tenant-a', number: 1577, name: 'Vorsteuer §13b 19%', category: 'ASSET' },
+    { id: 'vat-output-13b', ownerId: 'tenant-a', number: 1787, name: 'Umsatzsteuer §13b 19%', category: 'LIABILITY' },
+    { id: 'eu-service-13b', ownerId: 'tenant-a', number: 3123, name: 'EU service §13b 19%', category: 'EXPENSE' },
+    { id: 'vendor', ownerId: 'tenant-a', number: 70012, name: 'EU vendor', category: 'LIABILITY' },
+    { id: 'expense', ownerId: 'tenant-a', number: 2309, name: 'Expense', category: 'EXPENSE' },
+    { id: 'customer', ownerId: 'tenant-a', number: 10011, name: 'Customer', category: 'ASSET' },
+  ] })
+  await prisma.ledgerProfile.create({ data: { ownerId: 'tenant-a', chart: 'SKR03', accountLength: 4 } })
   const baseAccount = await prisma.ledgerAccount.create({ data: { id: 'base-account', ownerId: 'tenant-a', number: 8400, name: 'Revenue', category: 'REVENUE' } })
   await prisma.journalEntry.create({ data: { id: 'entry-a', ownerId: 'tenant-a', sequenceNumber: 1, bookingDate: new Date('2026-01-02'), documentNumber: 'INV-1', description: 'VAT', fiscalYearId: fiscalYear.id, state: 'DRAFT', lines: { create: [{ id: 'line-a', accountId: baseAccount.id, creditCents: 10000 }, { id: 'line-control', accountId: account.id, creditCents: 1900 }] } } })
   await prisma.journalLine.create({ data: { id: 'line-b', journalEntryId: 'entry-a', accountId: baseAccount.id, creditCents: 10000 } })
@@ -30,6 +39,57 @@ beforeAll(async () => {
 afterAll(async () => { await prisma.$disconnect(); delete process.env.DATABASE_URL; rmSync(directory, { recursive: true, force: true }) })
 
 describe('persistent VAT detail and reconciliation integration', () => {
+  test('Given identical mapping cohorts during onboarding, when a quarter is checked, then they are not treated as an accounting transition', () => {
+    const mapping = (effectiveFrom: string, accountName = 'Input VAT') => ({ accountNumber: 1576, accountName, accountType: 'ASSET', normalBalance: 'DEBIT', presentationSign: 1, hgbPosition: 'HGB.VAT', eBilanzPosition: 'bs.ass.currAss.receiv.other.vat', vatCode: null, active: true, effectiveFrom: new Date(effectiveFrom) })
+    expect(api.hasDifferentVatMappingTransition([mapping('2020-01-01'), mapping('2026-08-13')], new Date('2020-01-01').toISOString(), new Date('2026-09-30'))).toBe(false)
+    expect(api.hasDifferentVatMappingTransition([mapping('2020-01-01'), mapping('2026-08-13', 'Changed input VAT')], new Date('2020-01-01').toISOString(), new Date('2026-09-30'))).toBe(true)
+  })
+  test('Given a legacy DATEV input-tax booking without a VAT posting record, when detail is reconstructed, then it exactly explains the posted control amount', () => {
+    const detail = api.datevImportedVatDetails('tenant-a', [{
+      id: 'datev-entry', source: 'DATEV', bookingDate: new Date('2026-07-01'),
+      lines: [
+        { id: 'expense', debitCents: 46, creditCents: 0, taxCode: '9', vatPosting: null, account: { number: 2309, category: 'EXPENSE' } },
+        { id: 'input-vat', debitCents: 9, creditCents: 0, taxCode: '9', vatPosting: null, account: { number: 1576, category: 'ASSET' } },
+        { id: 'vendor', debitCents: 0, creditCents: 55, taxCode: '9', vatPosting: null, account: { number: 70013, category: 'LIABILITY' } },
+      ],
+    }], [1576], [1776])
+    expect(detail).toHaveLength(1)
+    expect(detail[0]).toMatchObject({ amountCents: 55, netBaseCents: 46, inputTaxCents: 9, taxCents: 9, returnBoxes: [{ box: '66', value: 'input-tax', direction: 'purchase' }] })
+  })
+  test('Given a legacy DATEV sale with an explicit VAT split but no tax key, when detail is reconstructed, then it exactly explains the output control amount', () => {
+    const detail = api.datevImportedVatDetails('tenant-a', [{
+      id: 'domain-sale', source: 'DATEV', bookingDate: new Date('2026-06-25'),
+      lines: [
+        { id: 'customer', debitCents: 1_299, creditCents: 0, taxCode: null, vatPosting: null, account: { number: 10_011, category: 'ASSET' } },
+        { id: 'revenue', debitCents: 0, creditCents: 1_092, taxCode: null, vatPosting: null, account: { number: 8_400, category: 'REVENUE' } },
+        { id: 'output-vat', debitCents: 0, creditCents: 207, taxCode: null, vatPosting: null, account: { number: 1_776, category: 'LIABILITY' } },
+      ],
+    }], [1_576], [1_776])
+    expect(detail).toHaveLength(1)
+    expect(detail[0]).toMatchObject({ amountCents: 1_299, netBaseCents: 1_092, outputTaxCents: 207, taxCents: 207, returnBoxes: [{ box: '81', value: 'net-base', direction: 'sale' }] })
+  })
+  test('Given a DATEV EU-service §13b split, when detail is reconstructed, then it produces the filed KZ46, KZ47 and KZ67 facts', () => {
+    const detail = api.datevImportedVatDetails('tenant-a', [{
+      id: 'google-workspace', source: 'DATEV', bookingDate: new Date('2026-04-30'),
+      lines: [
+        { id: 'base', debitCents: 680, creditCents: 0, taxCode: null, vatPosting: null, account: { number: 3123, category: 'EXPENSE' } },
+        { id: 'vendor', debitCents: 0, creditCents: 680, taxCode: null, vatPosting: null, account: { number: 70012, category: 'LIABILITY' } },
+        { id: 'input', debitCents: 129, creditCents: 0, taxCode: null, vatPosting: null, account: { number: 1577, category: 'ASSET' } },
+        { id: 'output', debitCents: 0, creditCents: 129, taxCode: null, vatPosting: null, account: { number: 1787, category: 'LIABILITY' } },
+      ],
+    }], [1576, 1577], [1776, 1787], { chart: 'SKR03', accountLength: 4 })
+    expect(detail).toHaveLength(1)
+    expect(detail[0]).toMatchObject({ netBaseCents: 680, outputTaxCents: 129, inputTaxCents: 129, returnBoxes: [{ box: '46' }, { box: '47' }, { box: '67' }] })
+  })
+  test('Given ambiguous or mismatched DATEV tax metadata, when detail is reconstructed, then it fails closed or remains unexplained', () => {
+    const entry = { id: 'datev-entry', source: 'DATEV', bookingDate: new Date('2026-07-01'), lines: [
+      { id: 'expense', debitCents: 45, creditCents: 0, taxCode: '9', vatPosting: null, account: { number: 2309, category: 'EXPENSE' } },
+      { id: 'input-vat', debitCents: 10, creditCents: 0, taxCode: '9', vatPosting: null, account: { number: 1576, category: 'ASSET' } },
+      { id: 'vendor', debitCents: 0, creditCents: 55, taxCode: '9', vatPosting: null, account: { number: 70013, category: 'LIABILITY' } },
+    ] }
+    expect(() => api.datevImportedVatDetails('tenant-a', [entry], [1576], [1776])).toThrow(/does not match its posted control amount/)
+    expect(api.datevImportedVatDetails('tenant-a', [{ ...entry, source: 'MANUAL' }], [1576], [1776])).toEqual([])
+  })
   it('rejects missing required fields before constructing a Prisma selector', async () => {
     const lookup = vi.spyOn(prisma.vatPostingRecord, 'findUnique')
     await expect(api.persistVatPosting('tenant-a', {})).rejects.toThrow(/requires a source ID/)
@@ -136,11 +196,34 @@ describe('persistent VAT detail and reconciliation integration', () => {
     await expect(api.persistVatPosting('tenant-a', input)).resolves.toMatchObject({ sourceId: 'source-race-winner', taxCents: 1900 })
     transaction.mockRestore(); lookup.mockRestore()
   })
-  it('fails closed when the effective profile does not authorize monthly advance VAT returns', async () => {
-    const row = await prisma.companyProfileVersion.findUniqueOrThrow({ where: { id: 'profile-a' } })
-    const quarterly = { ...JSON.parse(row.payload), vatFilingFrequency: 'QUARTERLY' }
-    await prisma.companyProfileVersion.create({ data: { id: 'profile-quarterly', ownerId: 'tenant-quarterly', effectiveFrom: new Date('2026-01-01'), effectiveTo: new Date('2026-12-31'), payload: JSON.stringify(quarterly), createdBy: 'tester', reason: 'quarterly filing test' } })
-    await expect(api.prepareReconciledVatDataset('tenant-quarterly', '2026-01')).rejects.toThrow(/STANDARD.*MONTHLY/)
-    await expect(api.prepareReconciledAnnualVatDataset('tenant-quarterly', 2026)).rejects.toThrow(/fiscal year/)
+  it('prepares quarterly advance VAT returns only for an effective quarterly profile', async () => {
+    const result = await api.prepareReconciledVatDataset('tenant-a', '2026-Q1')
+    expect(result).toMatchObject({ dataset: { period: '2026-Q1', fields: { KZ81: 10_000, KZ83: 1_900, ZAHLLAST: 1_900 } }, copyContext: { companyName: 'Tenant GmbH', taxNumber: '12/345/67890', taxOffice: 'Berlin', filingFrequency: 'QUARTERLY' } })
+    await expect(api.prepareReconciledVatDataset('tenant-a', '2026-01')).rejects.toThrow(/Monthly.*MONTHLY/)
+  })
+  test('Given Q2 DATEV EU services and ordinary VAT splits, when the quarterly return is prepared, then every control reconciles into the correct filed boxes', async () => {
+    const createEntry = async (id: string, sequenceNumber: number, bookingDate: string, lines: Array<{ id: string; accountId: string; debitCents?: number; creditCents?: number; taxCode?: string }>) => prisma.journalEntry.create({ data: {
+      id, ownerId: 'tenant-a', sequenceNumber, bookingDate: new Date(bookingDate), documentNumber: id, description: id, fiscalYearId: 'fy-a', source: 'DATEV',
+      lines: { create: lines },
+    } })
+    for (const [index, day, base] of [['1', '2026-04-30', 680], ['2', '2026-05-31', 680], ['3', '2026-06-30', 680]] as const) await createEntry(`q2-google-${index}`, 20 + Number(index), day, [
+      { id: `q2-google-${index}-base`, accountId: 'eu-service-13b', debitCents: base },
+      { id: `q2-google-${index}-vendor`, accountId: 'vendor', creditCents: base },
+      { id: `q2-google-${index}-input`, accountId: 'vat-input-13b', debitCents: 129 },
+      { id: `q2-google-${index}-output`, accountId: 'vat-output-13b', creditCents: 129 },
+    ])
+    await createEntry('q2-input', 24, '2026-05-01', [
+      { id: 'q2-input-base', accountId: 'expense', debitCents: 3_558, taxCode: '9' },
+      { id: 'q2-input-vat', accountId: 'vat-input', debitCents: 676, taxCode: '9' },
+      { id: 'q2-input-vendor', accountId: 'vendor', creditCents: 4_234, taxCode: '9' },
+    ])
+    await createEntry('q2-domain-sale', 25, '2026-06-25', [
+      { id: 'q2-domain-customer', accountId: 'customer', debitCents: 1_299 },
+      { id: 'q2-domain-revenue', accountId: 'base-account', creditCents: 1_092 },
+      { id: 'q2-domain-output', accountId: 'vat-output', creditCents: 207 },
+    ])
+    const result = await api.prepareReconciledVatDataset('tenant-a', '2026-Q2')
+    expect(result.reconciliation.ok).toBe(true)
+    expect(result.dataset.fields).toMatchObject({ KZ46: 2_040, KZ47: 387, KZ66: 676, KZ67: 387, KZ81: 1_092, KZ83: -486, ZAHLLAST: -486 })
   })
 })

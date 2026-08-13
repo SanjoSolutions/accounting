@@ -110,7 +110,7 @@ describe('effective-dated VAT engine', () => {
   })
 
   it('covers zero/exempt, §13b, intra-EU, import, deposits/final invoices and private use', () => {
-    expect(calculateVat(split('DE_ZERO'), book).taxCents).toBe(0)
+    expect(calculateVat(split('DE_ZERO'), book)).toMatchObject({ taxCents: 0, returnBoxes: [{ box: '87', value: 'net-base', direction: 'sale' }] })
     expect(calculateVat(split('DE_EXEMPT'), book).deductibleTaxCents).toBe(0)
     expect(calculateVat({ ...split('DE_13B'), direction: 'purchase' }, book)).toMatchObject({ taxCents: 1_900, grossCents: 10_000, outputTaxCents: 1_900, inputTaxCents: 1_900 })
     expect(calculateVat({ ...split('EU_13B_SERVICE_RECIPIENT'), direction: 'purchase' }, book)).toMatchObject({ taxCents: 1_900, grossCents: 10_000, outputTaxCents: 1_900, inputTaxCents: 1_900, returnBoxes: [{ box: '46' }, { box: '47' }, { box: '67' }] })
