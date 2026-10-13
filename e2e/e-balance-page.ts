@@ -5,6 +5,7 @@ export class EBalancePage {
 
   async open(year: number) {
     await this.page.goto(`/e-bilanz/${year}`)
+    if (year === 2026) await this.page.locator('#ebilanz-filing-mode').selectOption('direct')
     await expect(this.page.getByText(/Loaded from the year-effective, versioned company profile/)).toBeVisible()
   }
 
@@ -46,6 +47,7 @@ export class EBalancePage {
     await expect(current.getByText(/Close generation/)).toBeVisible()
 
     await this.page.reload()
+    if (year === 2026) await this.page.locator('#ebilanz-filing-mode').selectOption('direct')
     await expect(this.page.getByText(/v2 · EXPORTED · CURRENT/)).toBeVisible()
     await expect(this.page.getByText(/v1 · EXPORTED · STALE/)).toBeVisible()
   }

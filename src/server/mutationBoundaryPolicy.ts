@@ -37,6 +37,8 @@ export const apiMutationBoundaryPolicy = {
   '/api/documents/[id]/payable-posting#POST': 'write',
   '/api/documents#POST': 'write',
   '/api/fiscal-years/[year]/close#POST': 'write',
+  '/api/fiscal-years/[year]/e-balance/external#POST': 'write',
+  '/api/fiscal-years/[year]/e-balance/external/[id]/evidence#POST': 'write',
   '/api/fiscal-years/[year]/e-balance/submit#POST': 'write',
   '/api/fiscal-years/[year]/e-balance/validate#POST': 'write',
   '/api/fiscal-years/[year]/e-balance#POST': 'write',
@@ -72,6 +74,8 @@ export const serverActionBoundaryPolicy = {
 export const sideEffectingReadBoundaryPolicy = {
   '/api/compliance/backups/[id]#GET': 'audited_read',
   '/api/compliance/packages/[id]#GET': 'audited_read',
+  '/api/fiscal-years/[year]/e-balance/external/[id]#GET': 'audited_read',
+  '/api/fiscal-years/[year]/e-balance/external/[id]/evidence#GET': 'audited_read',
   '/api/fiscal-years/[year]/e-balance/eric-status#GET': 'conditional_maintenance',
   '/api/fixed-assets#GET': 'conditional_maintenance',
   '/api/tax/e-invoices#GET': 'conditional_maintenance',

@@ -24,6 +24,11 @@ describe('External export HTTP boundaries', () => {
     const result = await externalEvidenceForm(new Request('http://127.0.0.1:3112/api', { method: 'POST', body: form }))
     expect(result).toMatchObject({ fileName: 'receipt.bin', confirmSource: true, packageHash: 'a'.repeat(64), bytes: new Uint8Array([0, 255, 1]) })
   })
+  test('Given Next internal hostname reconstruction, when a browser posts to its actual Host, then it is accepted while foreign schemes, ports and forwarded hosts remain rejected', () => {
+    const request = (origin: string) => new Request('http://localhost:3112/api', { headers: { host: '127.0.0.1:3112', origin, 'x-forwarded-host': 'foreign.example' } })
+    expect(() => assertSameOrigin(request('http://127.0.0.1:3112'))).not.toThrow()
+    for (const origin of ['http://127.0.0.1:3113', 'https://127.0.0.1:3112', 'http://foreign.example']) expect(() => assertSameOrigin(request(origin))).toThrow()
+  })
   test('Given an oversized declared or streamed body, when reading, then it is rejected before multipart parsing', async () => {
     await expect(externalEvidenceForm(new Request('http://127.0.0.1:3112/api', { method: 'POST', headers: { 'content-length': '999999999' }, body: 'x' }))).rejects.toThrow(/groß/)
     await expect(externalEvidenceForm(new Request('http://127.0.0.1:3112/api', { method: 'POST', body: new Uint8Array(6 * 1024 * 1024) }))).rejects.toThrow(/groß/)

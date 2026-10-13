@@ -13,6 +13,7 @@ node_modules
 /playwright.db-shm
 /playwright.db-wal
 /roles-playwright.db*
+/external-playwright.db*
 /database
 /accounting.db
 /accounting.db-journal

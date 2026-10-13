@@ -11,10 +11,10 @@ const source: ExternalEBalanceSource = { fiscalYearId: 'fy-2026', year: 2026, st
 const bytes = Buffer.from(createExternalPackage(source, 1).archive)
 const artifact = { id: 'package-1', ownerId: 'tenant-a', objectType: 'ExternalEBalancePackage', objectId: 'fy-2026', version: 1, contentHash: hashBytes(bytes), storageKey: 'stored.zip', periodEndsAt: new Date('2026-12-31Z'), retainUntil: new Date('2036-12-31Z'), createdAt: new Date('2027-01-01Z') }
 const input: ExternalEvidenceInput = { packageHash: artifact.contentHash, kind: 'ACCEPTANCE_CLAIM', provider: 'myebilanz', occurredAt: '2026-10-01T10:00:00Z', note: 'Benutzerprotokoll; Zielprogramm hat die Daten ergänzt.', confirmSource: true, fileName: 'beleg.pdf', bytes: new Uint8Array([1, 2, 3]) }
-const findPeriod = vi.fn(); const findArtifact = vi.fn(); const findMany = vi.fn(); const create = vi.fn(); const audit = vi.fn(); const prepare = vi.fn()
+const findPeriod = vi.fn(); const findArtifact = vi.fn(); const findMany = vi.fn(); const create = vi.fn(); const audit = vi.fn(); const prepare = vi.fn(); const assertCurrent = vi.fn()
 const storage = { read: vi.fn(), write: vi.fn(), delete: vi.fn() }
 const database = { fiscalYear: { findFirst: findPeriod }, retainedArtifact: { findFirst: findArtifact, findMany, create }, $transaction: vi.fn() }
-const repository = createExternalEBalanceRepository({ database: database as unknown as Parameters<typeof createExternalEBalanceRepository>[0]['database'], storage: () => storage as unknown as ReturnType<Parameters<typeof createExternalEBalanceRepository>[0]['storage']>, prepare, audit })
+const repository = createExternalEBalanceRepository({ database: database as unknown as Parameters<typeof createExternalEBalanceRepository>[0]['database'], storage: () => storage as unknown as ReturnType<Parameters<typeof createExternalEBalanceRepository>[0]['storage']>, prepare, assertCurrent, audit })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -23,13 +23,14 @@ beforeEach(() => {
   create.mockImplementation(async ({ data }) => data)
   storage.read.mockResolvedValue(bytes); storage.write.mockResolvedValue(undefined); storage.delete.mockResolvedValue(undefined)
   prepare.mockResolvedValue(source)
+  assertCurrent.mockResolvedValue(undefined)
   database.$transaction.mockImplementation(async (work: (tx: Prisma.TransactionClient) => Promise<unknown>) => work(database as unknown as Prisma.TransactionClient))
 })
 describe('Retained external E-Bilanz packages and manual evidence', () => {
   test('Given a current closed dataset with no ERiC environment, when preparing, then exact bytes are retained as the next version with the real actor', async () => {
     const result = await repository.create('tenant-a', 'accountant-b', 2026)
     expect(result.version).toBe(2)
-    expect(prepare).toHaveBeenLastCalledWith('tenant-a', 'fy-2026', database)
+    expect(assertCurrent).toHaveBeenCalledWith('tenant-a', source, database)
     const stored = storage.write.mock.calls[0][1] as Buffer
     expect(result.contentHash).toBe(hashBytes(stored))
     expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({ ownerId: 'tenant-a', objectType: 'ExternalEBalancePackage', version: 2, contentHash: result.contentHash }) })
@@ -38,7 +39,7 @@ describe('Retained external E-Bilanz packages and manual evidence', () => {
   test('Given missing close evidence or a reconciliation change during preparation, when creating, then no package is written', async () => {
     prepare.mockRejectedValueOnce(new Error('stale close'))
     await expect(repository.create('tenant-a', 'actor', 2026)).rejects.toThrow('stale close')
-    prepare.mockResolvedValueOnce(source).mockResolvedValueOnce({ ...source, sourceFingerprint: 'b'.repeat(64) })
+    assertCurrent.mockRejectedValueOnce(new Error('Die Exportgrundlage hat sich geändert.'))
     await expect(repository.create('tenant-a', 'actor', 2026)).rejects.toThrow(/geändert/)
     expect(storage.write).not.toHaveBeenCalled()
   })

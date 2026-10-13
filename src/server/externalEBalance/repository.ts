@@ -14,9 +14,10 @@ export class ExternalExportError extends Error {
 }
 type Client = Prisma.TransactionClient
 type Database = Client & { $transaction<T>(work: (tx: Client) => Promise<T>, options?: { timeout?: number }): Promise<T> }
-type Dependencies = {
-  database: Database; storage: () => DocumentStorage
-  prepare: (ownerId: string, fiscalYearId: string, client?: Client) => Promise<ExternalEBalanceSource>
+type Dependencies<Source extends ExternalEBalanceSource> = {
+  database: Database; storage: () => Pick<DocumentStorage, 'read' | 'write' | 'delete'>
+  prepare: (ownerId: string, fiscalYearId: string) => Promise<Source>
+  assertCurrent: (ownerId: string, source: Source, client: Client) => Promise<void>
   audit?: typeof appendAuditEvent
 }
 const PACKAGE = 'ExternalEBalancePackage'
@@ -37,7 +38,7 @@ export function validateExternalEvidence(input: ExternalEvidenceInput) {
   if (!input.bytes.byteLength || input.bytes.byteLength > MAX_EXTERNAL_EVIDENCE_BYTES) throw new ExternalExportError('Der Nachweis muss zwischen 1 Byte und 5 MiB groß sein.', 400)
 }
 
-export function createExternalEBalanceRepository({ database, storage, prepare, audit = appendAuditEvent }: Dependencies) {
+export function createExternalEBalanceRepository<Source extends ExternalEBalanceSource>({ database, storage, prepare, assertCurrent, audit = appendAuditEvent }: Dependencies<Source>) {
   async function period(ownerId: string, year: number, client: Client = database) {
     const result = await client.fiscalYear.findFirst({ where: { ownerId, year } })
     if (!result) throw new ExternalExportError('Geschäftsjahr nicht gefunden.', 404)
@@ -83,10 +84,9 @@ export function createExternalEBalanceRepository({ database, storage, prepare, a
       let stagedKey: string | undefined
       try {
         return await database.$transaction(async tx => {
-          // Re-read through the shared authoritative provider in the write transaction.
-          // This includes both the current-close gate and reconciliation changes.
-          const current = await prepare(ownerId, fiscalYear.id, tx)
-          if (current.closeGenerationId !== source.closeGenerationId || current.sourceFingerprint !== source.sourceFingerprint) throw new ExternalExportError('Die Exportgrundlage hat sich geändert. Bitte neu vorbereiten.')
+          // The shared provider checks close, reconciliation and evidence hashes
+          // in the same transaction that publishes the retained package.
+          await assertCurrent(ownerId, source, tx)
           const latest = await tx.retainedArtifact.findFirst({ where: { ownerId, objectType: PACKAGE, objectId: fiscalYear.id }, orderBy: { version: 'desc' } })
           const version = (latest?.version ?? 0) + 1
           const { archive, manifest } = createExternalPackage(source, version)

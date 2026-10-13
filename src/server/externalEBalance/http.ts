@@ -8,7 +8,13 @@ export function externalYear(value: string) {
 }
 export function assertSameOrigin(request: Request) {
   const origin = request.headers.get('origin')
-  if (origin && origin !== new URL(request.url).origin) throw new ExternalExportError('Fremde Herkunft ist für diese Änderung nicht zugelassen.', 403)
+  const target = new URL(request.url)
+  // Next can reconstruct request.url with its internal listening hostname.
+  // The browser's Host header identifies the actual requested origin; do not
+  // accept an arbitrary forwarded host or relax the scheme/port comparison.
+  const host = request.headers.get('host')
+  if (host) target.host = host
+  if (origin && origin !== target.origin) throw new ExternalExportError('Fremde Herkunft ist für diese Änderung nicht zugelassen.', 403)
 }
 export function externalError(error: unknown) {
   if (error instanceof ExternalExportError) return Response.json({ error: error.message }, { status: error.status, headers: privateHeaders })

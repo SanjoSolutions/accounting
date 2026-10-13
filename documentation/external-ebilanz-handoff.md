@@ -38,7 +38,9 @@ dieses Escaping nicht**. Bei betroffenen Konten werden seine CSV und INI-Vorlage
 nicht erzeugt; das Manifest nennt die Einschränkung und den portablen manuellen
 Alternativweg. Originalbezeichnungen werden niemals stillschweigend geändert.
 Sollsaldo positiv, Habensaldo negativ,
-Nullsaldo `0.00`. Kein Konto wird wegen eines Nullsaldos entfernt. Konto 0,
+Nullsaldo `0.00`. Der Adapter entfernt keine übergebenen Nullsalden; die gemeinsame
+Datengrundlage enthält die verwendeten Konten, einschließlich inzwischen inaktiver
+Konten und Konten mit Bewegungen, deren Saldo null ist. Konto 0,
 doppelte Nummern, Steuerzeichen, ungültige Centwerte, unausgeglichene Summen
 und unzugeordnete Nichtnullsalden blockieren den Adapter. Bezeichnungen bleiben
 unverändert; bei Tabellenprogrammen Textimport verwenden, um Formelauswertung
@@ -92,3 +94,21 @@ Paketversion, Pakethash und unveränderten Belegbytes. Auch ein als Annahme
 bezeichneter Upload hat stets `USER_SUPPLIED_UNAUTHENTICATED`. Er aktualisiert
 keine offiziellen Submission-/Gateway-Tabellen und erteilt keine vertrauenswürdige
 Annahme. Externe Validierung, Übermittlung und Annahme werden separat angezeigt.
+
+## Integration und Prüfung
+
+`prepareAuthoritativeEBalanceExport` liefert Datensatz, XML und lokale
+Strukturdiagnostik. Der Adapter speichert dessen Datensatzchecksum als
+Quellfingerprint und übernimmt das XML unverändert. `assertCurrentEBalanceExport`
+prüft in der Veröffentlichungstransaktion Abschluss, aktuelle Überleitung und
+Belegchecksummen erneut. Ein Export benötigt eine bereits vorhandene
+Abschlussgeneration; reine Lesezugriffe lösen keine Legacy-Nachanlage aus.
+
+Vitest deckt CSV-Vertrag, exakte XBRL-Übernahme, abweichendes Geschäftsjahr,
+Steuerkorrekturen und Anlagen, Aufbewahrung, Manipulationserkennung, Rollen,
+Mandantentrennung und Änderungen vor Veröffentlichung ab. Der isolierte
+Playwright-Test (`playwright.external-ebilanz.config.ts`, Port 3112) verwendet
+synthetische historische Versionen, echten Speicher und echte HTTP-Endpunkte:
+Version wählen, Anleitung ansehen, Originalbytes herunterladen und einen
+Benutzerbeleg an genau diesen Pakethash hängen. Er behauptet weder eine aktuelle
+Abschlussfreigabe dieser historischen Testdaten noch einen Empfängerimport.
