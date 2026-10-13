@@ -26,7 +26,7 @@ describe('taxable journal posting persistence', () => {
     const workspace = await api.getLedgerWorkspace('tenant-taxable', 2026)
     const account = (number: number) => workspace.accounts.find(item => item.number === number)!.id
     await prisma.documentRecord.create({ data: { id: 'sale-document', ownerId: 'tenant-taxable', payload: '{}' } })
-    const entry = await api.postJournalEntry('tenant-taxable', {
+    const entry = await api.postJournalEntry('tenant-taxable', 'tenant-taxable', {
       fiscalYear: 2026, bookingDate: '2026-08-04', description: 'Taxable consulting sale', documentIds: ['sale-document'],
       lines: [
         { accountId: account(1400), debitCents: 11900, creditCents: 0 },
@@ -51,7 +51,7 @@ describe('taxable journal posting persistence', () => {
     const workspace = await api.getLedgerWorkspace('tenant-rollback', 2026)
     const account = (number: number) => workspace.accounts.find(item => item.number === number)!.id
     await prisma.documentRecord.create({ data: { id: 'bad-sale-document', ownerId: 'tenant-rollback', payload: '{}' } })
-    await expect(api.postJournalEntry('tenant-rollback', {
+    await expect(api.postJournalEntry('tenant-rollback', 'tenant-rollback', {
       fiscalYear: 2026, bookingDate: '2026-08-05', description: 'Broken taxable sale', documentIds: ['bad-sale-document'],
       lines: [
         { accountId: account(1400), debitCents: 11900, creditCents: 0 },

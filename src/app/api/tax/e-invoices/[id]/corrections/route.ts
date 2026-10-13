@@ -16,7 +16,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     const body = requireInvoiceIssuanceBody(await request.json()) as Omit<StructuredInvoiceInput, 'kind' | 'correctedInvoiceNumber'> & { kind: Exclude<InvoiceDocumentKind, 'invoice'>; requestKey?: string }
     const { requestKey = '', ...correction } = body
-    return Response.json({ success: true, data: await correctStructuredInvoice(user.id, (await params).id, correction, requestKey) }, { status: 201 })
+    return Response.json({ success: true, data: await correctStructuredInvoice(user.id, user.actorId, (await params).id, correction, requestKey) }, { status: 201 })
   } catch (error) {
     if (error instanceof EInvoiceValidationError || error instanceof SyntaxError) return Response.json({ success: false, issues: error instanceof EInvoiceValidationError ? error.issues : ['Invalid JSON body.'] }, { status: 400 })
     throw error

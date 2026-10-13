@@ -246,7 +246,7 @@ export async function updateSettings(data: any, ownerId: string, actorId = owner
   })
 }
 
-export async function createDocument(input: DocumentFileInput, ownerId: string): Promise<Document> {
+export async function createDocument(input: DocumentFileInput, ownerId: string, actorId: string): Promise<Document> {
   const documentType = validateDocumentFile(input)
 
   const id = randomUUID()
@@ -295,7 +295,7 @@ export async function createDocument(input: DocumentFileInput, ownerId: string):
       select: { endsAt: true },
     })
     const periodEndsAt = coveringPeriod?.endsAt.toISOString().slice(0, 10) ?? `${uploadedOn.getUTCFullYear() + 1}-12-31`
-    await registerRetainedArtifact(ownerId, ownerId, {
+    await registerRetainedArtifact(ownerId, actorId, {
       objectType: 'Document', objectId: id, retentionClass: documentType.retentionClass,
       periodEndsAt, provenance: coveringPeriod ? 'authenticated document upload in configured fiscal period' : 'authenticated document upload before fiscal-period assignment',
       storageKey, content: input.content, reason: 'Original document received',

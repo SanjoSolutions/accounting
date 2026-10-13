@@ -292,7 +292,7 @@ export async function postDraft(ownerId: string, actorId: string, draftId: strin
   if (claimed.count !== 1) throw new ComplianceRuntimeError('Draft is not available for posting', 409)
   const draft = await prisma.journalDraft.findUniqueOrThrow({ where: { id: draftId } })
   let entry
-  try { entry = await postJournalEntry(ownerId, JSON.parse(draft.payload), 'MANUAL', { externalKey: `DRAFT:${draftId}` }) }
+  try { entry = await postJournalEntry(ownerId, actorId, JSON.parse(draft.payload), 'MANUAL', { externalKey: `DRAFT:${draftId}` }) }
   catch (error) {
     const recovered = await prisma.journalEntry.findUnique({ where: { externalKey: `DRAFT:${draftId}` }, include: { lines: true, documents: true } })
     if (recovered) return finalize(recovered)

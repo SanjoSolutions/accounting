@@ -161,7 +161,7 @@ describe('structured invoice persistence boundary', () => {
   })
 
   it('Given a correction request for an unavailable original, when preflight runs, then it fails closed before claiming a number or writing an artifact', async () => {
-    await expect(correctStructuredInvoice('tenant-a', 'invoice-root', { ...validOutgoingInput(), kind: 'credit-note' }, 'correction-request-key')).rejects.toThrow(/does not belong|unavailable/)
+    await expect(correctStructuredInvoice('tenant-a', 'user-a', 'invoice-root', { ...validOutgoingInput(), kind: 'credit-note' }, 'correction-request-key')).rejects.toThrow(/does not belong|unavailable/)
     expect(mocks.issuanceCreate).not.toHaveBeenCalled()
     expect(mocks.transaction).not.toHaveBeenCalled()
     expect(mocks.write).not.toHaveBeenCalled()

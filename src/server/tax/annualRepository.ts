@@ -58,7 +58,7 @@ export function parseTaxAdjustmentInput(value: unknown): Omit<TaxAdjustment, 'ef
   return adjustment as Omit<TaxAdjustment, 'effectiveFor'>
 }
 
-export async function saveTaxAdjustment(ownerId: string, year: number, value: unknown) {
+export async function saveTaxAdjustment(ownerId: string, actorId: string, year: number, value: unknown) {
   year = parseAnnualTaxYear(year)
   const adjustment = parseTaxAdjustmentInput(value)
   if (!adjustment.sourceDocumentIds.length) throw new TaxDeclarationError(['A tax adjustment requires source documents.'])
@@ -71,7 +71,7 @@ export async function saveTaxAdjustment(ownerId: string, year: number, value: un
       sourceDocumentIds: JSON.stringify(adjustment.sourceDocumentIds), legalBasis: adjustment.legalBasis,
       treatment: adjustment.treatment,
     } })
-    await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'ANNUAL_TAX_ADJUSTMENT_RECORDED', reason: adjustment.reason, objectType: 'TaxAdjustmentRecord', objectId: adjustment.id, after: { year, ruleVersion: adjustment.ruleVersion, field: adjustment.field, layer: adjustment.layer, amountCents: adjustment.amountCents, legalBasis: adjustment.legalBasis, treatment: adjustment.treatment, evidenceIds: adjustment.sourceDocumentIds } })
+    await appendAuditEvent(transaction, { ownerId, actorId, action: 'ANNUAL_TAX_ADJUSTMENT_RECORDED', reason: adjustment.reason, objectType: 'TaxAdjustmentRecord', objectId: adjustment.id, after: { year, ruleVersion: adjustment.ruleVersion, field: adjustment.field, layer: adjustment.layer, amountCents: adjustment.amountCents, legalBasis: adjustment.legalBasis, treatment: adjustment.treatment, evidenceIds: adjustment.sourceDocumentIds } })
     return record
   })
 }

@@ -387,7 +387,7 @@ async function extendAttachedDocumentRetention(transaction: Prisma.TransactionCl
   }
 }
 
-export async function postJournalEntry(ownerId: string, input: unknown, source = 'MANUAL', metadata: JournalPostMetadata = {}) {
+export async function postJournalEntry(ownerId: string, actorId: string, input: unknown, source = 'MANUAL', metadata: JournalPostMetadata = {}) {
   const manualEntryId = source === 'MANUAL' ? randomUUID() : undefined
   const validationInput = journalEntryInputForSource(source, input, manualEntryId)
   const validated = validateJournalEntry(validationInput)
@@ -493,7 +493,7 @@ export async function postJournalEntry(ownerId: string, input: unknown, source =
     await extendAttachedDocumentRetention(transaction, ownerId, documentIds, fiscalYear.endsAt)
     if (source === 'MANUAL') await appendAuditEvent(transaction, {
       ownerId,
-      actorId: ownerId,
+      actorId,
       action: 'JOURNAL_ENTRY_POSTED',
       reason: 'Authenticated manual journal entry posted',
       objectType: 'JournalEntry',
@@ -656,7 +656,7 @@ export async function getTrialBalance(ownerId: string, year: number): Promise<Le
   })
 }
 
-export async function closeFiscalYear(ownerId: string, year: number) {
+export async function closeFiscalYear(ownerId: string, actorId: string, year: number) {
   const fiscalYear = await ensureLedger(ownerId, year)
   if (fiscalYear.status === 'CLOSED') {
     if (fiscalYear.closingSnapshot) return JSON.parse(fiscalYear.closingSnapshot)
@@ -753,7 +753,7 @@ export async function closeFiscalYear(ownerId: string, year: number) {
     const deadline = retentionDeadline('JOURNAL', fiscalYear.endsAt.toISOString().slice(0, 10))
     const existingSnapshot = await transaction.retainedArtifact.findFirst({ where: { ownerId, objectType: 'ClosingSnapshot', objectId: fiscalYear.id }, orderBy: { version: 'desc' } })
     await transaction.retainedArtifact.create({ data: { ownerId, objectType: 'ClosingSnapshot', objectId: fiscalYear.id, version: (existingSnapshot?.version ?? 0) + 1, retentionClass: 'JOURNAL', contentHash: sha256(snapshot), provenance: 'fiscal period close', storageKey: snapshotStorageKey, periodEndsAt: fiscalYear.endsAt, retainUntil: new Date(`${deadline.retainUntil}T23:59:59.999Z`) } })
-    await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'FISCAL_PERIOD_CLOSED', reason: 'Authenticated fiscal period close', objectType: 'FiscalYear', objectId: fiscalYear.id, before: { status: fiscalYear.status }, after: { status: 'CLOSED', snapshotHash: sha256(snapshot), closeGenerationId: closeGeneration.id, hgbCloseRunId: hgbCloseRun.id, successorId: nextFiscalYear.id } })
+    await appendAuditEvent(transaction, { ownerId, actorId, action: 'FISCAL_PERIOD_CLOSED', reason: 'Authenticated fiscal period close', objectType: 'FiscalYear', objectId: fiscalYear.id, before: { status: fiscalYear.status }, after: { status: 'CLOSED', snapshotHash: sha256(snapshot), closeGenerationId: closeGeneration.id, hgbCloseRunId: hgbCloseRun.id, successorId: nextFiscalYear.id } })
     return JSON.parse(snapshot)
   }) } catch (error) {
     if (snapshotStorageKey) {
@@ -770,7 +770,7 @@ export function validateDocumentNamespace(source: string, documentNumber: string
   }
 }
 
-export async function exportEBalance(ownerId: string, year: number, masterData: EBalanceMasterData) {
+export async function exportEBalance(ownerId: string, actorId: string, year: number, masterData: EBalanceMasterData) {
   const fiscalYear = await prisma.fiscalYear.findUniqueOrThrow({ where: { ownerId_year: { ownerId, year } } })
   const closeGeneration = await requireCurrentFiscalCloseGeneration(prisma, ownerId, fiscalYear)
   const { xml, officialArchive } = await prepareEBalance(ownerId, year, masterData, false)
@@ -792,9 +792,9 @@ export async function exportEBalance(ownerId: string, year: number, masterData: 
       let report = await transaction.eBalanceLifecycleReport.findFirst({ where: { ownerId, fiscalYearId: fiscalYear.id, closeGenerationId: currentCloseGeneration.id, reportChecksum } })
       if (!report) {
         const latestReport = await transaction.eBalanceLifecycleReport.findFirst({ where: { ownerId, fiscalYearId: fiscalYear.id }, orderBy: { version: 'desc' } })
-        report = await transaction.eBalanceLifecycleReport.create({ data: { id: exportId, ownerId, fiscalYearId: fiscalYear.id, closeGenerationId: currentCloseGeneration.id, version: (latestReport?.version ?? 0) + 1, status: 'EXPORTED', taxonomyVersion: '6.9', profileSnapshot: JSON.stringify(masterData), reportPayload: JSON.stringify({ source: 'VISIBLE_E_BILANZ_EXPORT', closeGenerationId: currentCloseGeneration.id, archiveHash: artifact.contentHash }), reportXml: xml, reportChecksum, storageKey, supersedesId: latestReport?.id ?? null, createdBy: ownerId } })
+        report = await transaction.eBalanceLifecycleReport.create({ data: { id: exportId, ownerId, fiscalYearId: fiscalYear.id, closeGenerationId: currentCloseGeneration.id, version: (latestReport?.version ?? 0) + 1, status: 'EXPORTED', taxonomyVersion: '6.9', profileSnapshot: JSON.stringify(masterData), reportPayload: JSON.stringify({ source: 'VISIBLE_E_BILANZ_EXPORT', closeGenerationId: currentCloseGeneration.id, archiveHash: artifact.contentHash }), reportXml: xml, reportChecksum, storageKey, supersedesId: latestReport?.id ?? null, createdBy: actorId } })
       }
-      await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'E_BILANZ_EXPORTED', reason: 'Authenticated report export', objectType: 'TaxExport', objectId, after: { artifactId: artifact.id, contentHash: artifact.contentHash, storageKey, lifecycleReportId: report.id, reportChecksum, closeGenerationId: currentCloseGeneration.id } })
+      await appendAuditEvent(transaction, { ownerId, actorId, action: 'E_BILANZ_EXPORTED', reason: 'Authenticated report export', objectType: 'TaxExport', objectId, after: { artifactId: artifact.id, contentHash: artifact.contentHash, storageKey, lifecycleReportId: report.id, reportChecksum, closeGenerationId: currentCloseGeneration.id } })
     })
   } catch (error) {
     try { await storage.delete(storageKey) }

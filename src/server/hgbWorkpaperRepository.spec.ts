@@ -76,7 +76,7 @@ describe('HGB workpaper repository', () => {
     mocks.prisma.hgbWorkpaperRecord.findFirst.mockResolvedValue(reviewed); mocks.prisma.hgbAdjustmentRecord.findFirst.mockResolvedValue(adjustmentRecord); mocks.prisma.hgbAdjustmentRecord.findUnique.mockResolvedValue(null); mocks.prisma.hgbAdjustmentRecord.update.mockImplementation(async ({ data }: { data: object }) => ({ ...adjustmentRecord, ...data })); mocks.postJournalEntry.mockResolvedValue({ id: 'entry-1' })
     const result = await postHgbAdjustment('tenant-a', 'poster', 2026, 'wp-1', 'adj-1', 'request-1')
     expect(result).toMatchObject({ status: 'POSTED', postedEntryId: 'entry-1' })
-    expect(mocks.postJournalEntry).toHaveBeenCalledWith('tenant-a', expect.objectContaining({ documentNumber: 'SYS-HGB-posting-1', lines: validated.adjustments[0].lines }), 'HGB_CLOSE', expect.objectContaining({ externalKey: `hgb-adjustment:posting-1:${validated.adjustments[0].fingerprint}` }))
+    expect(mocks.postJournalEntry).toHaveBeenCalledWith('tenant-a', 'poster', expect.objectContaining({ documentNumber: 'SYS-HGB-posting-1', lines: validated.adjustments[0].lines }), 'HGB_CLOSE', expect.objectContaining({ externalKey: `hgb-adjustment:posting-1:${validated.adjustments[0].fingerprint}` }))
     mocks.prisma.journalEntry.findUnique.mockResolvedValue({ id: 'entry-1' })
     await postHgbAdjustment('tenant-a', 'poster', 2026, 'wp-1', 'adj-1', 'request-1')
     expect(mocks.postJournalEntry).toHaveBeenCalledTimes(1)
