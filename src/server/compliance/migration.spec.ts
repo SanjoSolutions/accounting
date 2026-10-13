@@ -2,13 +2,14 @@ import { readFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { afterEach, describe, expect, it, test } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 
 const temporaryDirectories: string[] = []
 afterEach(() => temporaryDirectories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })))
 
+// Fresh on-disk migration checks can exceed Vitest's default timeout on Windows.
 describe('compliance foundations migration', () => {
-  it('migrates a populated journal and represents unknown historic entry dates as null', () => {
+  test('migrates a populated journal and represents unknown historic entry dates as null', () => {
     const directory = mkdtempSync(join(tmpdir(), 'accounting-compliance-migration-')); temporaryDirectories.push(directory)
     const database = new DatabaseSync(join(directory, 'migration.db'))
     const root = resolve(process.cwd(), 'prisma', 'migrations')
@@ -19,9 +20,9 @@ describe('compliance foundations migration', () => {
     database.exec(readFileSync(join(root, '20260717210000_compliance_foundations', 'migration.sql'), 'utf8'))
     expect(database.prepare("SELECT state, entryDate FROM JournalEntry WHERE id = 'entry'").get()).toEqual({ state: 'POSTED', entryDate: null })
     database.close()
-  })
+  }, 30_000)
 
-  it('installs durable workflow tables and database-level immutable history guards', () => {
+  test('installs durable workflow tables and database-level immutable history guards', () => {
     const directory = mkdtempSync(join(tmpdir(), 'accounting-compliance-runtime-migration-')); temporaryDirectories.push(directory)
     const database = new DatabaseSync(join(directory, 'migration.db'))
     const root = resolve(process.cwd(), 'prisma', 'migrations')
@@ -41,7 +42,7 @@ describe('compliance foundations migration', () => {
     database.close()
   }, 30_000)
 
-  it('fails closed instead of implicitly trusting unexpected pre-HMAC audit rows', () => {
+  test('fails closed instead of implicitly trusting unexpected pre-HMAC audit rows', () => {
     const directory = mkdtempSync(join(tmpdir(), 'accounting-audit-head-migration-')); temporaryDirectories.push(directory)
     const database = new DatabaseSync(join(directory, 'migration.db'))
     const root = resolve(process.cwd(), 'prisma', 'migrations')
@@ -51,9 +52,9 @@ describe('compliance foundations migration', () => {
     expect(() => database.exec(readFileSync(join(root, '20260719153000_foundation_runtime_integration', 'migration.sql'), 'utf8'))).toThrow(/CHECK constraint/)
     expect(database.prepare("PRAGMA table_info('BackupManifest')").all().map(row => (row as { name: string }).name)).not.toContain('payloadStorageKey')
     database.close()
-  })
+  }, 30_000)
 
-  it('installs tenant-scoped reporting subledgers with immutable history guards', () => {
+  test('installs tenant-scoped reporting subledgers with immutable history guards', () => {
     const directory = mkdtempSync(join(tmpdir(), 'accounting-reporting-migration-')); temporaryDirectories.push(directory)
     const database = new DatabaseSync(join(directory, 'migration.db'))
     const root = resolve(process.cwd(), 'prisma', 'migrations')
