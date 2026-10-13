@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { HGB_WORKPAPER_KINDS } from '@/core/hgbClose'
 
 const mocks = vi.hoisted(() => {
-  const fiscalYear = { findUnique: vi.fn() }
+  const fiscalYear = { findUnique: vi.fn(), findFirst: vi.fn() }
   const companyProfileVersion = { findFirst: vi.fn() }
   const accountMappingVersion = { findMany: vi.fn() }
   const retainedArtifact = { findMany: vi.fn() }
@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
   }
 })
 
+vi.mock('@/server/hgbReviewPolicyRepository', () => ({ loadHgbReviewPolicy: async () => ({ policy: null, valid: true }), requireHgbEvidence: async () => [] }))
 vi.mock('server-only', () => ({}))
 vi.mock('@/server/persistence/client', () => ({ prisma: mocks.prisma }))
 vi.mock('@/server/compliance/auditPersistence', () => ({ appendAuditEvent: mocks.appendAuditEvent }))
@@ -88,21 +89,38 @@ describe('HGB close run repository', () => {
     mocks.transaction.hgbCloseRun.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...data, createdAt: new Date('2027-01-15T12:00:00.000Z') }))
   })
 
-  it('produces an order-independent canonical fingerprint and detects ledger changes', () => {
+  test('produces an order-independent canonical fingerprint and detects ledger changes', () => {
     const input = { fiscalPeriod: period, profileVersion, mappings, entries: period.journalEntries }
     const first = hgbCloseFingerprint(input)
     expect(hgbCloseFingerprint({ ...input, entries: [{ ...period.journalEntries[0], lines: [...period.journalEntries[0].lines].reverse() }] })).toBe(first)
     expect(hgbCloseFingerprint({ ...input, entries: [{ ...period.journalEntries[0], lines: [{ ...period.journalEntries[0].lines[0], debitCents: 101 }] }] })).not.toBe(first)
   })
 
-  it('makes a new authoritative profile cohort stale even when ledger entries are unchanged', () => {
+  test('Given separate signature and resolution evidence, when reloading a close run, then its fingerprint stays current until that evidence changes', async () => {
+    mocks.prisma.compliancePackage.findFirst.mockResolvedValue({ id: 'annual-1', payload: '{}' })
+    const result = await evaluateAndPersistHgbClose('tenant-a', 'actor-a', 2026, readyRequest())
+    const stored = mocks.transaction.hgbCloseRun.create.mock.calls[0][0].data
+    mocks.prisma.hgbCloseRun.findMany.mockResolvedValue([stored])
+    expect((await getHgbCloseRuns('tenant-a', 2026)).ledgerFingerprint).toBe(result.ledgerFingerprint)
+    mocks.prisma.documentRecord.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.map(id => ({ id, payload: JSON.stringify({ evidence: id, ...(id === 'signature-1' ? { changed: true } : {}) }) })))
+    expect((await getHgbCloseRuns('tenant-a', 2026)).ledgerFingerprint).not.toBe(result.ledgerFingerprint)
+  })
+
+  test('makes a new authoritative profile cohort stale even when ledger entries are unchanged', () => {
     const input = { fiscalPeriod: period, profileVersion, mappings, entries: period.journalEntries }
     const changedProfile = { ...profileVersion, id: 'profile-2', effectiveFrom: new Date('2026-08-04T00:00:00Z'), payload: JSON.stringify({ ...JSON.parse(profileVersion.payload), registeredAddress: { streetAndHouseNumber: 'Test 1', zipCode: '10115', city: 'Berlin-Mitte', country: 'DE' } }) }
     expect(hgbCloseFingerprint({ ...input, profileVersion: changedProfile })).not.toBe(hgbCloseFingerprint(input))
   })
 
-  it('overwrites caller legal-form and period claims with authoritative records and persists a ready immutable run', async () => {
-    mocks.prisma.compliancePackage.findFirst.mockResolvedValue({ id: 'annual-1' })
+  test('Given unchanged current books, when comparative sources or recorded review timestamps change, then the close fingerprint is stale', () => {
+    const input = { fiscalPeriod: period, profileVersion, mappings, entries: period.journalEntries, comparative: { entry: 'prior', amount: 100 }, workpapers: reviewedWorkpapers() }
+    const initial = hgbCloseFingerprint(input)
+    expect(hgbCloseFingerprint({ ...input, comparative: { entry: 'prior', amount: 101 } })).not.toBe(initial)
+    expect(hgbCloseFingerprint({ ...input, workpapers: input.workpapers.map(item => ({ ...item, reviewedAt: new Date('2027-02-02') })) })).not.toBe(initial)
+  })
+
+  test('overwrites caller legal-form and period claims with authoritative records and persists a ready immutable run', async () => {
+    mocks.prisma.compliancePackage.findFirst.mockResolvedValue({ id: 'annual-1', payload: '{}' })
     const result = await evaluateAndPersistHgbClose('tenant-a', 'actor-a', 2026, readyRequest())
     expect(result.status).toBe('READY_TO_LOCK')
     const create = mocks.transaction.hgbCloseRun.create.mock.calls[0][0].data
@@ -113,7 +131,7 @@ describe('HGB close run repository', () => {
     expect(mocks.appendAuditEvent).toHaveBeenCalledWith(mocks.transaction, expect.objectContaining({ ownerId: 'tenant-a', actorId: 'actor-a', action: 'HGB_CLOSE_EVALUATED', objectType: 'HgbCloseRun' }))
   })
 
-  it('persists blocked evaluations when an annual package is outside the authoritative tenant or period', async () => {
+  test('persists blocked evaluations when an annual package is outside the authoritative tenant or period', async () => {
     mocks.prisma.compliancePackage.findFirst.mockResolvedValue(null)
     const result = await evaluateAndPersistHgbClose('tenant-a', 'actor-a', 2026, readyRequest())
     expect(result.status).toBe('BLOCKED')
@@ -121,9 +139,9 @@ describe('HGB close run repository', () => {
     expect(mocks.prisma.compliancePackage.findFirst).toHaveBeenCalledWith({ where: expect.objectContaining({ ownerId: 'tenant-a', fiscalPeriodId: 'fy-2026', status: 'APPROVED' }) })
   })
 
-  it('persists a blocked run when the reviewed equity workpaper contradicts the authoritative UG section 5a profile', async () => {
+  test('persists a blocked run when the reviewed equity workpaper contradicts the authoritative UG section 5a profile', async () => {
     mocks.prisma.companyProfileVersion.findFirst.mockResolvedValue({ ...profileVersion, payload: JSON.stringify({ legalForm: 'UG', chart: 'SKR03', registeredAddress: { country: 'DE' } }) })
-    mocks.prisma.compliancePackage.findFirst.mockResolvedValue({ id: 'annual-1' })
+    mocks.prisma.compliancePackage.findFirst.mockResolvedValue({ id: 'annual-1', payload: '{}' })
     mocks.prisma.hgbWorkpaperRecord.findMany.mockResolvedValue(reviewedWorkpapers().map(workpaper => workpaper.kind === 'SIZE_AND_APPLICABILITY'
       ? { ...workpaper, payload: JSON.stringify({ kind: workpaper.kind, conclusion: 'COMPLETE', evidenceIds: [`evidence-${workpaper.kind}`], schedule: { closeProfile: { ...requestProfile(), section5aApplies: true } } }) }
       : workpaper))
@@ -134,7 +152,7 @@ describe('HGB close run repository', () => {
     expect((result.payload as { readiness: { blockers: unknown[] } }).readiness.blockers).toContainEqual(expect.objectContaining({ code: 'SECTION_5A_APPLICABILITY_MISMATCH' }))
   })
 
-  it('tenant-scopes run history to the resolved authoritative fiscal period', async () => {
+  test('tenant-scopes run history to the resolved authoritative fiscal period', async () => {
     mocks.prisma.hgbCloseRun.findMany.mockResolvedValue([])
     mocks.prisma.compliancePackage.findMany.mockResolvedValue([{ id: 'annual-1', version: 2, checksum: 'a'.repeat(64), approvedAt: new Date('2027-01-15T11:00:00.000Z') }])
     const result = await getHgbCloseRuns('tenant-a', 2026)
@@ -144,8 +162,8 @@ describe('HGB close run repository', () => {
     expect(mocks.prisma.compliancePackage.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ownerId: 'tenant-a', fiscalPeriodId: 'fy-2026', kind: 'ANNUAL_ACCOUNTS', status: 'APPROVED' } }))
   })
 
-  it('recomputes the authoritative fingerprint inside the lock transaction and rejects stale runs', async () => {
-    mocks.prisma.compliancePackage.findFirst.mockResolvedValue({ id: 'annual-1', status: 'APPROVED' })
+  test('recomputes the authoritative fingerprint inside the lock transaction and rejects stale runs', async () => {
+    mocks.prisma.compliancePackage.findFirst.mockResolvedValue({ id: 'annual-1', status: 'APPROVED', payload: '{}' })
     const persisted = await evaluateAndPersistHgbClose('tenant-a', 'actor-a', 2026, readyRequest())
     mocks.transaction.hgbCloseRun.findFirst.mockResolvedValue({ ...persisted, payload: mocks.transaction.hgbCloseRun.create.mock.calls.at(-1)![0].data.payload })
     await expect(requireCurrentReadyHgbClose(mocks.transaction as never, 'tenant-a', { id: 'fy-2026', year: 2026 })).resolves.toMatchObject({ status: 'READY_TO_LOCK' })
@@ -153,8 +171,8 @@ describe('HGB close run repository', () => {
     await expect(requireCurrentReadyHgbClose(mocks.transaction as never, 'tenant-a', { id: 'fy-2026', year: 2026 })).rejects.toThrow(/stale/)
   })
 
-  it('retries a concurrent version reservation conflict without losing the immutable evaluation', async () => {
-    mocks.prisma.compliancePackage.findFirst.mockResolvedValue({ id: 'annual-1', status: 'APPROVED' })
+  test('retries a concurrent version reservation conflict without losing the immutable evaluation', async () => {
+    mocks.prisma.compliancePackage.findFirst.mockResolvedValue({ id: 'annual-1', status: 'APPROVED', payload: '{}' })
     mocks.prisma.$transaction.mockRejectedValueOnce({ code: 'P2002' })
     const result = await evaluateAndPersistHgbClose('tenant-a', 'actor-a', 2026, readyRequest())
     expect(result.status).toBe('READY_TO_LOCK')

@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { assertReviewIdentity, type HgbReviewPolicy } from './hgbReviewPolicy'
+import { validateUgResultAppropriation, type UgResultAppropriation } from './ugResultAppropriation'
 import { classifyHgbSize, HGB_RULE_SET_2024, HGB_WORKPAPER_KINDS, type HgbCloseProfile, type HgbWorkpaperKind } from './hgbClose'
 import { createHgbAssetValuation, createHgbInventorySchedule, createHgbInventoryValuation, createHgbSubledgerReconciliation, type HgbAssetValuationInput, type HgbInventoryValuationInput } from './compliance/hgbAssetInventoryValuation'
 
@@ -119,6 +121,7 @@ export interface GmbhEquityResultSchedule extends ScheduleBase {
   equityReconciled: boolean
   section5aReserveApplicable: boolean
   reserveCalculationEvidenceId?: string
+  resultAppropriation?: UgResultAppropriation
   evidenceId: string
   proposalIds: readonly string[]
 }
@@ -252,6 +255,16 @@ function validateSchedule(schedule: HgbTypedSchedule, period: { startsAt: string
       try { const rows = schedule.valuationInputs.map(createHgbInventoryValuation); const inventory = createHgbInventorySchedule(schedule.expectedItemIds, rows); const reconciliation = createHgbSubledgerReconciliation([], rows); if (!rows.length || !schedule.allItemsValued || !schedule.glReconciled || !inventory.complete || !inventory.reconciled || !reconciliation.canClose || JSON.stringify([...schedule.valuationResultIds].sort()) !== JSON.stringify(rows.map(row => row.itemId).sort())) issues.push('All inventory items must be valued by the registered engine and reconciled to the GL.'); const generatedRows = rows.flatMap(row => row.proposals); const generated = generatedRows.map(item => item.id).sort(); if (JSON.stringify([...schedule.proposalIds].sort()) !== JSON.stringify(generated)) issues.push('Inventory proposal IDs must exactly match the deterministic valuation results.'); generatedRows.forEach(exactValuationProposal) } catch (error) { issues.push(error instanceof Error ? error.message : 'Inventory valuation failed.') }
       uniqueNonempty(schedule.valuationResultIds, 'Inventory valuation results', issues); required(schedule.countSnapshotId, 'Inventory count snapshot', issues); required(schedule.reconciliationEvidenceId, 'Inventory reconciliation evidence', issues); for (const id of schedule.proposalIds) proposal(id, 'Inventory valuation result'); break
     case 'GMBH_EQUITY_RESULT':
+      if (schedule.section5aReserveApplicable) {
+        try {
+          validateUgResultAppropriation(schedule.resultCents, schedule.resultAppropriation!)
+          const value = schedule.resultAppropriation!
+          if (value.reserveAllocationCents > 0) {
+            exactValuationProposal({ id: value.reserveProposalId, amountCents: value.reserveAllocationCents, debitAccount: value.carryforwardAccountId, creditAccount: value.reserveAccountId, evidenceIds: [schedule.reserveCalculationEvidenceId!] })
+            if (!schedule.proposalIds.includes(value.reserveProposalId)) issues.push('The statutory reserve proposal must be included in the equity schedule.')
+          }
+        } catch (error) { issues.push((error as Error).message) }
+      }
       safeMoney(schedule.shareCapitalCents, 'Share capital', issues, true); safeMoney(schedule.resultCents, 'Result', issues); required(schedule.evidenceId, 'Equity evidence', issues); if (!schedule.equityReconciled) issues.push('GmbH equity and result must reconcile to the GL.'); if (schedule.section5aReserveApplicable) required(schedule.reserveCalculationEvidenceId, 'Section 5a reserve calculation evidence', issues); for (const id of schedule.proposalIds) proposal(id, 'Equity result'); break
     case 'MICRO_NOTES_OMISSION':
       required(schedule.evidenceId, 'Micro notes omission evidence', issues); if (!schedule.section268Paragraph7Disclosed || !schedule.managementLoansDisclosed || !schedule.additionalTrueAndFairDisclosureAssessed) issues.push('Every micro-entity notes-omission condition must be evidenced.'); break
@@ -280,8 +293,11 @@ export function validateHgbWorkpaper(input: HgbWorkpaperDraft, period: { startsA
   return { ...structuredClone(input), title: input.title.trim(), evidenceIds: [...input.evidenceIds].map(id => id.trim()).sort(), adjustments: normalizedAdjustments }
 }
 
-export function assertHgbReview(preparedBy: string, reviewerId: string, decision: 'APPROVE' | 'REJECT', reason?: string) {
-  if (!preparedBy.trim()) throw new TypeError('Preparer is required.'); if (!reviewerId.trim()) throw new TypeError('Reviewer is required.'); if (preparedBy === reviewerId) throw new TypeError('Reviewer must be distinct from preparer.'); if (decision === 'REJECT' && !reason?.trim()) throw new TypeError('A rejection reason is required.')
+export function assertHgbReview(preparedBy: string, reviewerId: string, decision: 'APPROVE' | 'REJECT', reason?: string, policy?: HgbReviewPolicy | null) {
+  const mode = assertReviewIdentity(preparedBy, reviewerId, policy)
+  if (decision === 'REJECT' && !reason?.trim()) throw new TypeError('A rejection reason is required.')
+  if (mode === 'OWNER_SELF_REVIEW' && !reason?.trim()) throw new TypeError('An explicit self-review reason is required.')
+  return mode
 }
 
 export const HGB_WORKPAPER_RULE_SET = HGB_RULE_SET_2024

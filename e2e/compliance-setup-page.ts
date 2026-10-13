@@ -27,14 +27,14 @@ export class ComplianceSetupPage {
     await this.fillSettled(section, 'Business activity', 'Software')
     await this.fillSettled(section, 'Authoritative chart', 'CUSTOM:HGB-MICRO')
     await this.fillSettled(section, 'Profile effective from', `${input.year - 1}-01-01`)
-    await this.fillSettled(section, 'Amtlicher Gemeindeschlüssel (8 Stellen)', '11000000')
-    await this.fillSettled(section, 'Gewerbesteuer-Hebesatz (%)', '410')
+    await this.fillSettled(section, 'Official municipality code (8 digits)', '11000000')
+    await this.fillSettled(section, 'Trade-tax multiplier (%)', '410')
     await this.fillSettled(section, 'Change reason', 'Verified company register and master data')
   }
 
   async createPeriod(year: number) {
     const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Fiscal periods' }) })
-    if (await section.locator('.history-list li').filter({ hasText: `${year}-01-01–${year}-12-31` }).count()) return
+    if (await section.locator('.history-list li').filter({ hasText: `Jan 1, ${year}–Dec 31, ${year}` }).count()) return
     await section.getByLabel('Reference year').fill(String(year))
     await section.getByLabel('Label').fill(`HGB ${year}`)
     await section.getByLabel('Starts').fill(`${year}-01-01`)
@@ -45,16 +45,17 @@ export class ComplianceSetupPage {
     await refreshed
     await this.waitReady()
     await expect(this.page.getByRole('status')).toContainText('fiscal period was created')
-    await expect(section.locator('.history-list')).toContainText(`${year}-01-01–${year}-12-31`)
+    await expect(section.locator('.history-list')).toContainText(`Jan 1, ${year}–Dec 31, ${year}`)
   }
 
-  async onboardHistoricalHgb(years: number[], evidenceId: string) {
+  async onboardHistoricalHgb(years: number[], evidenceId: string, ugEquity = false) {
     await this.waitReady()
     const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Chart and mapping lifecycle' }) })
     const mappings = [
       { accountNumber: 1200, name: 'Bank', accountType: 'ASSET', normalBalance: 'DEBIT', presentationSign: 1, hgbPosition: 'BS.A.B', eBilanzPosition: 'bs.ass.currAss.cashEquiv.bank', evidenceId },
       { accountNumber: 8400, name: 'Revenue', accountType: 'REVENUE', normalBalance: 'CREDIT', presentationSign: 1, hgbPosition: 'IS.M.1', eBilanzPosition: 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput', evidenceId },
     ]
+    if (ugEquity) for (const accountNumber of [2900, 2991, 2992]) mappings.push({ accountNumber, name: `Synthetic equity ${accountNumber}`, accountType: 'EQUITY', normalBalance: 'CREDIT', presentationSign: 1, hgbPosition: 'BS.P.A', eBilanzPosition: 'bs.eqLiab.equity', evidenceId })
     await section.getByLabel('Custom chart ID').fill('CUSTOM:HGB-MICRO')
     await section.getByLabel('Effective account mappings (JSON)').fill(JSON.stringify(mappings, null, 2))
     const historical = section.locator('fieldset').filter({ hasText: 'Evidence-qualified historical HGB onboarding' })
@@ -73,11 +74,11 @@ export class ComplianceSetupPage {
     const details = section.locator('details')
     await details.locator('summary').click()
     const mappings = JSON.parse((await details.locator('pre').textContent()) || '[]') as Array<{ id: string }>
-    return mappings.filter(item => String((item as { effectiveFrom?: string }).effectiveFrom ?? '').startsWith(String(year))).map(item => item.id)
+    return mappings.filter(item => String((item as { effectiveFrom?: string }).effectiveFrom ?? '').includes(String(year))).map(item => item.id)
   }
 
   async configureReviewPolicy(ownerId: string, reviewerId: string) {
-    const section = this.page.locator('fieldset').filter({ hasText: 'Jurisdiction, reviewers and recovery policy' })
+    const section = this.page.locator('fieldset').filter({ hasText: 'Storage jurisdiction and recovery policy' })
     await section.getByLabel('Operator user IDs').fill(`${ownerId}, ${reviewerId}`)
     await section.getByLabel('Allowed storage regions').fill('DE')
     await section.getByLabel('Recovery point objective (minutes)').fill('60')
@@ -92,9 +93,10 @@ export class ComplianceSetupPage {
     const section = this.page.locator('fieldset').filter({ hasText: 'Prepare annual-accounts package' })
     await section.getByLabel('Fiscal period').selectOption(periodId)
     await section.getByLabel('Preparation reason').fill('Generate reviewed HGB annual accounts')
-    const created = this.page.waitForResponse(response => response.url().endsWith('/api/compliance') && response.request().method() === 'POST' && response.ok())
+    const created = this.page.waitForResponse(response => response.url().endsWith('/api/compliance') && response.request().method() === 'POST')
     await section.getByRole('button', { name: 'Prepare annual accounts' }).click()
-    const body = await (await created).json()
+    const response = await created; const body = await response.json()
+    expect(response.ok(), JSON.stringify(body)).toBe(true)
     await expect(this.page.getByRole('status')).toContainText('annual-accounts package was prepared')
     const packageId = (body.data ?? body).id as string
     await expect(this.page.getByLabel('Prepared annual-accounts package').locator(`option[value="${packageId}"]`)).toHaveCount(1)
@@ -102,11 +104,11 @@ export class ComplianceSetupPage {
   }
 
   async approveAnnualAccounts(packageId: string) {
-    const section = this.page.locator('fieldset').filter({ hasText: 'Independent annual-accounts approval' })
+    const section = this.page.locator('fieldset').filter({ hasText: 'Annual-accounts approval' })
     await section.getByLabel('Prepared annual-accounts package').selectOption(packageId)
-    await section.getByLabel('Approval reason').fill('Independent annual accounts approval')
-    await section.getByRole('button', { name: 'Approve annual accounts independently' }).click()
-    await expect(this.page.getByRole('status')).toContainText('annual-accounts package was independently approved')
+    await section.getByLabel('Approval reason').fill('Annual accounts personally checked under the recorded review policy')
+    await section.getByRole('button', { name: 'Approve annual accounts under review policy' }).click()
+    await expect(this.page.getByRole('status')).toContainText('annual-accounts package was approved under the recorded review policy')
   }
 
   async saveAuthoritativeCityChange(input: { city: string; effectiveFrom: string }) {
@@ -145,7 +147,7 @@ export class ComplianceSetupPage {
   private async waitReady() { const workspace = this.page.locator('.compliance-workspace'); await expect(workspace).toHaveAttribute('aria-busy', 'false'); await expect(workspace).toHaveAttribute('data-compliance-ready', 'true') }
 
   async visiblePeriodId(year: number) {
-    const item = this.page.locator('.history-list li').filter({ hasText: `${year}-01-01–${year}-12-31` })
+    const item = this.page.locator('.history-list li').filter({ hasText: `Jan 1, ${year}–Dec 31, ${year}` })
     return (await item.locator('code').textContent())!.trim()
   }
 

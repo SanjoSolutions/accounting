@@ -11,6 +11,7 @@ const modes = {
   standard: { defaultDatabase: 'playwright.db', port: '3100' },
   'local-solo': { defaultDatabase: 'playwright.db', port: '3110' },
   roles: { defaultDatabase: 'roles-playwright.db', port: '3120' },
+  'ug-close': { defaultDatabase: 'ug-close-playwright.db', port: '3110' },
 }
 const selected = modes[mode]
 if (!selected) throw new Error(`Unknown E2E mode: ${mode}`)

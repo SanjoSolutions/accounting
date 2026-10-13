@@ -79,8 +79,8 @@ describe('complete mutation-boundary authorization policy', () => {
     }
   })
 
-  it('Given the role model, when policy values are reviewed, then only access membership administration is admin-only', () => {
-    expect(Object.entries(apiMutationBoundaryPolicy).filter(([, policy]) => policy === 'manage_access').map(([key]) => key)).toEqual(['/api/access#POST'])
+  it('Given the role model, when policy values are reviewed, then membership and owner review policy administration are admin-only', () => {
+    expect(Object.entries(apiMutationBoundaryPolicy).filter(([, policy]) => policy === 'manage_access').map(([key]) => key)).toEqual(['/api/access#POST', '/api/fiscal-years/[year]/hgb-close/review-policy#PUT'])
   })
 
   it('Given separate active-tenant and human identities, when mutation route sources are reviewed, then no route reuses the tenant ID as its audit actor argument', () => {

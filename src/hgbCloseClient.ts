@@ -1,5 +1,6 @@
 import type { HgbCloseReadinessInput, HgbWorkpaperKind } from './core/hgbClose'
 import type { HgbWorkpaperDraft, HgbWorkpaperStatus } from './core/hgbWorkpapers'
+import type { HgbReviewPolicy, HgbReviewPolicyChoice } from './core/hgbReviewPolicy'
 
 export interface HgbWorkpaperRecordView {
   id: string
@@ -11,10 +12,18 @@ export interface HgbWorkpaperRecordView {
   preparedBy?: string | null
   reviewedBy?: string | null
   reviewReason?: string | null
+  reviewedAt?: string | null
+  preparedAt?: string | null
+  reviewMode?: string
+  reviewPolicyId?: string | null
   adjustments: Array<{ id: string; proposalId: string; status: string; postedEntryId?: string | null }>
 }
 
 export interface HgbWorkpaperCollection {
+  reviewPolicy?: HgbReviewPolicy | null
+  reviewPolicyValid?: boolean
+  canSelectReviewPolicy?: boolean
+  currentActorId?: string
   fiscalPeriod: { id: string; year: number; startsAt: string; endsAt: string; status: string }
   workpapers: HgbWorkpaperRecordView[]
 }
@@ -35,11 +44,12 @@ export interface HgbCloseOverview {
 }
 
 export interface HgbCloseApi {
+  selectReviewPolicy(year: number, policy: HgbReviewPolicyChoice, expectedPolicyId: string | null, tenantId?: string): Promise<void>
   loadOverview(year: number, signal?: AbortSignal, tenantId?: string): Promise<HgbCloseOverview>
   loadWorkpapers(year: number, signal?: AbortSignal, tenantId?: string): Promise<HgbWorkpaperCollection>
   saveWorkpaper(year: number, draft: HgbWorkpaperDraft, expectedChecksum?: string, tenantId?: string): Promise<HgbWorkpaperRecordView>
   prepareWorkpaper(year: number, record: HgbWorkpaperRecordView, tenantId?: string): Promise<void>
-  reviewWorkpaper(year: number, record: HgbWorkpaperRecordView, decision: 'APPROVE' | 'REJECT', reason?: string, tenantId?: string): Promise<void>
+  reviewWorkpaper(year: number, record: HgbWorkpaperRecordView, decision: 'APPROVE' | 'REJECT', reason?: string, tenantId?: string, expectedPolicyId?: string | null): Promise<void>
   postAdjustment(year: number, record: HgbWorkpaperRecordView, proposalId: string, tenantId?: string): Promise<void>
   evaluate(year: number, input: Omit<HgbCloseReadinessInput, 'profile' | 'workpapers'> & { reason: string }, tenantId?: string): Promise<void>
 }
@@ -52,11 +62,12 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const browserHgbCloseApi: HgbCloseApi = {
+  selectReviewPolicy: async (year, policy, expectedPolicyId, tenantId) => { await request(`/api/fiscal-years/${year}/hgb-close/review-policy`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ policy, expectedPolicyId, tenantId }) }) },
   loadOverview: (year, signal, tenantId) => request(`/api/fiscal-years/${year}/hgb-close${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`, { signal }),
   loadWorkpapers: (year, signal, tenantId) => request(`/api/fiscal-years/${year}/hgb-close/workpapers${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`, { signal }),
   saveWorkpaper: (year, workpaper, expectedChecksum, tenantId) => request(`/api/fiscal-years/${year}/hgb-close/workpapers`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ workpaper, expectedChecksum, tenantId }) }),
   prepareWorkpaper: async (year, record, tenantId) => { await request(`/api/fiscal-years/${year}/hgb-close/workpapers/${record.id}/prepare`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expectedChecksum: record.checksum, tenantId }) }) },
-  reviewWorkpaper: async (year, record, decision, reason, tenantId) => { await request(`/api/fiscal-years/${year}/hgb-close/workpapers/${record.id}/review`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ decision, reason, tenantId }) }) },
+  reviewWorkpaper: async (year, record, decision, reason, tenantId, expectedPolicyId = null) => { await request(`/api/fiscal-years/${year}/hgb-close/workpapers/${record.id}/review`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ decision, reason, tenantId, expectedChecksum: record.checksum, expectedPolicyId }) }) },
   postAdjustment: async (year, record, proposalId, tenantId) => { await request(`/api/fiscal-years/${year}/hgb-close/workpapers/${record.id}/adjustments/${encodeURIComponent(proposalId)}/post`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), tenantId }) }) },
   evaluate: async (year, input, tenantId) => { await request(`/api/fiscal-years/${year}/hgb-close`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...input, tenantId }) }) },
 }

@@ -1,7 +1,8 @@
 "use client"
 
+import { HgbReviewPolicyPanel } from './HgbReviewPolicyPanel'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import type { HgbCloseProfile, HgbWorkpaperKind } from './core/hgbClose'
 import type { HgbWorkpaperDraft, HgbTypedSchedule } from './core/hgbWorkpapers'
 import { browserHgbCloseApi, latestRunBlockers, operationStillCurrent, type HgbCloseApi, type HgbCloseOverview, type HgbWorkpaperCollection, type HgbWorkpaperRecordView } from './hgbCloseClient'
@@ -25,6 +26,15 @@ export function profileIsExplicit(profile: ProfileDraft): boolean {
   return (profile.legalForm === 'GMBH' || profile.legalForm === 'UG') && profile.groupStatus !== 'UNKNOWN' && Boolean(profile.priorEstablishedSize) && flags.every(value => typeof value === 'boolean')
 }
 
+export function savedHgbProfile(collection: HgbWorkpaperCollection): HgbCloseProfile | undefined {
+  const schedule = collection.workpapers.find(item => item.kind === 'SIZE_AND_APPLICABILITY')?.payload.schedule
+  return schedule?.type === 'SIZE_APPLICABILITY' ? structuredClone(schedule.closeProfile) : undefined
+}
+
+export function reloadedHgbDraft(current: HgbWorkpaperDraft, collection: HgbWorkpaperCollection): HgbWorkpaperDraft {
+  return structuredClone(collection.workpapers.find(item => item.kind === current.kind)?.payload ?? current)
+}
+
 function scheduleFor(kind: HgbWorkpaperKind, year = new Date().getFullYear()): HgbTypedSchedule {
   const base = { applicability: 'APPLICABLE' as const, rationale: '' }
   switch (kind) {
@@ -40,7 +50,7 @@ function scheduleFor(kind: HgbWorkpaperKind, year = new Date().getFullYear()): H
     case 'GOING_CONCERN': return { ...base, type: 'GOING_CONCERN', assessmentThrough: '', forecastEvidenceId: '', goingConcernAppropriate: false, materialUncertainty: false }
     case 'POLICY_ELECTIONS': return { ...base, type: 'POLICY_ELECTIONS', elections: [] }
     case 'NOTES': return { ...base, type: 'NOTES_QUESTIONNAIRE', notesRequired: true, questions: [] }
-    case 'GMBH_EQUITY_AND_RESULT': return { ...base, type: 'GMBH_EQUITY_RESULT', shareCapitalCents: 0, resultCents: 0, equityReconciled: false, section5aReserveApplicable: false, evidenceId: '', proposalIds: [] }
+    case 'GMBH_EQUITY_AND_RESULT': return { ...base, type: 'GMBH_EQUITY_RESULT', shareCapitalCents: 0, resultCents: 0, equityReconciled: false, section5aReserveApplicable: false, reserveCalculationEvidenceId: '', resultAppropriation: { priorLossCarryforwardCents: 0, priorProfitCarryforwardCents: 0, priorStatutoryReserveCents: 0, reserveAllocationCents: 0, distributionCents: 0, carryforwardCents: 0, priorCarryforwardEvidenceId: '', resolutionEvidenceId: '', capitalAccountId: '', carryforwardAccountId: '', reserveAccountId: '', reserveProposalId: '' }, evidenceId: '', proposalIds: [] }
     case 'MICRO_NOTES_OMISSION': return { ...base, type: 'MICRO_NOTES_OMISSION', section268Paragraph7Disclosed: false, managementLoansDisclosed: false, additionalTrueAndFairDisclosureAssessed: false, evidenceId: '' }
     case 'SIZE_AND_APPLICABILITY': return { ...base, type: 'SIZE_APPLICABILITY', legalForm: 'GMBH', establishedSize: 'SMALL', currentFactsEvidenceId: '', priorFactsEvidenceId: '', standaloneNoExemption: false, nonPieUnlistedUnregulated: false, closeProfile: initialHgbProfile(year) as HgbCloseProfile }
   }
@@ -74,7 +84,7 @@ const enumOptions: Record<string, string[]> = { applicability: ['APPLICABLE', 'N
 
 function StructuredFields({ value, onChange, context = 'root' }: { value: Record<string, unknown>; onChange: (next: Record<string, unknown>) => void; context?: string }) {
   const t = useTranslations('HgbCloseWorkbench')
-  return <div className="hgb-fields">{Object.entries(value).filter(([key]) => key !== 'kind' && !(key === 'type' && context.endsWith('schedule'))).map(([key, field]) => {
+  return <div className="hgb-fields">{Object.entries(value).filter(([key]) => !['kind', 'fingerprint', 'closeProfile'].includes(key) && !(key === 'type' && context.endsWith('schedule'))).map(([key, field]) => {
     const set = (next: unknown) => onChange({ ...value, [key]: next })
     const label = t(`fields.${key}`)
     if (typeof field === 'boolean') return <label className="form-check" data-field-key={key} key={key}><input className="form-check-input" type="checkbox" checked={field} onChange={event => set(event.target.checked)} /><span>{label}</span></label>
@@ -83,9 +93,9 @@ function StructuredFields({ value, onChange, context = 'root' }: { value: Record
       if (!field.length || field.every(item => typeof item === 'string')) {
         const template = structuredItemTemplate(key, String(value.type ?? context))
         if (!template) return <label key={key}>{label}<input className="form-control" value={(field as string[]).join(', ')} onChange={event => set(event.target.value.split(',').map(item => item.trim()).filter(Boolean))} placeholder={t('actions.idsPlaceholder')} /></label>
-        return <fieldset key={key}><legend>{label}</legend>{field.map((item, index) => <div className="card panel" key={index}><StructuredFields value={item as Record<string, unknown>} onChange={next => set(field.map((old, i) => i === index ? next : old))} context="root" /><button type="button" className="btn btn-outline-secondary" onClick={() => set(field.filter((_, i) => i !== index))}>{t('actions.removeRow')}</button></div>)}<button type="button" className="btn btn-outline-secondary" onClick={() => set([...field, structuredClone(template)])}>{t('actions.addRow')}</button></fieldset>
+        return <fieldset key={key}><legend>{label}</legend>{field.map((item, index) => <div className="card panel" key={index}><StructuredFields value={item as Record<string, unknown>} onChange={next => set(field.map((old, i) => i === index ? next : old))} context="root" /><button type="button" className="btn btn-outline-secondary" aria-label={t('actions.removeRowNamed', { label, number: index + 1 })} onClick={() => set(field.filter((_, i) => i !== index))}>{t('actions.removeRow')}</button></div>)}<button type="button" className="btn btn-outline-secondary" aria-label={t('actions.addRowNamed', { label })} onClick={() => set([...field, structuredClone(template)])}>{t('actions.addRow')}</button></fieldset>
       }
-      return <fieldset key={key}><legend>{label}</legend>{field.map((item, index) => <div className="card panel" key={index}><StructuredFields value={item as Record<string, unknown>} onChange={next => set(field.map((old, i) => i === index ? next : old))} context="root" /><button type="button" className="btn btn-outline-secondary" onClick={() => set(field.filter((_, i) => i !== index))}>{t('actions.removeRow')}</button></div>)}<button type="button" className="btn btn-outline-secondary" onClick={() => set([...field, structuredClone(structuredItemTemplate(key, String(value.type ?? context)) ?? {})])}>{t('actions.addRow')}</button></fieldset>
+      return <fieldset key={key}><legend>{label}</legend>{field.map((item, index) => <div className="card panel" key={index}><StructuredFields value={item as Record<string, unknown>} onChange={next => set(field.map((old, i) => i === index ? next : old))} context="root" /><button type="button" className="btn btn-outline-secondary" aria-label={t('actions.removeRowNamed', { label, number: index + 1 })} onClick={() => set(field.filter((_, i) => i !== index))}>{t('actions.removeRow')}</button></div>)}<button type="button" className="btn btn-outline-secondary" aria-label={t('actions.addRowNamed', { label })} onClick={() => set([...field, structuredClone(structuredItemTemplate(key, String(value.type ?? context)) ?? {})])}>{t('actions.addRow')}</button></fieldset>
     }
     if (field && typeof field === 'object') return <fieldset data-field-key={key} key={key}><legend>{label}</legend><StructuredFields value={field as Record<string, unknown>} onChange={set} context={key} /></fieldset>
     const options = enumOptions[key]
@@ -122,8 +132,8 @@ export function HgbCloseWorkbench({ year, tenantId, api = browserHgbCloseApi, on
   const [overview, setOverview] = useState<HgbCloseOverview>()
   const [collection, setCollection] = useState<HgbWorkpaperCollection>()
   const [profile, setProfile] = useState<ProfileDraft>(() => initialHgbProfile(year))
-  const [selectedKind, setSelectedKind] = useState<HgbWorkpaperKind>('SIZE_AND_APPLICABILITY')
   const [draft, setDraft] = useState<HgbWorkpaperDraft>(() => newHgbWorkpaper('SIZE_AND_APPLICABILITY', year, workpaperTitle('SIZE_AND_APPLICABILITY')))
+  const selectedKind = draft.kind
   const [reason, setReason] = useState('')
   const [annualPackageId, setAnnualPackageId] = useState('')
   const [representatives, setRepresentatives] = useState(''); const [signatureEvidence, setSignatureEvidence] = useState(''); const [signedAt, setSignedAt] = useState(''); const [resolutionId, setResolutionId] = useState('')
@@ -133,21 +143,24 @@ export function HgbCloseWorkbench({ year, tenantId, api = browserHgbCloseApi, on
     const requestedYear = year; const generation = ++generationRef.current
     try {
       const [nextOverview, nextCollection] = await Promise.all([api.loadOverview(year, signal, tenantId), api.loadWorkpapers(year, signal, tenantId)])
-      if (operationStillCurrent(requestedYear, yearRef.current, generation, generationRef.current) && !signal?.aborted) { setOverview(nextOverview); setCollection(nextCollection); setAnnualPackageId(current => nextOverview.approvedAnnualPackages.some(item => item.id === current) ? current : nextOverview.approvedAnnualPackages[0]?.id ?? ''); setError('') }
+      if (operationStillCurrent(requestedYear, yearRef.current, generation, generationRef.current) && !signal?.aborted) { setOverview(nextOverview); setCollection(nextCollection); setDraft(current => reloadedHgbDraft(current, nextCollection)); const savedProfile = savedHgbProfile(nextCollection); if (savedProfile) setProfile(savedProfile); setAnnualPackageId(current => nextOverview.approvedAnnualPackages.some(item => item.id === current) ? current : nextOverview.approvedAnnualPackages[0]?.id ?? ''); setError('') }
     } catch (caught) { if ((caught as { name?: string }).name !== 'AbortError' && operationStillCurrent(requestedYear, yearRef.current, generation, generationRef.current)) setError((caught as Error).message) }
   }, [api, tenantId, year])
-  useEffect(() => { yearRef.current = year; generationRef.current++; setOverview(undefined); setCollection(undefined); setProfile(initialHgbProfile(year)); setDraft(newHgbWorkpaper('SIZE_AND_APPLICABILITY', year, workpaperTitle('SIZE_AND_APPLICABILITY'))); const controller = new AbortController(); void load(controller.signal); return () => controller.abort() }, [load, t, year])
+  // Reset only when the tenant/year/API changes. A refreshed translation function
+  // must not replace the selected workpaper after a successful mutation.
+  useEffect(() => { yearRef.current = year; generationRef.current++; setOverview(undefined); setCollection(undefined); setProfile(initialHgbProfile(year)); setDraft(newHgbWorkpaper('SIZE_AND_APPLICABILITY', year, workpaperTitle('SIZE_AND_APPLICABILITY'))); const controller = new AbortController(); void load(controller.signal); return () => controller.abort() }, [load, year])
   const selected = collection?.workpapers.find(item => item.kind === selectedKind)
-  function choose(kind: HgbWorkpaperKind) { setSelectedKind(kind); setDraft(structuredClone(collection?.workpapers.find(item => item.kind === kind)?.payload ?? newHgbWorkpaper(kind, year, workpaperTitle(kind)))); setError('') }
+  function choose(kind: HgbWorkpaperKind) { setDraft(structuredClone(collection?.workpapers.find(item => item.kind === kind)?.payload ?? newHgbWorkpaper(kind, year, workpaperTitle(kind)))); setError('') }
   async function perform(action: () => Promise<void>) { const requestedYear = year; const generation = ++generationRef.current; setBusy(true); setError(''); try { await action(); if (requestedYear === yearRef.current) { await load(); onChanged?.() } } catch (caught) { if (operationStillCurrent(requestedYear, yearRef.current, generation, generationRef.current)) setError((caught as Error).message) } finally { if (requestedYear === yearRef.current) setBusy(false) } }
   const latest = overview?.runs?.[0]
   const blockers = latestRunBlockers(latest)
   const statusLabel = latest ? t(`status.${latest.status}`) : t('status.NOT_EVALUATED')
-  return <section className="card panel hgb-workbench" aria-labelledby="hgb-workbench-title">
+  return <section className="card panel hgb-workbench" aria-labelledby="hgb-workbench-title" aria-busy={busy || !collection}>
     <div className="panel-title"><div><span className="step">{t('step')}</span><h2 id="hgb-workbench-title">{t('title')}</h2></div><span className={`status ${latest?.status === 'READY_TO_LOCK' ? 'closed' : 'open'}`}>{statusLabel}</span></div>
     <p>{t('intro')}</p>
     {error && <p className="alert alert-danger" role="alert">{error}</p>}
     {blockers.length ? <div className="alert alert-warning"><strong>{t('blockersTitle')}</strong><ul>{blockers.map(blocker => <li key={`${blocker.code}-${blocker.message}`}>{blocker.message} <small>({blocker.authority})</small></li>)}</ul></div> : null}
+    <HgbReviewPolicyPanel key={`${year}:${tenantId ?? ''}:${collection?.reviewPolicy?.id ?? 'default'}`} year={year} tenantId={tenantId} collection={collection} api={api} busy={busy} perform={perform} />
     <details><summary><strong>{t('sections.profile')}</strong></summary><div className="hgb-fields mt-3">
       <label>{t('profile.legalForm')}<select className="form-select" value={profile.legalForm} onChange={e => setProfile({ ...profile, legalForm: e.target.value })}><option value="">{t('profile.notAnswered')}</option><option value="GMBH">{t('enum.GMBH')}</option><option value="UG">{t('enum.UG')}</option></select></label>
       <label>{t('profile.groupStatus')}<select className="form-select" value={profile.groupStatus} onChange={e => setProfile({ ...profile, groupStatus: e.target.value as ProfileDraft['groupStatus'] })}>{['UNKNOWN', 'STANDALONE_NO_EXEMPTION', 'PARENT', 'SUBSIDIARY', 'CONSOLIDATED', 'SECTION_264_3_EXEMPTION'].map(option => <option key={option} value={option}>{t(`enum.${option}`)}</option>)}</select></label>
@@ -163,10 +176,10 @@ export function HgbCloseWorkbench({ year, tenantId, api = browserHgbCloseApi, on
     </div></details>
     <details open><summary><strong>{t('sections.workpapers')}</strong></summary><div className="mt-3"><label>{t('fields.kind')}<select className="form-select" value={selectedKind} onChange={e => choose(e.target.value as HgbWorkpaperKind)}>{kinds.map(kind => { const record = collection?.workpapers.find(item => item.kind === kind); return <option key={kind} value={kind}>{workpaperTitle(kind)} · {record ? t(`status.${record.status}`) : t('status.MISSING')}</option> })}</select></label>
       <StructuredFields value={draft as unknown as Record<string, unknown>} onChange={next => setDraft(next as unknown as HgbWorkpaperDraft)} />
-      <div className="action-stack"><button className="btn btn-primary" disabled={busy || collection?.fiscalPeriod.status !== 'OPEN' || selectedKind === 'SIZE_AND_APPLICABILITY' && !profileIsExplicit(profile)} onClick={() => perform(async () => { const candidate = selectedKind === 'SIZE_AND_APPLICABILITY' ? { ...draft, schedule: { ...draft.schedule, closeProfile: profile as HgbCloseProfile } } as HgbWorkpaperDraft : draft; await api.saveWorkpaper(year, candidate, selected?.status === 'DRAFT' ? selected.checksum : undefined, tenantId) })}>{t('actions.saveDraft')}</button>{selected && <WorkpaperActions year={year} tenantId={tenantId} record={selected} busy={busy} perform={perform} api={api} />}</div>
+      <div className="action-stack"><button className="btn btn-primary" disabled={busy || collection?.fiscalPeriod.status !== 'OPEN' || selectedKind === 'SIZE_AND_APPLICABILITY' && !profileIsExplicit(profile)} onClick={() => perform(async () => { const candidate = selectedKind === 'SIZE_AND_APPLICABILITY' ? { ...draft, schedule: { ...draft.schedule, closeProfile: profile as HgbCloseProfile } } as HgbWorkpaperDraft : draft; await api.saveWorkpaper(year, candidate, selected?.status === 'DRAFT' ? selected.checksum : undefined, tenantId) })}>{t('actions.saveDraft')}</button>{selected && <WorkpaperActions year={year} tenantId={tenantId} key={selected.id} record={selected} collection={collection} busy={busy} perform={perform} api={api} />}</div>
     </div></details>
-    <details><summary><strong>{t('sections.approval')}</strong></summary><div className="hgb-fields mt-3"><label>{t('approval.annualAccounts')}<select className="form-select" value={annualPackageId} onChange={e => setAnnualPackageId(e.target.value)}><option value="">{t('approval.notSelected')}</option>{overview?.approvedAnnualPackages.map(item => <option key={item.id} value={item.id}>{t('approval.version', { version: item.version })} · {item.id}</option>)}</select></label><label>{t('approval.representatives')}<input className="form-control" value={representatives} onChange={e => setRepresentatives(e.target.value)} placeholder={t('approval.representativesPlaceholder')} /></label><label>{t('approval.signatureEvidence')}<input className="form-control" value={signatureEvidence} onChange={e => setSignatureEvidence(e.target.value)} placeholder={t('approval.evidencePlaceholder')} /></label><label>{t('approval.signedAt')}<input className="form-control" type="datetime-local" value={signedAt} onChange={e => setSignedAt(e.target.value)} /></label><label>{t('approval.shareholderResolution')}<input className="form-control" value={resolutionId} onChange={e => setResolutionId(e.target.value)} /></label><label>{t('approval.reason')}<input className="form-control" value={reason} onChange={e => setReason(e.target.value)} /></label>
-      <button className="btn btn-primary" disabled={busy || !reason.trim() || !annualPackageId} onClick={() => { const annualPackage = overview?.approvedAnnualPackages.find(item => item.id === annualPackageId); return perform(() => api.evaluate(year, evaluationInput(representatives, signatureEvidence, signedAt, resolutionId, reason, annualPackage), tenantId)) }}>{t('approval.evaluate')}</button></div></details>
+    <details><summary><strong>{t('sections.approval')}</strong></summary><div className="hgb-fields mt-3"><label>{t('approval.annualAccounts')}<select className="form-select" value={annualPackageId} onChange={e => setAnnualPackageId(e.target.value)}><option value="">{t('approval.notSelected')}</option>{overview?.approvedAnnualPackages.map(item => <option key={item.id} value={item.id}>{t('approval.version', { version: item.version })} · {item.id}</option>)}</select></label><label>{t('approval.representatives')}<input className="form-control" value={collection?.reviewPolicy?.mode === 'OWNER_SELF_REVIEW' ? collection.reviewPolicy.ownerId : representatives} readOnly={collection?.reviewPolicy?.mode === 'OWNER_SELF_REVIEW'} onChange={e => setRepresentatives(e.target.value)} placeholder={t('approval.representativesPlaceholder')} /></label><label>{t('approval.signatureEvidence')}<input className="form-control" value={signatureEvidence} onChange={e => setSignatureEvidence(e.target.value)} placeholder={t('approval.evidencePlaceholder')} /></label><label>{t('approval.signedAt')}<input className="form-control" type="datetime-local" value={signedAt} onChange={e => setSignedAt(e.target.value)} /></label><label>{t('approval.shareholderResolution')}<input className="form-control" value={resolutionId} onChange={e => setResolutionId(e.target.value)} /></label><label>{t('approval.reason')}<input className="form-control" value={reason} onChange={e => setReason(e.target.value)} /></label>
+      <button className="btn btn-primary" disabled={busy || !reason.trim() || !annualPackageId} onClick={() => { const annualPackage = overview?.approvedAnnualPackages.find(item => item.id === annualPackageId); return perform(() => api.evaluate(year, evaluationInput(collection?.reviewPolicy?.mode === 'OWNER_SELF_REVIEW' ? collection.reviewPolicy.ownerId : representatives, signatureEvidence, signedAt, resolutionId, reason, annualPackage), tenantId)) }}>{t('approval.evaluate')}</button></div></details>
   </section>
 }
 
@@ -176,12 +189,18 @@ function SizeFacts({ title, value, onChange }: { title: string; value: HgbCloseP
   return <fieldset><legend>{title}</legend><label>{t('fields.balanceSheetTotalCents')}<input className="form-control" type="number" value={value.balanceSheetTotalCents} onChange={e => onChange({ ...value, balanceSheetTotalCents: Number(e.target.value) })} /></label><label>{t('fields.revenueCents')}<input className="form-control" type="number" value={value.revenueCents} onChange={e => onChange({ ...value, revenueCents: Number(e.target.value) })} /></label>{employees.map((count, index) => <label key={index}>{t('fields.quarterlyEmployees', { quarter: index + 1 })}<input className="form-control" type="number" value={count} onChange={e => { const next = [...employees] as typeof employees; next[index] = Number(e.target.value); onChange({ ...value, quarterlyEmployeeCounts: next }) }} /></label>)}<label className="form-check"><input className="form-check-input" type="checkbox" checked={value.microExcludedBySection267a} onChange={e => onChange({ ...value, microExcludedBySection267a: e.target.checked })} />{t('fields.microExcludedBySection267a')}</label></fieldset>
 }
 
-function WorkpaperActions({ year, tenantId, record, busy, perform, api }: { year: number; tenantId?: string; record: HgbWorkpaperRecordView; busy: boolean; perform: (action: () => Promise<void>) => Promise<void>; api: HgbCloseApi }) {
+function WorkpaperActions({ year, tenantId, record, collection, busy, perform, api }: { year: number; tenantId?: string; record: HgbWorkpaperRecordView; collection?: HgbWorkpaperCollection; busy: boolean; perform: (action: () => Promise<void>) => Promise<void>; api: HgbCloseApi }) {
+  const locale = useLocale()
   const t = useTranslations('HgbCloseWorkbench')
+  const policyText = useTranslations('HgbReviewPolicy')
   const [reviewReason, setReviewReason] = useState('')
+  const selfReview = record.preparedBy === collection?.currentActorId
+  const policyId = collection?.reviewPolicy?.id ?? null
+  const stale = (record.reviewPolicyId ?? null) !== policyId
   const buttons: ReactNode[] = []
+  if (record.reviewedBy) buttons.push(<p key="review" className="alert alert-secondary text-break">{record.reviewMode === 'OWNER_SELF_REVIEW' ? policyText('self') : policyText('independent')} · {record.reviewedBy} · {record.reviewedAt && new Date(record.reviewedAt).toLocaleString(locale)}<br />{record.reviewReason}{stale && <strong> · {policyText('reviewStale')}</strong>}</p>)
   if (record.status === 'DRAFT' || record.status === 'REJECTED') buttons.push(<button key="prepare" className="btn btn-outline-secondary" disabled={busy} onClick={() => perform(() => api.prepareWorkpaper(year, record, tenantId))}>{t('actions.markPrepared')}</button>)
-  if (record.status === 'PREPARED') buttons.push(<label key="reason">{t('actions.reviewReason')}<input className="form-control" value={reviewReason} onChange={e => setReviewReason(e.target.value)} /></label>, <button key="approve" className="btn btn-outline-secondary" disabled={busy} onClick={() => perform(() => api.reviewWorkpaper(year, record, 'APPROVE', reviewReason, tenantId))}>{t('actions.approve')}</button>, <button key="reject" className="btn btn-outline-secondary" disabled={busy || !reviewReason.trim()} onClick={() => perform(() => api.reviewWorkpaper(year, record, 'REJECT', reviewReason, tenantId))}>{t('actions.reject')}</button>)
+  if (record.status === 'PREPARED') buttons.push(<label key="reason">{t('actions.reviewReason')}<input className="form-control" value={reviewReason} onChange={e => setReviewReason(e.target.value)} /></label>, <button key="approve" className="btn btn-outline-secondary" disabled={busy || !reviewReason.trim() || collection?.reviewPolicyValid === false || selfReview && collection?.reviewPolicy?.mode !== 'OWNER_SELF_REVIEW'} onClick={() => perform(() => api.reviewWorkpaper(year, record, 'APPROVE', reviewReason, tenantId, policyId))}>{selfReview ? policyText('approveSelf') : t('actions.approve')}</button>, <button key="reject" className="btn btn-outline-secondary" disabled={busy || !reviewReason.trim()} onClick={() => perform(() => api.reviewWorkpaper(year, record, 'REJECT', reviewReason, tenantId, policyId))}>{t('actions.reject')}</button>)
   if (record.status === 'REVIEWED') for (const adjustment of record.adjustments.filter(item => item.status !== 'POSTED')) buttons.push(<button key={adjustment.proposalId} className="btn btn-outline-secondary" disabled={busy} onClick={() => perform(() => api.postAdjustment(year, record, adjustment.proposalId, tenantId))}>{t('actions.postAdjustment', { id: adjustment.proposalId })}</button>)
   return <>{buttons}</>
 }

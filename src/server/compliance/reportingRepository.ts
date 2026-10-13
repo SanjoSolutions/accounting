@@ -14,6 +14,10 @@ import { appendAuditEvent } from './auditPersistence'
 import { persistComplianceObject } from './objectStorage'
 import { ComplianceRuntimeError } from './runtime'
 import { complianceReferenceDate } from './referenceDate'
+import { currentHgbAnnualSource } from '@/server/hgbCloseRepository'
+import { reconcileUgEquity } from '@/core/ugResultAppropriation'
+import type { GmbhEquityResultSchedule } from '@/core/hgbWorkpapers'
+import { assertReviewIdentity } from '@/core/hgbReviewPolicy'
 
 const PACKAGE_KINDS = ['AUDIT_EXPORT', 'MIGRATION_EXPORT', 'PROCEDURE_PACKAGE', 'ANNUAL_ACCOUNTS', 'DISCLOSURE_PACKAGE', 'ASSET_SCHEDULE', 'INVENTORY_CLOSE', 'CASH_AUDIT'] as const
 export type CompliancePackageKind = typeof PACKAGE_KINDS[number]
@@ -86,9 +90,11 @@ export async function createDomainReportingPackage(ownerId: string, actorId: str
     const source = await loadAuthoritativeAuditSource(ownerId, period)
     payload = await createAuditPackage(source, { tenantId: ownerId, actorId, authorityReference, accessedAt: new Date().toISOString(), purpose }, { record: () => undefined }, purpose === 'MIGRATION' ? migrationAuthenticator() : undefined)
   } else if (kind === 'ANNUAL_ACCOUNTS') {
+    const hgbCloseSource = await currentHgbAnnualSource(prisma, ownerId, period.year)
     const annualInput = await loadAuthoritativeAnnualInput(ownerId, actorId, period, input)
     const latest = await prisma.compliancePackage.findFirst({ where: { ownerId, fiscalPeriodId: period.id, kind: 'ANNUAL_ACCOUNTS' }, orderBy: { version: 'desc' }, select: { id: true, version: true } })
-    payload = prepareAnnualAccounts(annualInput, (latest?.version ?? 0) + 1, latest?.id)
+    if ((await currentHgbAnnualSource(prisma, ownerId, period.year)).fingerprint !== hgbCloseSource.fingerprint) throw new ComplianceRuntimeError('Annual sources changed during generation; retry.', 409)
+    payload = { ...prepareAnnualAccounts(annualInput, (latest?.version ?? 0) + 1, latest?.id), hgbCloseSource }
   } else if (kind === 'ASSET_SCHEDULE') {
     const [assets, events] = await Promise.all([prisma.fixedAssetRecord.findMany({ where: { ownerId } }), prisma.assetEventRecord.findMany({ where: { ownerId }, orderBy: [{ assetId: 'asc' }, { sequence: 'asc' }] })])
     payload = createAssetSchedules(ownerId, assets.map(row => JSON.parse(row.payload) as FixedAsset), events.map(row => JSON.parse(row.payload) as AssetEvent), periodRange(period))
@@ -127,10 +133,20 @@ export async function approveReportingPackage(ownerId: string, actorId: string, 
     const record = await transaction.compliancePackage.findFirst({ where: { id: packageId, ownerId } })
     if (!record) throw new ComplianceRuntimeError('Reporting package not found', 404)
     if (record.status !== 'CREATED') throw new ComplianceRuntimeError('Only a created package can be approved')
-    if (record.createdBy === actorId) throw new ComplianceRuntimeError('Independent approval is required', 403)
+    let reviewMode = 'INDEPENDENT'
+    let reviewPolicyId: string | null = null
+    if (record.kind === 'ANNUAL_ACCOUNTS' && record.fiscalPeriodId) {
+      const period = await transaction.fiscalYear.findFirst({ where: { id: record.fiscalPeriodId, ownerId } })
+      if (!period || period.status !== 'OPEN') throw new ComplianceRuntimeError('Annual approval requires an open fiscal period.', 409)
+      const source = await currentHgbAnnualSource(transaction, ownerId, period.year)
+      const retained = JSON.parse(record.payload).hgbCloseSource
+      if (!retained || retained.fingerprint !== source.fingerprint) throw new ComplianceRuntimeError('Annual accounts sources changed; prepare a current package.', 409)
+      try { reviewMode = assertReviewIdentity(record.createdBy, actorId, source.reviewPolicy) } catch { throw new ComplianceRuntimeError('Independent approval is required unless the current owner self-review policy permits it.', 403) }
+      reviewPolicyId = source.reviewPolicy?.id ?? null
+    } else if (record.createdBy === actorId) throw new ComplianceRuntimeError('Independent approval is required', 403)
     const approvedAt = new Date()
     const approved = await transaction.compliancePackage.update({ where: { id: record.id }, data: { status: 'APPROVED', approvedBy: actorId, approvedAt } })
-    await appendAuditEvent(transaction, { ownerId, actorId, action: 'PACKAGE_APPROVED', reason, objectType: 'CompliancePackage', objectId: record.id, before: { status: record.status }, after: { status: approved.status, approvedAt: approvedAt.toISOString() } })
+    await appendAuditEvent(transaction, { ownerId, actorId, action: 'PACKAGE_APPROVED', reason, objectType: 'CompliancePackage', objectId: record.id, before: { status: record.status }, after: { status: approved.status, approvedAt: approvedAt.toISOString(), preparedBy: record.createdBy, approvedBy: actorId, reviewMode, reviewPolicyId } })
     return approved
   })
 }
@@ -298,6 +314,17 @@ async function loadAuthoritativeAnnualInput(ownerId: string, actorId: string, pe
     mappings: mappings.map(mapping => ({ accountNumber: String(mapping.accountNumber), lineId: mapping.hgbPosition, normalBalance: mapping.normalBalance as 'DEBIT' | 'CREDIT', presentationSign: mapping.presentationSign as 1 | -1, effectiveFrom: dateOnly(mapping.effectiveFrom), ...(mapping.effectiveTo ? { effectiveTo: dateOnly(mapping.effectiveTo) } : {}) })),
     expectedComparativeLeaves: opening.approvedComparativeLeaves,
   })
+  const equity = reviewed.get('GMBH_EQUITY_AND_RESULT')?.schedule as GmbhEquityResultSchedule | undefined
+  const appropriation = equity?.section5aReserveApplicable ? equity.resultAppropriation : undefined
+  if (equity?.section5aReserveApplicable) {
+    const creditBalances = (entries: typeof current.journalEntries) => {
+      const balances = new Map<string, number>()
+      for (const entry of entries) for (const line of entry.lines) balances.set(line.accountId, (balances.get(line.accountId) ?? 0) + line.creditCents - line.debitCents)
+      return balances
+    }
+    const result = statement.lines.find(line => line.id === (size === 'MICRO' ? 'IS.M.8' : `IS.${method}.NET`))!
+    reconcileUgEquity({ resultCents: equity.resultCents, shareCapitalCents: equity.shareCapitalCents, appropriation: appropriation!, ledgerResultCents: result.amountCents, priorResultCents: result.comparativeAmountCents, currentCreditBalances: creditBalances(current.journalEntries), priorCreditBalances: creditBalances(previous.journalEntries) })
+  }
   const accountIds = new Map<number, string>(); for (const year of [current, previous as typeof current]) for (const entry of year.journalEntries) for (const line of entry.lines) accountIds.set(line.account.number, line.accountId)
   const byId = new Map(statement.lines.map(line => [line.id, line]))
   const sourceAccounts = (lineId: string) => statement.mappedAccounts.filter(item => item.lineId === lineId).map(item => accountIds.get(Number(item.accountNumber))).filter((id): id is string => Boolean(id))
@@ -308,7 +335,14 @@ async function loadAuthoritativeAnnualInput(ownerId: string, actorId: string, pe
   const incomeCodes = method === 'GKV' ? GKV_ORDER.filter(code => code !== 'GROSS_PROFIT') : UKV_ORDER
   const notesWorkpaper = reviewed.get('NOTES')?.schedule as NotesQuestionnaireSchedule | undefined
   const notes = notesWorkpaper?.type === 'NOTES_QUESTIONNAIRE' && Array.isArray(notesWorkpaper.questions) ? notesWorkpaper.questions.filter(item => item.answer === 'YES' && item.disclosureText?.trim()).map(item => item.disclosureText!.trim()) : ['Anhangangaben werden aufgrund der dokumentierten Kleinstkapitalgesellschaft-Erleichterung unter der Bilanz ausgewiesen.']
-  return { profile: { tenantId: ownerId, legalName: String(profile.companyName ?? ''), legalForm: String(profile.legalForm ?? ''), registerCourt: String(profile.registerCourt ?? ''), registerNumber: String(profile.registerNumber ?? ''), registeredOffice: String((profile.registeredAddress as Record<string, unknown> | undefined)?.city ?? ''), size, currency: 'EUR', language: 'de' }, fiscalYear: period.year, previousFiscalYear: previous.year, previousFiscalPeriodStart: dateOnly(previous.startsAt), previousFiscalPeriodEnd: dateOnly(previous.endsAt), previousFiscalPeriodId: previous.id, fiscalPeriodStart: dateOnly(period.startsAt), fiscalPeriodEnd: dateOnly(period.endsAt), fiscalTimeZone: 'Europe/Berlin', method, balanceSheet: convert(balanceCodes, balanceMap), incomeStatement: convert(incomeCodes, incomeMap), policies: policySchedule.elections.filter(item => item.applicable && item.selected).map(item => `${item.policy}: ${item.rationale.trim()}`), notes, checks: { nonOffsetting: true, accrual: true, provisions: true, valuation: true, continuity: true }, preparedBy: actorId, preparedAt: `${complianceReferenceDate()}T12:00:00.000Z` }
+  const balanceSheet = convert(balanceCodes, balanceMap).map(line => {
+    if (!appropriation || size === 'MICRO') return line
+    if (line.code === 'B.CARRYFORWARD') return { ...line, amountCents: 0, label: 'Gewinnvortrag/Verlustvortrag (im Bilanzgewinn enthalten)' }
+    if (line.code === 'B.NET_INCOME') return { ...line, amountCents: appropriation.carryforwardCents, label: 'Bilanzgewinn/Bilanzverlust (Vorjahr: Jahresergebnis)' }
+    return line
+  })
+  if (appropriation) notes.push(`Teilweise Ergebnisverwendung nach § 268 Abs. 1 HGB: Jahresergebnis ${equity!.resultCents} Cent; Gewinnvortrag ${appropriation.priorProfitCarryforwardCents} Cent; Verlustvortrag ${appropriation.priorLossCarryforwardCents} Cent; Zuführung zur gesetzlichen Rücklage ${appropriation.reserveAllocationCents} Cent; verbleibender Ergebnisvortrag ${appropriation.carryforwardCents} Cent. Keine Ausschüttung.`)
+  return { profile: { tenantId: ownerId, legalName: String(profile.companyName ?? ''), legalForm: String(profile.legalForm ?? ''), registerCourt: String(profile.registerCourt ?? ''), registerNumber: String(profile.registerNumber ?? ''), registeredOffice: String((profile.registeredAddress as Record<string, unknown> | undefined)?.city ?? ''), size, currency: 'EUR', language: 'de' }, fiscalYear: period.year, previousFiscalYear: previous.year, previousFiscalPeriodStart: dateOnly(previous.startsAt), previousFiscalPeriodEnd: dateOnly(previous.endsAt), previousFiscalPeriodId: previous.id, fiscalPeriodStart: dateOnly(period.startsAt), fiscalPeriodEnd: dateOnly(period.endsAt), fiscalTimeZone: 'Europe/Berlin', method, balanceSheet, incomeStatement: convert(incomeCodes, incomeMap), ...(appropriation ? { ugResultAppropriation: { ...appropriation, annualResultCents: equity!.resultCents, shareCapitalCents: equity!.shareCapitalCents } } : {}), policies: policySchedule.elections.filter(item => item.applicable && item.selected).map(item => `${item.policy}: ${item.rationale.trim()}`), notes, checks: { nonOffsetting: true, accrual: true, provisions: true, valuation: true, continuity: true }, preparedBy: actorId, preparedAt: `${complianceReferenceDate()}T12:00:00.000Z` }
 }
 
 function hgbAnnualBalanceMap(): Record<string, string> {

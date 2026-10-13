@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(), authorizeComplianceTenant: vi.fn(), list: vi.fn(), save: vi.fn(), prepare: vi.fn(), review: vi.fn(), post: vi.fn(),
@@ -19,7 +19,7 @@ const request = (url: string, body?: object) => new Request(url, body ? { method
 describe('HGB workpaper API', () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.getCurrentUser.mockResolvedValue({ id: 'tenant-a', actorId: 'operator', role: 'ADMIN' }); mocks.authorizeComplianceTenant.mockResolvedValue('tenant-a') })
 
-  it('tenant-authorizes list and typed save operations', async () => {
+  test('tenant-authorizes list and typed save operations', async () => {
     mocks.list.mockResolvedValue({ workpapers: [] }); mocks.save.mockResolvedValue({ id: 'wp-1' })
     expect((await GET(request('http://localhost/api?tenantId=tenant-a'), { params })).status).toBe(200)
     expect(mocks.authorizeComplianceTenant).toHaveBeenCalledWith('tenant-a', 'tenant-a'); expect(mocks.list).toHaveBeenCalledWith('tenant-a', 2026)
@@ -27,21 +27,21 @@ describe('HGB workpaper API', () => {
     expect(response.status).toBe(200); expect(mocks.save).toHaveBeenCalledWith('tenant-a', 'operator', 2026, { kind: 'GOING_CONCERN' }, 'old')
   })
 
-  it('uses the authenticated actor for preparation and independent review', async () => {
+  test('uses the authenticated actor for preparation and independent review', async () => {
     mocks.prepare.mockResolvedValue({ status: 'PREPARED' }); mocks.review.mockResolvedValue({ status: 'REVIEWED' })
     await PREPARE(request('http://localhost/api', { tenantId: 'tenant-a', expectedChecksum: 'checksum' }), { params: Promise.resolve({ year: '2026', id: 'wp-1' }) })
     expect(mocks.prepare).toHaveBeenCalledWith('tenant-a', 'operator', 'wp-1', 'checksum')
-    await REVIEW(request('http://localhost/api', { tenantId: 'tenant-a', decision: 'APPROVE' }), { params: Promise.resolve({ year: '2026', id: 'wp-1' }) })
-    expect(mocks.review).toHaveBeenCalledWith('tenant-a', 'operator', 'wp-1', 'APPROVE', undefined)
+    await REVIEW(request('http://localhost/api', { tenantId: 'tenant-a', decision: 'APPROVE', reason: 'Reviewed evidence', expectedChecksum: 'checksum', expectedPolicyId: null }), { params: Promise.resolve({ year: '2026', id: 'wp-1' }) })
+    expect(mocks.review).toHaveBeenCalledWith('tenant-a', 'operator', 'wp-1', 'APPROVE', 'Reviewed evidence', 2026, 'checksum', null)
   })
 
-  it('passes route-bound workpaper and proposal identities to idempotent posting', async () => {
+  test('passes route-bound workpaper and proposal identities to idempotent posting', async () => {
     mocks.post.mockResolvedValue({ status: 'POSTED', postedEntryId: 'entry-1' })
     const response = await POST_ADJUSTMENT(request('http://localhost/api', { tenantId: 'tenant-a', idempotencyKey: 'request-1' }), { params: Promise.resolve({ year: '2026', id: 'wp-1', proposalId: 'adj-1' }) })
     expect(response.status).toBe(200); expect(mocks.post).toHaveBeenCalledWith('tenant-a', 'operator', 2026, 'wp-1', 'adj-1', 'request-1')
   })
 
-  it('rejects unauthenticated access before loading tenant workpapers', async () => {
+  test('rejects unauthenticated access before loading tenant workpapers', async () => {
     mocks.getCurrentUser.mockResolvedValue(null)
     expect((await GET(request('http://localhost/api?tenantId=tenant-a'), { params })).status).toBe(401)
     expect(mocks.list).not.toHaveBeenCalled()

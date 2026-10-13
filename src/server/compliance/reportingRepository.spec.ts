@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 import { createHgbStatementRuleSet } from '@/core/hgbStatements'
 
@@ -11,8 +11,9 @@ const mocks = vi.hoisted(() => {
     journalEntry: { findMany: vi.fn() }, documentRecord: { findMany: vi.fn() }, businessPartner: { findMany: vi.fn() }, commercialDocument: { findMany: vi.fn() }, openItem: { findMany: vi.fn() }, paymentSettlement: { findMany: vi.fn() }, settlementAllocation: { findMany: vi.fn() }, correctionNetting: { findMany: vi.fn() }, bankAccount: { findMany: vi.fn() }, bankStatement: { findMany: vi.fn() }, bankTransaction: { findMany: vi.fn() }, bankTransactionMatch: { findMany: vi.fn() },
     fiscalYear: { findFirst: vi.fn() }, companyProfileVersion: { findFirst: vi.fn(), findMany: vi.fn() }, accountMappingVersion: { findMany: vi.fn() }, hgbWorkpaperRecord: { findMany: vi.fn() }, hgbAdjustmentRecord: { findMany: vi.fn() }, auditEvent: { findMany: vi.fn() }, taxWorkflowRecord: { findMany: vi.fn() },
   }
-  return { transaction, compliancePackage, prismaTransaction: vi.fn(), persist: vi.fn(), remove: vi.fn(), audit: vi.fn() }
+  return { transaction, compliancePackage, prismaTransaction: vi.fn(), annualSource: vi.fn(), persist: vi.fn(), remove: vi.fn(), audit: vi.fn() }
 })
+vi.mock('@/server/hgbCloseRepository', () => ({ currentHgbAnnualSource: mocks.annualSource }))
 vi.mock('server-only', () => ({}))
 vi.mock('@/server/persistence/client', () => ({ prisma: { ...mocks.transaction, $transaction: mocks.prismaTransaction } }))
 vi.mock('@/server/compliance/objectStorage', () => ({ persistComplianceObject: mocks.persist }))
@@ -26,6 +27,7 @@ import { approveReportingPackage, createDomainReportingPackage, getReportingOver
 describe('reporting compliance repository', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.annualSource.mockResolvedValue({ fingerprint: 'source-fingerprint', reviewPolicy: null })
     mocks.compliancePackage.findUnique.mockResolvedValue(null)
     mocks.persist.mockResolvedValue('closing-snapshots/tenant-a/package.json')
     mocks.remove.mockResolvedValue(undefined)
@@ -40,7 +42,7 @@ describe('reporting compliance repository', () => {
     mocks.prismaTransaction.mockImplementation(async (work: unknown) => typeof work === 'function' ? (work as (tx: typeof mocks.transaction) => unknown)(mocks.transaction) : Promise.all(work as Promise<unknown>[]))
   })
 
-  it('atomically registers retained deterministic packages and audits creation', async () => {
+  test('atomically registers retained deterministic packages and audits creation', async () => {
     const result = await createDomainReportingPackage('tenant-a', 'actor-a', 'ASSET_SCHEDULE', { fiscalPeriodId: 'fy', periodEndsAt: '2099-12-31', reason: 'schedule' })
     expect(result).toMatchObject({ ownerId: 'tenant-a', kind: 'ASSET_SCHEDULE', version: 1, status: 'CREATED' })
     expect(mocks.transaction.retainedArtifact.create).toHaveBeenCalledWith({ data: expect.objectContaining({ ownerId: 'tenant-a', objectType: 'CompliancePackage', retentionClass: 'ACCOUNTING_RECORDS' }) })
@@ -49,20 +51,20 @@ describe('reporting compliance repository', () => {
     expect(mocks.remove).not.toHaveBeenCalled()
   })
 
-  it('runs the asset domain generator with the authenticated tenant before persistence', async () => {
+  test('runs the asset domain generator with the authenticated tenant before persistence', async () => {
     await createDomainReportingPackage('tenant-a', 'actor-a', 'ASSET_SCHEDULE', { assets: [{ tenantId: 'forged' }], fiscalPeriodId: 'fy', reason: 'schedule' })
     expect(mocks.transaction.fixedAssetRecord.findMany).toHaveBeenCalledWith({ where: { ownerId: 'tenant-a' } })
     expect(mocks.compliancePackage.create).toHaveBeenCalledWith({ data: expect.objectContaining({ ownerId: 'tenant-a', kind: 'ASSET_SCHEDULE', payload: expect.stringContaining('"tenantId":"tenant-a"') }) })
   })
 
-  it('binds idempotency to immutable package metadata, not payload bytes alone', async () => {
+  test('binds idempotency to immutable package metadata, not payload bytes alone', async () => {
     await createDomainReportingPackage('tenant-a', 'actor-a', 'ASSET_SCHEDULE', { fiscalPeriodId: 'fy', authorityReference: 'authority-a', reason: 'schedule' })
     await createDomainReportingPackage('tenant-a', 'actor-a', 'ASSET_SCHEDULE', { fiscalPeriodId: 'fy', authorityReference: 'authority-b', reason: 'schedule' })
     const checksums = mocks.compliancePackage.create.mock.calls.map(([argument]) => argument.data.checksum)
     expect(checksums[0]).not.toBe(checksums[1])
   })
 
-  it('hashes the exact retained object bytes while keeping semantic package idempotency', async () => {
+  test('hashes the exact retained object bytes while keeping semantic package idempotency', async () => {
     await createDomainReportingPackage('tenant-a', 'actor-a', 'ASSET_SCHEDULE', { fiscalPeriodId: 'fy', authorityReference: 'authority-a', reason: 'schedule' })
     const payload = mocks.compliancePackage.create.mock.calls[0][0].data.payload as string
     const retainedHash = mocks.transaction.retainedArtifact.create.mock.calls[0][0].data.contentHash
@@ -70,7 +72,7 @@ describe('reporting compliance repository', () => {
     expect(retainedHash).not.toBe(mocks.compliancePackage.create.mock.calls[0][0].data.checksum)
   })
 
-  it('persists an authenticated inventory close in the package transaction and refuses a second close', async () => {
+  test('persists an authenticated inventory close in the package transaction and refuses a second close', async () => {
     mocks.transaction.fiscalYear.findFirst.mockResolvedValue({ id: 'fy-2025', ownerId: 'tenant-a', year: 2025, startsAt: new Date('2025-01-01T00:00:00Z'), endsAt: new Date('2025-12-31T00:00:00Z') })
     mocks.transaction.inventoryItemRecord.findMany.mockResolvedValue([{ payload: JSON.stringify({ id: 'item-1', tenantId: 'tenant-a', sku: 'SKU', description: 'Stock', location: 'Berlin', quantity: 2, unitCostCents: 100 }) }])
     const counts = [{ itemId: 'item-1', countedQuantity: 2, countedBy: 'counter', countedAt: '2025-12-31T12:00:00Z', evidenceIds: ['evidence'], approvedBy: 'approver', approvedAt: '2026-01-01T12:00:00Z' }]
@@ -81,21 +83,21 @@ describe('reporting compliance repository', () => {
     await expect(createDomainReportingPackage('tenant-a', 'actor-a', 'INVENTORY_CLOSE', { fiscalPeriodId: 'fy-2025', timeZone: 'Europe/Berlin', counts, reason: 'close again' })).rejects.toThrow(/already closed/)
   })
 
-  it('uses persisted cash-book currency and lets the cash domain reject unsupported currencies', async () => {
+  test('uses persisted cash-book currency and lets the cash domain reject unsupported currencies', async () => {
     mocks.transaction.cashBookRecord.findFirst.mockResolvedValue({ id: 'cash', ownerId: 'tenant-a', location: 'Berlin', register: 'R1', timeZone: 'Europe/Berlin', currency: 'USD', glAccountId: '1000', retainedThrough: new Date('2036-12-31T00:00:00Z') })
     mocks.transaction.cashEntryRecord.findMany.mockResolvedValue([])
     mocks.transaction.cashCloseRecord.findMany.mockResolvedValue([])
     await expect(createDomainReportingPackage('tenant-a', 'actor-a', 'CASH_AUDIT', { fiscalPeriodId: 'fy', cashBookId: 'cash', reason: 'audit' })).rejects.toThrow(/EUR currency/)
   })
 
-  it('requires annual profile coverage and only loads posted current and comparative journals', async () => {
+  test('requires annual profile coverage and only loads posted current and comparative journals', async () => {
     mocks.transaction.companyProfileVersion.findFirst.mockResolvedValue(null)
     await expect(createDomainReportingPackage('tenant-a', 'actor-a', 'ANNUAL_ACCOUNTS', { fiscalPeriodId: 'fy', reason: 'annual' })).rejects.toThrow(/profile/)
     expect(mocks.transaction.companyProfileVersion.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date('2026-12-31T00:00:00Z') } }] }) }))
     expect(mocks.transaction.fiscalYear.findFirst).toHaveBeenCalledWith(expect.objectContaining({ include: { journalEntries: expect.objectContaining({ where: { state: 'POSTED' } }) } }))
   })
 
-  it('selects annual mappings from the effective authoritative profile chart', async () => {
+  test('selects annual mappings from the effective authoritative profile chart', async () => {
     mocks.transaction.companyProfileVersion.findFirst.mockResolvedValue({ payload: JSON.stringify({ chart: 'SKR04', companyName: 'Example', legalForm: 'GMBH', sizeClass: 'MICRO' }) })
     mocks.transaction.fiscalYear.findFirst
       .mockResolvedValueOnce({ id: 'fy', ownerId: 'tenant-a', year: 2026, startsAt: new Date('2026-01-01T00:00:00Z'), endsAt: new Date('2026-12-31T00:00:00Z') })
@@ -107,7 +109,7 @@ describe('reporting compliance repository', () => {
     expect(mocks.transaction.fiscalYear.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'fy', ownerId: 'tenant-a' }, include: { journalEntries: expect.objectContaining({ where: { state: 'POSTED' } }) } }))
   })
 
-  it('generates annual statements only from reviewed workpapers, canonical mappings, and balanced posted journals', async () => {
+  test('generates annual statements only from reviewed workpapers, canonical mappings, and balanced posted journals', async () => {
     const priorValues: Record<string, number> = { 'BS.A.B': 90, 'BS.P.A': 90, 'IS.M.1': 90, 'IS.M.8': 90 }
     const expectedLeaves = createHgbStatementRuleSet('MICRO', 'GKV').lines.filter(line => !createHgbStatementRuleSet('MICRO', 'GKV').lines.some(candidate => candidate.parentId === line.id)).map(line => ({ lineId: line.id, amountCents: priorValues[line.id] ?? 0 }))
     const workpapers = [
@@ -139,7 +141,7 @@ describe('reporting compliance repository', () => {
     expect(annual.checks).toEqual({ nonOffsetting: true, accrual: true, provisions: true, valuation: true, continuity: true })
   })
 
-  it('exports loaded mapping history, including unused mappings, instead of deriving the chart from postings', async () => {
+  test('exports loaded mapping history, including unused mappings, instead of deriving the chart from postings', async () => {
     mocks.transaction.companyProfileVersion.findMany.mockResolvedValue([])
     mocks.transaction.accountMappingVersion.findMany.mockResolvedValue([{ id: 'mapping-unused', ownerId: 'tenant-a', chartId: 'SKR04', accountNumber: 4900, effectiveFrom: new Date('2026-01-01T00:00:00Z'), effectiveTo: null, accountName: 'Unused', accountType: 'EXPENSE', normalBalance: 'DEBIT', hgbPosition: 'EXPENSE', eBilanzPosition: 'EXPENSE', vatCode: null, active: true }])
     mocks.transaction.fiscalYear.findFirst
@@ -151,26 +153,43 @@ describe('reporting compliance repository', () => {
     expect(packagePayload.files['data/chartMappings.json']).toContain('mapping-unused')
   })
 
-  it('rejects fiscal periods outside the authenticated owner scope', async () => {
+  test('rejects fiscal periods outside the authenticated owner scope', async () => {
     mocks.transaction.fiscalYear.findFirst.mockResolvedValueOnce(null)
     await expect(createDomainReportingPackage('tenant-a', 'actor-a', 'ASSET_SCHEDULE', { fiscalPeriodId: 'tenant-b-fy', reason: 'schedule' })).rejects.toThrow(/not found/)
     expect(mocks.transaction.fiscalYear.findFirst).toHaveBeenCalledWith({ where: { id: 'tenant-b-fy', ownerId: 'tenant-a' }, select: expect.anything() })
     expect(mocks.persist).not.toHaveBeenCalled()
   })
 
-  it('removes an orphaned object when database registration rolls back', async () => {
+  test('removes an orphaned object when database registration rolls back', async () => {
     mocks.prismaTransaction.mockRejectedValueOnce(new Error('database unavailable'))
     await expect(createDomainReportingPackage('tenant-a', 'actor-a', 'ASSET_SCHEDULE', { fiscalPeriodId: 'fy', reason: 'prepare' })).rejects.toThrow('database unavailable')
     expect(mocks.remove).toHaveBeenCalledWith('closing-snapshots/tenant-a/package.json')
   })
 
-  it('requires independent package approval', async () => {
+  test('requires independent package approval', async () => {
     mocks.compliancePackage.findFirst.mockResolvedValue({ id: 'package', ownerId: 'tenant-a', status: 'CREATED', createdBy: 'actor-a' })
     await expect(approveReportingPackage('tenant-a', 'actor-a', 'package', 'review')).rejects.toThrow(/Independent/)
     expect(mocks.compliancePackage.update).not.toHaveBeenCalled()
   })
 
-  it('binds procedure approval identity and time to the authenticated actor', async () => {
+  test('Given a source-bound annual package and owner policy, when the owner approves, then explicit self-review is audited and later source changes block approval', async () => {
+    const policy = { id: 'policy', mode: 'OWNER_SELF_REVIEW', ownerId: 'tenant-a', selectedBy: 'tenant-a', soleShareholderManagingDirector: true, noAdditionalReviewRequirement: true }
+    const record = { id: 'annual', kind: 'ANNUAL_ACCOUNTS', ownerId: 'tenant-a', fiscalPeriodId: 'fy', status: 'CREATED', createdBy: 'tenant-a', payload: JSON.stringify({ hgbCloseSource: { fingerprint: 'source-fingerprint' } }) }
+    mocks.annualSource.mockResolvedValue({ fingerprint: 'source-fingerprint', reviewPolicy: policy })
+    mocks.transaction.fiscalYear.findFirst.mockResolvedValue({ id: 'fy', year: 2026, status: 'OPEN' })
+    mocks.compliancePackage.findFirst.mockResolvedValue(record)
+    mocks.compliancePackage.update.mockResolvedValue({ ...record, status: 'APPROVED' })
+    await approveReportingPackage('tenant-a', 'tenant-a', 'annual', 'Explicit owner review of exact retained package')
+    expect(mocks.audit).toHaveBeenLastCalledWith(mocks.transaction, expect.objectContaining({ after: expect.objectContaining({ preparedBy: 'tenant-a', approvedBy: 'tenant-a', reviewMode: 'OWNER_SELF_REVIEW', reviewPolicyId: 'policy' }) }))
+    mocks.annualSource.mockResolvedValue({ fingerprint: 'changed', reviewPolicy: policy })
+    await expect(approveReportingPackage('tenant-a', 'tenant-a', 'annual', 'Review')).rejects.toThrow(/sources changed/)
+    mocks.annualSource.mockResolvedValue({ fingerprint: 'source-fingerprint', reviewPolicy: null })
+    await expect(approveReportingPackage('tenant-a', 'tenant-a', 'annual', 'Review')).rejects.toThrow(/Independent/)
+    mocks.compliancePackage.findFirst.mockResolvedValue({ ...record, kind: 'AUDIT_EXPORT' })
+    await expect(approveReportingPackage('tenant-a', 'tenant-a', 'annual', 'Review')).rejects.toThrow(/Independent/)
+  })
+
+  test('binds procedure approval identity and time to the authenticated actor', async () => {
     const document = { id: 'procedure', version: '1.0.0', effectiveFrom: '2026-01-01', approvedBy: 'forged', approvedAt: '2020-01-01T00:00:00Z', appVersion: '1', configurationVersion: '1', schemaVersion: '1', taxonomyVersions: ['6.9'], sections: Object.fromEntries(['general','user','technical','operations','capture','posting','correction','closing','archiving','reporting','interfaces','access','backup-recovery'].map(key => [key, 'documented'])), controls: Object.fromEntries(['roles-approvals','separation-of-duties','completeness','reconciliation','exception-handling','control-evidence'].map(key => [key, { description: 'documented', ownerRole: 'operator', evidenceReferences: ['evidence'] }])), changeLog: [{ changedAt: '2026-01-01', changedBy: 'actor-a', summary: 'initial' }] }
     mocks.transaction.procedureDocumentRecord.create.mockImplementation(async ({ data }: { data: unknown }) => data)
     await saveProcedureDocument('tenant-a', 'actor-a', { document, confirmApproval: true, reason: 'approve' })
@@ -178,7 +197,7 @@ describe('reporting compliance repository', () => {
     await expect(saveProcedureDocument('tenant-a', 'actor-a', { document, reason: 'approve' })).rejects.toThrow(/confirmation/)
   })
 
-  it('applies the authenticated tenant predicate to every reporting collection', async () => {
+  test('applies the authenticated tenant predicate to every reporting collection', async () => {
     for (const repository of [mocks.transaction.compliancePackage, mocks.transaction.procedureDocumentRecord, mocks.transaction.fixedAssetRecord, mocks.transaction.assetEventRecord, mocks.transaction.inventoryItemRecord, mocks.transaction.inventoryCountSnapshot, mocks.transaction.cashBookRecord, mocks.transaction.cashEntryRecord, mocks.transaction.cashCloseRecord]) repository.findMany.mockResolvedValue([])
     await getReportingOverview('tenant-a')
     for (const repository of [mocks.transaction.compliancePackage, mocks.transaction.procedureDocumentRecord, mocks.transaction.fixedAssetRecord, mocks.transaction.assetEventRecord, mocks.transaction.inventoryItemRecord, mocks.transaction.inventoryCountSnapshot, mocks.transaction.cashBookRecord, mocks.transaction.cashEntryRecord, mocks.transaction.cashCloseRecord]) expect(repository.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ownerId: 'tenant-a' } }))

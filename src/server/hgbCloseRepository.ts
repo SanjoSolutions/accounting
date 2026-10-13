@@ -11,6 +11,8 @@ import { appendAuditEvent } from '@/server/compliance/auditPersistence'
 import { ComplianceRuntimeError } from '@/server/compliance/runtime'
 import { AccountingValidationError } from '@/core/doubleEntry'
 import { hgbWorkpaperChecksum, validateHgbWorkpaper, type HgbWorkpaperDraft } from '@/core/hgbWorkpapers'
+import { loadHgbReviewPolicy, requireHgbEvidence } from '@/server/hgbReviewPolicyRepository'
+import type { HgbReviewPolicy } from '@/core/hgbReviewPolicy'
 
 type JsonRecord = Record<string, unknown>
 
@@ -50,6 +52,8 @@ function persistedWorkpaperEvidenceIds(payload: JsonRecord): string[] {
 }
 
 export function hgbCloseFingerprint(input: {
+  comparative?: unknown
+  reviewPolicy?: { policy: HgbReviewPolicy | null; valid: boolean }
   fiscalPeriod: { id: string; startsAt: Date; endsAt: Date }
   profileVersion: { id: string; effectiveFrom: Date; effectiveTo: Date | null; payload: string }
   mappings: Array<{ id: string; accountNumber: number; effectiveFrom: Date; effectiveTo: Date | null; accountName: string; accountType: string; normalBalance: string; hgbPosition: string; active: boolean }>
@@ -59,12 +63,14 @@ export function hgbCloseFingerprint(input: {
   adjustments?: Array<{ id: string; workpaperId: string; proposalId: string; fingerprint: string; status: string; postedEntryId: string | null; payload: string }>
 }) {
   const payload = {
+    comparative: input.comparative ?? null,
+    reviewPolicy: input.reviewPolicy ?? { policy: null, valid: true },
     fiscalPeriod: { id: input.fiscalPeriod.id, startsAt: dateOnly(input.fiscalPeriod.startsAt), endsAt: dateOnly(input.fiscalPeriod.endsAt) },
     profileVersion: { id: input.profileVersion.id, effectiveFrom: input.profileVersion.effectiveFrom.toISOString(), effectiveTo: input.profileVersion.effectiveTo?.toISOString() ?? null, payload: JSON.parse(input.profileVersion.payload) },
     mappings: [...input.mappings].sort((a, b) => a.accountNumber - b.accountNumber || a.effectiveFrom.getTime() - b.effectiveFrom.getTime() || a.id.localeCompare(b.id)).map(mapping => ({ ...mapping, effectiveFrom: mapping.effectiveFrom.toISOString(), effectiveTo: mapping.effectiveTo?.toISOString() ?? null })),
     entries: [...input.entries].sort((a, b) => a.sequenceNumber - b.sequenceNumber || a.id.localeCompare(b.id)).map(entry => ({ ...entry, bookingDate: entry.bookingDate.toISOString(), lines: [...entry.lines].sort((a, b) => a.id.localeCompare(b.id)) })),
     evidence: [...(input.evidence ?? [])].sort((a, b) => a.id.localeCompare(b.id) || a.source.localeCompare(b.source)),
-    workpapers: [...(input.workpapers ?? [])].sort((a, b) => a.kind.localeCompare(b.kind) || b.version - a.version).map(item => ({ ...item, payload: JSON.parse(item.payload), reviewedAt: item.reviewedAt?.toISOString() ?? null })),
+    workpapers: [...(input.workpapers ?? [])].sort((a, b) => a.kind.localeCompare(b.kind) || b.version - a.version).map(item => ({ ...JSON.parse(JSON.stringify(item)), payload: JSON.parse(item.payload), reviewedAt: item.reviewedAt?.toISOString() ?? null })),
     adjustments: [...(input.adjustments ?? [])].sort((a, b) => a.workpaperId.localeCompare(b.workpaperId) || a.proposalId.localeCompare(b.proposalId)).map(item => ({ ...item, payload: JSON.parse(item.payload) })),
   }
   return sha256(canonicalJson(payload))
@@ -78,6 +84,7 @@ async function loadAuthoritativeContext(client: HgbPersistenceClient, ownerId: s
     include: { journalEntries: { where: { state: 'POSTED' }, include: { lines: true }, orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }] } },
   })
   if (!fiscalPeriod) throw new ComplianceRuntimeError('Fiscal period not found', 404)
+  const reviewPolicy = await loadHgbReviewPolicy(client, ownerId, fiscalPeriod)
   const profileVersion = await client.companyProfileVersion.findFirst({
     where: { ownerId, effectiveFrom: { lte: fiscalPeriod.endsAt }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: fiscalPeriod.endsAt } }] },
     orderBy: { effectiveFrom: 'desc' },
@@ -91,6 +98,9 @@ async function loadAuthoritativeContext(client: HgbPersistenceClient, ownerId: s
     orderBy: [{ accountNumber: 'asc' }, { effectiveFrom: 'asc' }, { id: 'asc' }],
   })
   if (!mappings.length) throw new ComplianceRuntimeError('Authoritative account mappings covering the fiscal period are required', 409)
+  const previous = await client.fiscalYear.findFirst({ where: { ownerId, endsAt: { lt: fiscalPeriod.startsAt } }, orderBy: { endsAt: 'desc' }, include: { journalEntries: { where: { state: 'POSTED' }, include: { lines: true }, orderBy: [{ sequenceNumber: 'asc' }, { id: 'asc' }] } } })
+  const previousMappings = previous ? await client.accountMappingVersion.findMany({ where: { ownerId, chartId: chart, effectiveFrom: { lte: previous.endsAt }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: previous.startsAt } }] }, orderBy: [{ accountNumber: 'asc' }, { effectiveFrom: 'asc' }, { id: 'asc' }] }) : []
+  const comparative = previous ? JSON.parse(JSON.stringify({ id: previous.id, startsAt: previous.startsAt, endsAt: previous.endsAt, entries: previous.journalEntries.map(entry => ({ ...entry, lines: [...entry.lines].sort((a, b) => a.id.localeCompare(b.id)) })), mappings: previousMappings })) : null
   const allWorkpapers = await client.hgbWorkpaperRecord.findMany({ where: { ownerId, fiscalPeriodId: fiscalPeriod.id }, orderBy: [{ kind: 'asc' }, { version: 'desc' }] })
   const workpapers = allWorkpapers.filter((item, index) => allWorkpapers.findIndex(candidate => candidate.kind === item.kind) === index)
   const invalidWorkpaperIds = workpapers.filter(item => {
@@ -100,13 +110,19 @@ async function loadAuthoritativeContext(client: HgbPersistenceClient, ownerId: s
     } catch { return true }
   }).map(item => item.id)
   const adjustments = workpapers.length ? await client.hgbAdjustmentRecord.findMany({ where: { ownerId, workpaperId: { in: workpapers.map(item => item.id) } }, orderBy: [{ workpaperId: 'asc' }, { proposalId: 'asc' }] }) : []
+  for (const item of workpapers.filter(item => item.status === 'REVIEWED' && item.reviewEvidenceChecksum)) {
+    try {
+      const ids = persistedWorkpaperEvidenceIds(JSON.parse(item.payload))
+      if (hgbWorkpaperChecksum(await requireHgbEvidence(client, ownerId, ids)) !== item.reviewEvidenceChecksum) invalidWorkpaperIds.push(item.id)
+    } catch { invalidWorkpaperIds.push(item.id) }
+  }
   const workpaperEvidenceIds = workpapers.flatMap(item => {
     try {
       const payload = JSON.parse(item.payload) as JsonRecord
       return persistedWorkpaperEvidenceIds(payload)
     } catch { return [] }
   })
-  const uniqueEvidenceIds = [...new Set([...suppliedEvidenceIds, ...workpaperEvidenceIds])].sort()
+  const uniqueEvidenceIds = [...new Set([...suppliedEvidenceIds, ...workpaperEvidenceIds, ...(reviewPolicy.policy?.evidenceIds ?? [])])].sort()
   const [artifacts, documents] = await Promise.all([
     uniqueEvidenceIds.length ? client.retainedArtifact.findMany({ where: { ownerId, id: { in: uniqueEvidenceIds }, disposedAt: null, storageDeletedAt: null }, select: { id: true, contentHash: true } }) : [],
     uniqueEvidenceIds.length ? client.documentRecord.findMany({ where: { ownerId, id: { in: uniqueEvidenceIds } }, select: { id: true, payload: true } }) : [],
@@ -114,8 +130,8 @@ async function loadAuthoritativeContext(client: HgbPersistenceClient, ownerId: s
   const evidence = [...artifacts.map(item => ({ id: item.id, source: 'RETAINED_ARTIFACT', contentHash: item.contentHash })), ...documents.map(item => ({ id: item.id, source: 'DOCUMENT', contentHash: sha256(item.payload) }))]
   const resolvedEvidenceIds = new Set(evidence.map(item => item.id))
   const missingEvidenceIds = uniqueEvidenceIds.filter(id => !resolvedEvidenceIds.has(id))
-  const ledgerFingerprint = hgbCloseFingerprint({ fiscalPeriod, profileVersion, mappings, entries: fiscalPeriod.journalEntries, evidence: [...evidence, ...missingEvidenceIds.map(id => ({ id, source: 'MISSING', contentHash: '' }))], workpapers, adjustments })
-  return { fiscalPeriod, profileVersion, companyProfile, mappings, workpapers, adjustments, invalidWorkpaperIds, ledgerFingerprint, missingEvidenceIds }
+  const ledgerFingerprint = hgbCloseFingerprint({ fiscalPeriod, profileVersion, mappings, entries: fiscalPeriod.journalEntries, evidence: [...evidence, ...missingEvidenceIds.map(id => ({ id, source: 'MISSING', contentHash: '' }))], workpapers, adjustments, reviewPolicy, comparative })
+  return { fiscalPeriod, profileVersion, companyProfile, mappings, workpapers, adjustments, invalidWorkpaperIds, ledgerFingerprint, missingEvidenceIds, reviewPolicy }
 }
 
 function referencedEvidenceIds(supplied: JsonRecord): string[] {
@@ -158,10 +174,13 @@ function authoritativeReadinessInput(context: Awaited<ReturnType<typeof loadAuth
       reviewedBy: item.reviewedBy,
       reviewedAt: item.reviewedAt?.toISOString(),
       reason: item.reviewReason ?? undefined,
+      reviewMode: item.reviewMode,
+      reviewPolicyId: item.reviewPolicyId,
     }
   })
   return {
     profile,
+    reviewPolicy: context.reviewPolicy.policy,
     workpapers: workpapers as HgbCloseReadinessInput['workpapers'],
     annualAccountsPackageId: typeof supplied.annualAccountsPackageId === 'string' ? supplied.annualAccountsPackageId : undefined,
     annualAccountsChecksum: typeof supplied.annualAccountsChecksum === 'string' ? supplied.annualAccountsChecksum : undefined,
@@ -176,23 +195,44 @@ async function requireAuthoritativeAnnualPackage(ownerId: string, fiscalPeriodId
   const readiness = evaluateHgbClose(input)
   if (!input.annualAccountsPackageId || !input.annualAccountsChecksum) return readiness
   const annualPackage = await prisma.compliancePackage.findFirst({ where: { id: input.annualAccountsPackageId, ownerId, fiscalPeriodId, kind: 'ANNUAL_ACCOUNTS', status: 'APPROVED', checksum: input.annualAccountsChecksum } })
-  if (annualPackage) return readiness
+  if (annualPackage) {
+    const payload = JSON.parse(annualPackage.payload)
+    if (payload.hgbCloseSource) {
+      const period = await prisma.fiscalYear.findFirst({ where: { id: fiscalPeriodId, ownerId } })
+      const source = period && await loadAuthoritativeContext(prisma, ownerId, period.year)
+      if (!source || payload.hgbCloseSource.fingerprint !== source.ledgerFingerprint) return { ...readiness, status: 'BLOCKED', blockers: [...readiness.blockers, { code: 'ANNUAL_SOURCE_STALE', message: 'Annual accounts sources changed; prepare and approve a current package.', authority: 'HGB §§ 242, 245' }] }
+    } else if (input.reviewPolicy?.mode === 'OWNER_SELF_REVIEW') return { ...readiness, status: 'BLOCKED', blockers: [...readiness.blockers, { code: 'ANNUAL_SOURCE_MISSING', message: 'Owner self-review requires a source-bound annual package.', authority: 'Product review policy' }] }
+    return readiness
+  }
   const blockers = readiness.blockers.filter(blocker => blocker.code !== 'ANNUAL_ACCOUNTS_PACKAGE_MISSING')
   blockers.push({ code: 'ANNUAL_ACCOUNTS_PACKAGE_NOT_AUTHORITATIVE', message: 'The annual-accounts package does not belong to this tenant and fiscal period or its checksum does not match.', authority: 'HGB §§ 242-245, 264-275' })
   return { ...readiness, status: 'BLOCKED', blockers }
 }
 
 export async function getHgbCloseRuns(ownerId: string, year: number) {
-  const context = await loadAuthoritativeContext(prisma, ownerId, year)
+  const fiscalPeriod = await prisma.fiscalYear.findUnique({ where: { ownerId_year: { ownerId, year } } })
+  if (!fiscalPeriod) throw new ComplianceRuntimeError('Fiscal period not found', 404)
   const [runs, approvedAnnualPackages] = await Promise.all([
-    prisma.hgbCloseRun.findMany({ where: { ownerId, fiscalPeriodId: context.fiscalPeriod.id }, orderBy: { version: 'desc' } }),
+    prisma.hgbCloseRun.findMany({ where: { ownerId, fiscalPeriodId: fiscalPeriod.id }, orderBy: { version: 'desc' } }),
     prisma.compliancePackage.findMany({
-      where: { ownerId, fiscalPeriodId: context.fiscalPeriod.id, kind: 'ANNUAL_ACCOUNTS', status: 'APPROVED' },
+      where: { ownerId, fiscalPeriodId: fiscalPeriod.id, kind: 'ANNUAL_ACCOUNTS', status: 'APPROVED' },
       orderBy: { version: 'desc' },
       select: { id: true, version: true, checksum: true, approvedAt: true },
     }),
   ])
+  const latestInput = runs[0] ? JSON.parse(runs[0].payload).input ?? {} : {}
+  const context = await loadAuthoritativeContext(prisma, ownerId, year, referencedEvidenceIds(latestInput))
   return { fiscalPeriod: { id: context.fiscalPeriod.id, year: context.fiscalPeriod.year, startsAt: dateOnly(context.fiscalPeriod.startsAt), endsAt: dateOnly(context.fiscalPeriod.endsAt) }, ledgerFingerprint: context.ledgerFingerprint, approvedAnnualPackages, runs: runs.map(run => ({ ...run, payload: JSON.parse(run.payload) })) }
+}
+
+/** Generation uses the same source cohort as close/lock, before signature evidence is added. */
+export async function currentHgbAnnualSource(client: HgbPersistenceClient, ownerId: string, year: number) {
+  const context = await loadAuthoritativeContext(client, ownerId, year)
+  const input = authoritativeReadinessInput(context, {})
+  const pendingApproval = new Set(['ANNUAL_ACCOUNTS_PACKAGE_MISSING', 'MANAGEMENT_SIGNATURES_MISSING', 'SHAREHOLDER_RESOLUTION_MISSING', 'OWNER_SIGNATURE_IDENTITY_MISMATCH'])
+  const blockers = evaluateHgbClose(input).blockers.filter(item => !pendingApproval.has(item.code))
+  if (blockers.length || !context.reviewPolicy.valid || context.missingEvidenceIds.length || context.invalidWorkpaperIds.length || context.adjustments.some(item => item.status !== 'POSTED')) throw new ComplianceRuntimeError(`Current reviewed HGB workpapers, policy and evidence are required. ${blockers.map(item => item.message).join(' ')}`, 409)
+  return { fingerprint: context.ledgerFingerprint, reviewPolicy: context.reviewPolicy.policy }
 }
 
 export async function evaluateAndPersistHgbClose(ownerId: string, actorId: string, year: number, supplied: JsonRecord) {
@@ -201,6 +241,7 @@ export async function evaluateAndPersistHgbClose(ownerId: string, actorId: strin
   const context = await loadAuthoritativeContext(prisma, ownerId, year, referencedEvidenceIds(supplied))
   const input = authoritativeReadinessInput(context, supplied)
   let readiness = await requireAuthoritativeAnnualPackage(ownerId, context.fiscalPeriod.id, input)
+  if (!context.reviewPolicy.valid) readiness = { ...readiness, status: 'BLOCKED', blockers: [...readiness.blockers, { code: 'REVIEW_POLICY_STALE', message: 'Review policy or its eligibility/evidence changed; select the policy and review current workpapers again.', authority: 'Product review policy' }] }
   if (context.missingEvidenceIds.length) readiness = { ...readiness, status: 'BLOCKED', blockers: [...readiness.blockers, { code: 'EVIDENCE_NOT_AUTHORITATIVE', message: `Evidence references are missing or outside the authenticated tenant: ${context.missingEvidenceIds.join(', ')}`, authority: 'HGB §§ 238, 239, 257' }] }
   if (context.invalidWorkpaperIds.length) readiness = { ...readiness, status: 'BLOCKED', blockers: [...readiness.blockers, { code: 'WORKPAPER_INTEGRITY_INVALID', message: 'One or more current workpapers failed typed validation or checksum verification.', authority: 'HGB §§ 238, 239, 257' }] }
   const unposted = context.adjustments.filter(item => item.status !== 'POSTED')
@@ -240,6 +281,6 @@ export async function requireCurrentReadyHgbClose(transaction: Prisma.Transactio
   const annualPackage = await transaction.compliancePackage.findFirst({ where: { id: packageId, ownerId, fiscalPeriodId: fiscalYear.id, kind: 'ANNUAL_ACCOUNTS', status: 'APPROVED', checksum: packageChecksum }, select: { id: true } })
   if (!annualPackage) throw new AccountingValidationError(['The approved annual-accounts package bound to the HGB close run is no longer authoritative.'])
   const context = await loadAuthoritativeContext(transaction, ownerId, fiscalYear.year, referencedEvidenceIds(storedInput))
-  if (context.fiscalPeriod.id !== fiscalYear.id || context.missingEvidenceIds.length || context.invalidWorkpaperIds.length || context.ledgerFingerprint !== latest.ledgerFingerprint) throw new AccountingValidationError(['The latest HGB close run is stale because ledger, profile, mappings, workpapers, or retained evidence changed.'])
+  if (context.fiscalPeriod.id !== fiscalYear.id || !context.reviewPolicy.valid || context.missingEvidenceIds.length || context.invalidWorkpaperIds.length || context.ledgerFingerprint !== latest.ledgerFingerprint) throw new AccountingValidationError(['The latest HGB close run is stale because ledger, profile, mappings, workpapers, or retained evidence changed.'])
   return latest
 }
