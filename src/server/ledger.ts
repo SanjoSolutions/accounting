@@ -4,7 +4,6 @@ import { randomUUID } from 'node:crypto'
 import { prisma } from './persistence/client'
 import {
   AccountingValidationError,
-  createOpeningBalanceLines,
   createFinancialStatements,
   validateClosing,
   validateClosingDate,
@@ -29,6 +28,7 @@ import { persistComplianceObject } from './compliance/objectStorage'
 import { complianceReferenceDate } from './compliance/referenceDate'
 import { VatValidationError, type VatPostingDetail, type VatSourceSplit } from '@/core/vatEngine'
 import { createFiscalCloseGeneration, requireCurrentFiscalCloseGeneration } from './fiscalCloseGeneration'
+import { carryForwardFiscalClose } from './fiscalOpeningBalances'
 import {
   journalLineVatData,
   vatControlAccount,
@@ -727,32 +727,15 @@ export async function closeFiscalYear(ownerId: string, year: number) {
       throw new AccountingValidationError([`Der Saldenvortrag kann nicht in das bereits gesperrte Geschäftsjahr ${nextYear} geschrieben werden. Schließen Sie Geschäftsjahre in zeitlicher Reihenfolge.`])
     }
     validateSuccessorContiguity(nextStartsAt, nextFiscalYear.startsAt)
-    const openingKey = `OPENING:${fiscalYear.id}`
-    const existingOpening = await transaction.journalEntry.findUnique({ where: { externalKey: openingKey } })
-    if (!existingOpening) {
-      const openingLines = createOpeningBalanceLines(statements)
-      const debit = openingLines.reduce((sum, line) => sum + line.debitCents, 0)
-      const credit = openingLines.reduce((sum, line) => sum + line.creditCents, 0)
-      if (debit !== credit) throw new AccountingValidationError(['Der automatische Saldenvortrag ist nicht ausgeglichen.'])
-      if (openingLines.length) {
-        const lastOpening = await transaction.journalEntry.findFirst({ where: { fiscalYearId: nextFiscalYear.id }, orderBy: { sequenceNumber: 'desc' } })
-        await transaction.journalEntry.create({ data: {
-          ownerId,
-          fiscalYearId: nextFiscalYear.id, sequenceNumber: (lastOpening?.sequenceNumber ?? 0) + 1,
-          bookingDate: new Date(nextFiscalYear.startsAt.getTime() + 12 * 60 * 60 * 1000), documentNumber: `SYS-EB-${nextYear}-${fiscalYear.id.slice(-6)}`,
-          description: `Automatischer Saldenvortrag aus ${year}`, source: 'OPENING', externalKey: openingKey,
-          lines: { create: openingLines },
-        } })
-      }
-    }
     const closeGeneration = await createFiscalCloseGeneration(transaction, ownerId, fiscalYear.id, hgbCloseRun, snapshot, lockedAt)
+    const openingEntry = await carryForwardFiscalClose(transaction, closeGeneration, year, nextFiscalYear, statements)
     await transaction.fiscalYear.update({
       where: { id: fiscalYear.id }, data: { status: 'CLOSED', lockedAt, closingSnapshot: snapshot },
     })
     const deadline = retentionDeadline('JOURNAL', fiscalYear.endsAt.toISOString().slice(0, 10))
     const existingSnapshot = await transaction.retainedArtifact.findFirst({ where: { ownerId, objectType: 'ClosingSnapshot', objectId: fiscalYear.id }, orderBy: { version: 'desc' } })
     await transaction.retainedArtifact.create({ data: { ownerId, objectType: 'ClosingSnapshot', objectId: fiscalYear.id, version: (existingSnapshot?.version ?? 0) + 1, retentionClass: 'JOURNAL', contentHash: sha256(snapshot), provenance: 'fiscal period close', storageKey: snapshotStorageKey, periodEndsAt: fiscalYear.endsAt, retainUntil: new Date(`${deadline.retainUntil}T23:59:59.999Z`) } })
-    await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'FISCAL_PERIOD_CLOSED', reason: 'Authenticated fiscal period close', objectType: 'FiscalYear', objectId: fiscalYear.id, before: { status: fiscalYear.status }, after: { status: 'CLOSED', snapshotHash: sha256(snapshot), closeGenerationId: closeGeneration.id, hgbCloseRunId: hgbCloseRun.id, successorId: nextFiscalYear.id } })
+    await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'FISCAL_PERIOD_CLOSED', reason: 'Authenticated fiscal period close', objectType: 'FiscalYear', objectId: fiscalYear.id, before: { status: fiscalYear.status }, after: { status: 'CLOSED', snapshotHash: sha256(snapshot), closeGenerationId: closeGeneration.id, hgbCloseRunId: hgbCloseRun.id, successorId: nextFiscalYear.id, openingEntryId: openingEntry?.id ?? null } })
     return JSON.parse(snapshot)
   }) } catch (error) {
     if (snapshotStorageKey) {
