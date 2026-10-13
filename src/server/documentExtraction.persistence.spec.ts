@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, test, vi } from 'vitest'
 import { PrismaClient } from '@/generated/prisma/client'
 import type { InvoiceExtractionProvider } from './pdfTextInvoiceProvider'
 
@@ -26,7 +27,7 @@ beforeAll(async () => {
   api = await import('./documentExtraction')
   prisma = (await import('@/server/persistence/client')).prisma
   const content = readFileSync('e2e/fixtures/invoice.pdf')
-  for (const id of ['invoice-a', 'timeout-a']) {
+  for (const id of ['invoice-a', 'timeout-a', 'old-parser-a']) {
     const storageKey = `documents/tenant-a/${id}.pdf`
     mkdirSync(join(storageRoot, 'documents', 'tenant-a'), { recursive: true })
     writeFileSync(join(storageRoot, storageKey), content)
@@ -44,6 +45,31 @@ afterAll(async () => {
 })
 
 describe('persistent document extraction workflow', () => {
+  test('Given unreviewed output from the old PDF parser, when extraction is retried, then fresh facts still require human confirmation', async () => {
+    const inputHash = createHash('sha256').update(readFileSync('e2e/fixtures/invoice.pdf')).digest('hex')
+    await prisma.documentExtraction.create({ data: {
+      ownerId: 'tenant-a', documentId: 'old-parser-a', status: 'NEEDS_REVIEW',
+      provider: 'local-pdf-text', providerVersion: '1', inputHash, attempt: 1,
+      extractedData: JSON.stringify({ netAmountCents: 0, taxAmountCents: 1900, grossAmountCents: 1900 }),
+    } })
+
+    const refreshed = await api.extractDocumentInvoice('tenant-a', 'old-parser-a', 'user-a')
+    expect(refreshed).toMatchObject({
+      status: 'NEEDS_REVIEW', attempt: 2, inputHash, reviewedAt: null,
+      data: { netAmountCents: 10000, taxAmountCents: 1900, grossAmountCents: 11900, provenance: 'PDF_TEXT' },
+    })
+    await expect(prisma.documentExtraction.findUnique({ where: { documentId: 'old-parser-a' } })).resolves.toMatchObject({
+      status: 'NEEDS_REVIEW', reviewedBy: null, reviewedAt: null,
+    })
+
+    await expect(api.confirmDocumentExtraction('tenant-a', 'old-parser-a', 'user-a', refreshed.data)).resolves.toMatchObject({
+      status: 'CONFIRMED', data: { provenance: 'HUMAN_REVIEW', grossAmountCents: 11900 },
+    })
+    await expect(api.extractDocumentInvoice('tenant-a', 'old-parser-a', 'user-a')).resolves.toMatchObject({
+      status: 'CONFIRMED', attempt: 2, data: { provenance: 'HUMAN_REVIEW' },
+    })
+  })
+
   it('Given authoritative structured facts, when review attempts to change them, then mutation is rejected and exact confirmation retains structured provenance', async () => {
     const facts = { supplierName: 'UBL Supplier GmbH', invoiceNumber: 'UBL-1', issueDate: '2026-08-01', netAmountCents: 10_000, taxAmountCents: 1_900, grossAmountCents: 11_900, currency: 'EUR', confidence: { supplierName: 1, invoiceNumber: 1, issueDate: 1, netAmountCents: 1, taxAmountCents: 1, grossAmountCents: 1 }, provenance: 'STRUCTURED_INVOICE' }
     await prisma.documentRecord.create({ data: { id: 'structured-a', ownerId: 'tenant-a', payload: '{}' } })
