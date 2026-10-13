@@ -772,7 +772,7 @@ export function validateDocumentNamespace(source: string, documentNumber: string
 export async function exportEBalance(ownerId: string, year: number, masterData: EBalanceMasterData) {
   const fiscalYear = await prisma.fiscalYear.findUniqueOrThrow({ where: { ownerId_year: { ownerId, year } } })
   const closeGeneration = await requireCurrentFiscalCloseGeneration(prisma, ownerId, fiscalYear)
-  const prepared = await prepareEBalance(ownerId, year, masterData, false)
+  const prepared = await prepareEBalance(ownerId, year, false)
   const { xml, officialArchive, dataset, diagnostics } = prepared
   const archive = createEBalancePackage(xml, year, officialArchive, {
     'export-data.json': JSON.stringify(dataset), 'local-validation.json': JSON.stringify(diagnostics),
@@ -850,8 +850,7 @@ export async function processEBalanceWithEric(
     throw new AccountingValidationError(['Für die sichere Übermittlung fehlt ein gültiger Idempotenzschlüssel.'])
   }
   const idempotencyKey = options.idempotencyKey ?? `validation-${createEricTicket()}`
-  const generationDate = fiscalYear.lockedAt?.toISOString().slice(0, 10) ?? new Date().toISOString().slice(0, 10)
-  const prepared = await prepareEBalance(ownerId, year, masterData, true, generationDate)
+  const prepared = await prepareEBalance(ownerId, year, true)
   const { xml } = prepared
   masterData = prepared.dataset.company
   const payloadHash = hashEricRequest(xml)
@@ -950,7 +949,7 @@ export function mergeSubmissionHistory<T extends { id: string; createdAt: Date }
   return [...merged.values()].sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
 }
 
-async function prepareEBalance(ownerId: string, year: number, _masterData: EBalanceMasterData, remoteSchemaReferences: boolean, _generationDate?: string) {
+async function prepareEBalance(ownerId: string, year: number, remoteSchemaReferences: boolean) {
   const fiscalYear = await prisma.fiscalYear.findUniqueOrThrow({ where: { ownerId_year: { ownerId, year } }, select: { id: true } })
   try { return await prepareAuthoritativeEBalanceExport(ownerId, fiscalYear.id, { remoteSchemaReferences }) }
   catch (error) { throw new AccountingValidationError([error instanceof Error ? error.message : 'E-Bilanz preparation failed.']) }

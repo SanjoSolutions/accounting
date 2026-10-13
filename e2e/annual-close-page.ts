@@ -32,13 +32,13 @@ export class AnnualClosePage {
     const initialYearLoaded = this.page.waitForResponse(response => response.url().includes('/api/booking-records?year=') && response.request().method() === 'GET' && response.ok())
     await this.page.goto('/bookings')
     await initialYearLoaded
-    const yearControl = this.page.getByLabel('Fiscal year')
+    const yearControl = this.page.getByRole('spinbutton', { name: 'Fiscal year', exact: true })
     if (await yearControl.inputValue() !== String(year)) {
       const yearLoaded = this.page.waitForResponse(response => response.url().includes(`/api/booking-records?year=${year}`) && response.request().method() === 'GET' && response.ok())
       await yearControl.fill(String(year))
       await yearLoaded
     }
-    await expect(this.page.getByLabel('Fiscal year')).toHaveValue(String(year))
+    await expect(yearControl).toHaveValue(String(year))
     await expect(this.page.getByRole('combobox', { name: 'Account row 1' })).toBeEnabled()
 
     const uploaded = this.page.waitForResponse(response => response.url().includes('/api/documents') && response.request().method() === 'POST' && response.ok())
@@ -56,8 +56,12 @@ export class AnnualClosePage {
     await this.page.getByLabel('Debit row 1').fill('119')
     await this.selectAccount(2, '8400 · Erlöse 19 % USt')
     await this.page.getByLabel('Credit row 2').fill('119')
-    await this.page.getByRole('button', { name: 'Post', exact: true }).click()
-    await expect(this.page.getByRole('status')).toContainText('transaction has been posted')
+    await this.page.getByRole('button', { name: 'Save to booking batches', exact: true }).click()
+    await expect(this.page.getByRole('status')).toContainText('saved to a booking batch')
+    await this.page.goto(`/booking-batches?year=${year}`)
+    await this.page.getByRole('option', { name: /Revenue for annual close/ }).click()
+    await this.page.getByRole('button', { name: 'Post to journal', exact: true }).click()
+    await expect(this.page.getByRole('status')).toContainText('Booking posted to the journal')
     return (uploadBody.data ?? uploadBody).id as string
   }
 
@@ -65,79 +69,79 @@ export class AnnualClosePage {
     const { year, legalForm, evidenceId, mappingIds } = input
     const nextYear = year + 1
     await this.page.goto(`/annual-close/${year}`)
-    const profile = this.page.locator('details').filter({ hasText: '1. Unternehmensprofil und Größenmerkmale' })
+    const profile = this.page.locator('details').filter({ hasText: '1. Company profile and size facts' })
     await profile.locator('summary').click()
-    await profile.getByLabel('Rechtsform').selectOption(legalForm)
-    await profile.getByLabel('Konzernstatus').selectOption('STANDALONE_NO_EXEMPTION')
+    await profile.getByLabel('Legal form').selectOption(legalForm)
+    await profile.getByLabel('Group status').selectOption('STANDALONE_NO_EXEMPTION')
     for (const [label, value] of [
-      ['In Deutschland registriert', 'true'], ['Unternehmen von öffentlichem Interesse', 'false'], ['Kapitalmarktorientiert oder börsennotiert', 'false'], ['Regulierte Branche', 'false'],
-      ['Liquidations- oder Insolvenzbewertung', 'false'], ['Unternehmensfortführung angemessen', 'true'], ['Gründung oder Umwandlung im Geschäftsjahr', 'false'], ['§ 5a GmbHG anwendbar', 'false'],
-      ['Vorräte vorhanden', 'false'], ['Anlagevermögen vorhanden', 'false'], ['Angaben nach § 268 Abs. 7 unter der Bilanz', 'true'],
-      ['Vorschüsse und Kredite an Geschäftsführung unter der Bilanz', 'true'], ['Zusätzliche Angaben für ein den tatsächlichen Verhältnissen entsprechendes Bild beurteilt', 'true'],
+      ['Registered in Germany', 'true'], ['Public-interest entity', 'false'], ['Capital-market oriented or listed', 'false'], ['Regulated industry', 'false'],
+      ['Liquidation or insolvency basis', 'false'], ['Going concern is appropriate', 'true'], ['Formed or converted in the fiscal year', 'false'], ['GmbHG § 5a applies', 'false'],
+      ['Inventory exists', 'false'], ['Fixed assets exist', 'false'], ['Disclosures under § 268 (7) included below the balance sheet', 'true'],
+      ['Advances and loans to management disclosed below the balance sheet', 'true'], ['Additional disclosures needed for a true-and-fair view assessed', 'true'],
     ] as const) await profile.getByLabel(label).selectOption(value)
-    for (const legend of ['Aktuelles Geschäftsjahr', 'Vorjahr']) {
+    for (const legend of ['Current fiscal year', 'Prior year']) {
       const facts = profile.locator('fieldset').filter({ has: this.page.getByText(legend, { exact: true }) })
-      await facts.getByLabel('Bilanzsumme (Cent)').fill(legend === 'Aktuelles Geschäftsjahr' ? '100' : '90')
-      await facts.getByLabel('Umsatzerlöse (Cent)').fill(legend === 'Aktuelles Geschäftsjahr' ? '100' : '90')
-      for (let quarter = 1; quarter <= 4; quarter++) await facts.getByLabel(`Beschäftigte Quartal ${quarter}`).fill('1')
+      await facts.getByLabel('Balance-sheet total (cents)').fill(legend === 'Current fiscal year' ? '100' : '90')
+      await facts.getByLabel('Revenue (cents)').fill(legend === 'Current fiscal year' ? '100' : '90')
+      for (let quarter = 1; quarter <= 4; quarter++) await facts.getByLabel(`Employees in quarter ${quarter}`).fill('1')
     }
-    await profile.getByLabel('Bisher festgestellte Größenklasse').selectOption('MICRO')
+    await profile.getByLabel('Established prior size').selectOption('MICRO')
 
     const leaves = createHgbStatementRuleSet('MICRO', 'GKV').lines.filter(line => !createHgbStatementRuleSet('MICRO', 'GKV').lines.some(candidate => candidate.parentId === line.id)).map(line => line.id)
     const required: Array<{ kind: HgbWorkpaperKind; fill: () => Promise<void> }> = [
       { kind: 'OPENING_BALANCE', fill: async () => {
-        await this.fill('prior Closing Fingerprint', 'opening-match'); await this.fill('current Opening Fingerprint', 'opening-match'); await this.check('reconciled'); await this.fill('reconciliation Evidence Id', evidenceId)
-        const fieldset = this.workpaper().locator('fieldset').filter({ hasText: 'approved Comparative Leaves' })
-        for (const lineId of leaves) { await fieldset.getByRole('button', { name: 'Zeile hinzufügen' }).click(); const row = fieldset.locator('.card.panel').last(); await row.getByLabel('line Id').fill(lineId); await row.getByLabel('amount Cents').fill('0') }
+        await this.fill('Prior closing fingerprint', 'opening-match'); await this.fill('Current opening fingerprint', 'opening-match'); await this.check('Reconciled'); await this.fill('Reconciliation evidence ID', evidenceId)
+        const fieldset = this.workpaper().locator('fieldset').filter({ hasText: 'Approved comparative leaves' })
+        for (const lineId of leaves) { await fieldset.getByRole('button', { name: 'Add row' }).click(); const row = fieldset.locator('.card.panel').last(); await row.getByLabel('Line ID').fill(lineId); await row.getByLabel('Amount (cents)').fill('0') }
       } },
-      { kind: 'MAPPING_AND_PRESENTATION', fill: async () => { await this.fill('mapping Version Ids', mappingIds.join(', ')); await this.check('all Posting Accounts Mapped Once'); await this.check('presentation Reviewed'); await this.fill('evidence Id', evidenceId) } },
-      { kind: 'RECOGNITION_AND_OWNERSHIP', fill: async () => { const fieldset = this.fieldset('Prüfpositionen'); await fieldset.getByRole('button', { name: 'Zeile hinzufügen' }).click(); const row = fieldset.locator('.card.panel').last(); await row.getByLabel('ID', { exact: true }).fill('revenue-population'); await row.getByLabel('Beschreibung').fill('Revenue and bank population'); await row.getByLabel('ownership Evidence Id').fill(evidenceId); await row.getByLabel('measurement Basis').fill('Nominal amount') } },
-      { kind: 'CUT_OFF_AND_ACCRUAL_DEFERRAL', fill: async () => { await this.fill('tested Before Through', `${year}-12-31`); await this.fill('tested After Through', `${nextYear}-01-15`); await this.fill('population Evidence Id', evidenceId); await this.check('exceptions Resolved') } },
+      { kind: 'MAPPING_AND_PRESENTATION', fill: async () => { await this.fill('Mapping version IDs', mappingIds.join(', ')); await this.check('All posting accounts mapped once'); await this.check('Presentation reviewed'); await this.fill('Evidence ID', evidenceId) } },
+      { kind: 'RECOGNITION_AND_OWNERSHIP', fill: async () => { const fieldset = this.fieldset('Assessed items'); await fieldset.getByRole('button', { name: 'Add row' }).click(); const row = fieldset.locator('.card.panel').last(); await row.getByLabel('ID', { exact: true }).fill('revenue-population'); await row.getByLabel('Description').fill('Revenue and bank population'); await row.getByLabel('Ownership evidence ID').fill(evidenceId); await row.getByLabel('Measurement basis').fill('Nominal amount') } },
+      { kind: 'CUT_OFF_AND_ACCRUAL_DEFERRAL', fill: async () => { await this.fill('Tested through before period end', `${year}-12-31`); await this.fill('Tested through after period end', `${nextYear}-01-15`); await this.fill('Population evidence ID', evidenceId); await this.check('Exceptions resolved') } },
       { kind: 'PROVISIONS_AND_CONTINGENCIES', fill: async () => {} },
       { kind: 'RECEIVABLE_AND_MARKET_VALUATION', fill: async () => {} },
-      { kind: 'SUBSEQUENT_EVENTS', fill: async () => { await this.fill('search Through', `${nextYear}-02-01`); await this.fill('evidence Id', evidenceId) } },
-      { kind: 'GOING_CONCERN', fill: async () => { await this.fill('assessment Through', `${nextYear}-12-31`); await this.fill('forecast Evidence Id', evidenceId); await this.check('going Concern Appropriate') } },
-      { kind: 'POLICY_ELECTIONS', fill: async () => { const fieldset = this.fieldset('Wahlrechte'); await fieldset.getByRole('button', { name: 'Zeile hinzufügen' }).click(); const row = fieldset.locator('.card.panel').last(); await row.getByLabel('ID').fill('gkv'); await row.getByLabel('policy').selectOption('TOTAL_COST_PNL'); await row.getByLabel('selected').check(); await row.getByLabel('Begründung').fill('Reviewed total-cost method') } },
-      { kind: 'GMBH_EQUITY_AND_RESULT', fill: async () => { await this.fill('result Cents', '100'); await this.check('equity Reconciled'); await this.fill('evidence Id', evidenceId) } },
-      { kind: 'MICRO_NOTES_OMISSION', fill: async () => { await this.check('section268 Paragraph7 Disclosed'); await this.check('management Loans Disclosed'); await this.check('additional True And Fair Disclosure Assessed'); await this.fill('evidence Id', evidenceId) } },
+      { kind: 'SUBSEQUENT_EVENTS', fill: async () => { await this.fill('Search through', `${nextYear}-02-01`); await this.fill('Evidence ID', evidenceId) } },
+      { kind: 'GOING_CONCERN', fill: async () => { await this.fill('Assessment through', `${nextYear}-12-31`); await this.fill('Forecast evidence ID', evidenceId); await this.check('Going-concern assessment appropriate') } },
+      { kind: 'POLICY_ELECTIONS', fill: async () => { const fieldset = this.fieldset('Policy elections'); await fieldset.getByRole('button', { name: 'Add row' }).click(); const row = fieldset.locator('.card.panel').last(); await row.getByLabel('ID').fill('gkv'); await row.getByLabel('Policy').selectOption('TOTAL_COST_PNL'); await row.getByLabel('Selected').check(); await row.getByLabel('Rationale').fill('Reviewed total-cost method') } },
+      { kind: 'GMBH_EQUITY_AND_RESULT', fill: async () => { await this.fill('Result (cents)', '100'); await this.check('Equity reconciled'); await this.fill('Evidence ID', evidenceId) } },
+      { kind: 'MICRO_NOTES_OMISSION', fill: async () => { await this.check('§ 268 (7) disclosures below balance sheet'); await this.check('Management loans disclosed below balance sheet'); await this.check('Additional true-and-fair disclosures assessed'); await this.fill('Evidence ID', evidenceId) } },
       { kind: 'SIZE_AND_APPLICABILITY', fill: async () => { const schedule = this.workpaper().locator('[data-field-key="schedule"]'); const field = (key: string) => schedule.locator(`:scope > .hgb-fields > [data-field-key="${key}"]`); await field('legalForm').locator('select').selectOption(legalForm); await field('establishedSize').locator('select').selectOption('MICRO'); await field('currentFactsEvidenceId').locator('input').fill(evidenceId); await field('priorFactsEvidenceId').locator('input').fill(evidenceId); await field('standaloneNoExemption').locator('input').check(); await field('nonPieUnlistedUnregulated').locator('input').check() } },
     ]
     for (const paper of required) {
-      await this.page.getByLabel('Arbeitspapier').selectOption(paper.kind)
-      await this.fill('Nachweise', evidenceId)
-      await this.fill('Begründung', 'Reviewed against complete evidence population')
+      await this.page.getByLabel('Workpaper type').selectOption(paper.kind)
+      await this.fill('Evidence references', evidenceId)
+      await this.fill('Rationale', 'Reviewed against complete evidence population')
       await paper.fill()
-      await this.page.getByRole('button', { name: 'Entwurf speichern' }).click()
-      await expect(this.page.getByRole('button', { name: 'Als erstellt kennzeichnen' })).toBeVisible()
-      await this.page.getByRole('button', { name: 'Als erstellt kennzeichnen' }).click()
-      await expect(this.page.getByLabel('Prüfvermerk')).toBeVisible()
+      await this.page.getByRole('button', { name: 'Save draft' }).click()
+      await expect(this.page.getByRole('button', { name: 'Mark as prepared' })).toBeVisible()
+      await this.page.getByRole('button', { name: 'Mark as prepared' }).click()
+      await expect(this.page.getByLabel('Review note')).toBeVisible()
     }
   }
 
   async approvePreparedWorkpapers(year: number, kinds: HgbWorkpaperKind[]) {
     await this.page.goto(`/annual-close/${year}`)
     for (const kind of kinds) {
-      await this.page.getByLabel('Arbeitspapier').selectOption(kind)
-      await this.page.getByLabel('Prüfvermerk').fill('Independent HGB acceptance review')
-      await this.page.getByRole('button', { name: 'Unabhängig freigeben' }).click()
-      await expect(this.page.getByRole('button', { name: 'Unabhängig freigeben' })).toBeHidden()
+      await this.page.getByLabel('Workpaper type').selectOption(kind)
+      await this.page.getByLabel('Review note').fill('Independent HGB acceptance review')
+      await this.page.getByRole('button', { name: 'Approve independently' }).click()
+      await expect(this.page.getByRole('button', { name: 'Approve independently' })).toBeHidden()
     }
   }
 
   async evaluateReadyClose(year: number, input: { evidenceId: string; signedAt: string }) {
     await this.page.goto(`/annual-close/${year}`)
-    const details = this.page.locator('details').filter({ hasText: '3. Unterschriften, Feststellung und Abschlusslauf' })
+    const details = this.page.locator('details').filter({ hasText: '3. Signatures, annual-accounts adoption and close run' })
     await details.locator('summary').click()
-    await details.getByLabel('Vertreter-IDs').fill('director-1')
-    await details.getByLabel('Unterschriftnachweis-IDs').fill(input.evidenceId)
-    await details.getByLabel('Unterzeichnet am').fill(input.signedAt)
-    await details.getByLabel('Gesellschafterbeschluss-ID').fill(input.evidenceId)
-    await details.getByLabel('Grund des Abschlusslaufs').fill('Final HGB close acceptance')
-    await details.getByRole('button', { name: 'HGB-Abschlusslauf auswerten' }).click()
-    await expect(this.page.getByText('READY_TO_LOCK', { exact: true })).toBeVisible()
+    await details.getByLabel('Legal representative IDs').fill('director-1')
+    await details.getByLabel('Signature-evidence IDs').fill(input.evidenceId)
+    await details.getByLabel('Signed at').fill(input.signedAt)
+    await details.getByLabel('Shareholder resolution ID').fill(input.evidenceId)
+    await details.getByLabel('Close-run reason').fill('Final HGB close acceptance')
+    await details.getByRole('button', { name: 'Evaluate HGB close run' }).click()
+    await expect(this.page.getByText('Ready to lock', { exact: true })).toBeVisible()
   }
 
-  private workpaper() { return this.page.locator('details').filter({ hasText: '2. Arbeitspapiere und Bewertung' }) }
+  private workpaper() { return this.page.locator('details').filter({ hasText: '2. Workpapers and assessment' }) }
   private fieldset(legend: string) { return this.workpaper().locator('fieldset').filter({ has: this.page.getByText(legend, { exact: true }) }) }
   private async fill(label: string, value: string) { await this.workpaper().getByLabel(label, { exact: true }).first().fill(value) }
   private async select(label: string, value: string) { await this.workpaper().getByLabel(label, { exact: true }).first().selectOption(value) }
@@ -155,7 +159,7 @@ export class AnnualClosePage {
 
   async lockReadyFiscalYear(year: number) {
     await this.page.goto(`/annual-close/${year}`)
-    await expect(this.page.getByText('READY_TO_LOCK', { exact: false })).toBeVisible()
+    await expect(this.page.getByText('Ready to lock', { exact: false })).toBeVisible()
     const button = this.page.getByRole('button', { name: 'Review & lock' })
     await expect(button).toBeEnabled()
     this.page.once('dialog', dialog => dialog.accept())

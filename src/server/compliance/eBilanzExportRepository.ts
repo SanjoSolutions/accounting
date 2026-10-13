@@ -138,12 +138,12 @@ export function serializePreparedEBalanceEvidence(prepared: Awaited<ReturnType<t
 
 /** Legacy internal evidence is retained, but can never become a current filing. */
 export async function assertCurrentEBalanceReport(client: Client, ownerId: string, report: { reportPayload: string; reportXml: string; reportChecksum: string; closeGenerationId: string | null }) {
-  const payload = JSON.parse(report.reportPayload) as ReturnType<typeof JSON.parse>
-  if (payload.format !== 'OFFICIAL_XBRL' || payload.dataset?.schemaVersion !== 'EBILANZ_EXPORT_V1'
+  const payload = JSON.parse(report.reportPayload) as { format?: string; dataset?: EBalanceExportDataset; datasetChecksum?: string; evidenceChecksum?: string; diagnostics?: { reportChecksum?: string; level?: string; valid?: boolean } } | null
+  if (payload?.format !== 'OFFICIAL_XBRL' || payload.dataset?.schemaVersion !== 'EBILANZ_EXPORT_V1' || typeof payload.evidenceChecksum !== 'string'
     || payload.dataset.closeGenerationId !== report.closeGenerationId
     || payload.datasetChecksum !== eBalanceChecksum(canonicalJson(payload.dataset))
     || payload.diagnostics?.reportChecksum !== report.reportChecksum || eBalanceChecksum(report.reportXml) !== report.reportChecksum
     || payload.diagnostics?.level !== 'LOCAL_STRUCTURAL' || payload.diagnostics?.valid !== true) throw new Error('Report has no verified official filing dataset. Regenerate the retained internal evidence.')
   if (report.reportXml !== serializeEBalanceFilingXml(payload.dataset) && report.reportXml !== serializeEBalanceFilingXml(payload.dataset, true)) throw new Error('Report XML differs from its retained dataset.')
-  await assertCurrentEBalanceExport(client, ownerId, payload)
+  await assertCurrentEBalanceExport(client, ownerId, { dataset: payload.dataset, evidenceChecksum: payload.evidenceChecksum })
 }
