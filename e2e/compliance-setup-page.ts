@@ -27,8 +27,8 @@ export class ComplianceSetupPage {
     await this.fillSettled(section, 'Business activity', 'Software')
     await this.fillSettled(section, 'Authoritative chart', 'CUSTOM:HGB-MICRO')
     await this.fillSettled(section, 'Profile effective from', `${input.year - 1}-01-01`)
-    await this.fillSettled(section, 'Amtlicher Gemeindeschlüssel (8 Stellen)', '11000000')
-    await this.fillSettled(section, 'Gewerbesteuer-Hebesatz (%)', '410')
+    await this.fillSettled(section, 'Official municipality code (8 digits)', '11000000')
+    await this.fillSettled(section, 'Trade-tax multiplier (%)', '410')
     await this.fillSettled(section, 'Change reason', 'Verified company register and master data')
   }
 
@@ -77,7 +77,7 @@ export class ComplianceSetupPage {
   }
 
   async configureReviewPolicy(ownerId: string, reviewerId: string) {
-    const section = this.page.locator('fieldset').filter({ hasText: 'Jurisdiction, reviewers and recovery policy' })
+    const section = this.page.locator('fieldset').filter({ hasText: 'Storage jurisdiction and recovery policy' })
     await section.getByLabel('Operator user IDs').fill(`${ownerId}, ${reviewerId}`)
     await section.getByLabel('Allowed storage regions').fill('DE')
     await section.getByLabel('Recovery point objective (minutes)').fill('60')

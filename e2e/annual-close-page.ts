@@ -32,13 +32,13 @@ export class AnnualClosePage {
     const initialYearLoaded = this.page.waitForResponse(response => response.url().includes('/api/booking-records?year=') && response.request().method() === 'GET' && response.ok())
     await this.page.goto('/bookings')
     await initialYearLoaded
-    const yearControl = this.page.getByLabel('Fiscal year')
+    const yearControl = this.page.getByRole('spinbutton', { name: 'Fiscal year', exact: true })
     if (await yearControl.inputValue() !== String(year)) {
       const yearLoaded = this.page.waitForResponse(response => response.url().includes(`/api/booking-records?year=${year}`) && response.request().method() === 'GET' && response.ok())
       await yearControl.fill(String(year))
       await yearLoaded
     }
-    await expect(this.page.getByLabel('Fiscal year')).toHaveValue(String(year))
+    await expect(yearControl).toHaveValue(String(year))
     await expect(this.page.getByRole('combobox', { name: 'Account row 1' })).toBeEnabled()
 
     const uploaded = this.page.waitForResponse(response => response.url().includes('/api/documents') && response.request().method() === 'POST' && response.ok())
@@ -56,8 +56,13 @@ export class AnnualClosePage {
     await this.page.getByLabel('Debit row 1').fill('119')
     await this.selectAccount(2, '8400 · Erlöse 19 % USt')
     await this.page.getByLabel('Credit row 2').fill('119')
-    await this.page.getByRole('button', { name: 'Post', exact: true }).click()
-    await expect(this.page.getByRole('status')).toContainText('transaction has been posted')
+    const saved = this.page.waitForResponse(response => response.url().endsWith('/api/booking-records') && response.request().method() === 'POST')
+    await this.page.getByRole('button', { name: 'Save to booking batches', exact: true }).click()
+    const savedResponse = await saved
+    expect(savedResponse.ok(), await savedResponse.text()).toBeTruthy()
+    const draft = await savedResponse.json()
+    const posted = await this.page.request.post(`/api/booking-batches/${draft.id}/post`, { data: { reason: 'Post synthetic annual-close fixture' } })
+    expect(posted.ok(), await posted.text()).toBeTruthy()
     return (uploadBody.data ?? uploadBody).id as string
   }
 
