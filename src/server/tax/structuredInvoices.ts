@@ -248,6 +248,7 @@ async function claimInvoiceIssuance(ownerId: string, requestKey: string, fingerp
   if (!/^[A-Za-z0-9._:-]{16,100}$/.test(requestKey)) throw new EInvoiceValidationError(['A canonical 16-100 character invoice issuance request key is required.'])
   const requestHash = createHash('sha256').update(stableJson(fingerprint)).digest('hex')
   const resolve = async (request: { id: string; requestHash: string; status: string; reservationId: string | null; storageKey: string | null; structuredInvoiceId: string | null; updatedAt: Date }) => {
+    if (request.status === 'REJECTED') throw new EInvoiceValidationError(['This invoice request was rejected. Submit corrected data with a new request key.'])
     if (request.requestHash !== requestHash) throw new EInvoiceValidationError(['The invoice issuance request key is already bound to different invoice data.'])
     if (request.structuredInvoiceId) {
       const invoice = await prisma.structuredInvoice.findFirst({ where: { id: request.structuredInvoiceId, ownerId }, select: structuredInvoiceMetadataSelect })

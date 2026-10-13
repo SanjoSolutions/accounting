@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ write: vi.fn(), delete: vi.fn(), transaction: vi.fn(), rendering: vi.fn(), list: vi.fn(), sequences: vi.fn(), void: vi.fn(), account: vi.fn(), issuanceFind: vi.fn(), issuanceCreate: vi.fn(), issuanceUpdate: vi.fn(), fiscalYears: vi.fn(), ledgerProfile: vi.fn(), ledgerAccounts: vi.fn() }))
 vi.mock('server-only', () => ({}))
@@ -17,6 +17,13 @@ function validOutgoingInput() {
 
 describe('structured invoice persistence boundary', () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.delete.mockResolvedValue(undefined); mocks.void.mockResolvedValue({ count: 1 }); mocks.issuanceFind.mockResolvedValue(null); mocks.issuanceCreate.mockResolvedValue({ id: 'issuance-request-1' }); mocks.issuanceUpdate.mockResolvedValue({ count: 1 }); mocks.fiscalYears.mockResolvedValue([{ id: 'fy-a' }]); mocks.ledgerProfile.mockResolvedValue({ chart: 'SKR03', accountLength: 4 }); mocks.ledgerAccounts.mockResolvedValue([{ number: 1400, category: 'ASSET' }, { number: 1771, category: 'LIABILITY' }, { number: 1776, category: 'LIABILITY' }, { number: 8300, category: 'REVENUE' }, { number: 8400, category: 'REVENUE' }]); mocks.account.mockResolvedValue({ payload: JSON.stringify({ invoiceIssuer: { name: 'Seller GmbH', streetAndHouseNumber: 'Main 1', zipCode: '10115', city: 'Berlin', country: 'DE', contactName: 'Accounts receivable', contactTelephone: '+49 30 123456', contactEmail: 'billing@example.de' }, companyProfile: { companyName: 'Seller GmbH', taxNumber: '12/345/67890', vatId: 'DE123456789' } }) }) })
+
+  test('Given a retired request key, when a delayed issuance reaches the claim, then it cannot allocate or store an invoice', async () => {
+    mocks.issuanceFind.mockResolvedValue({ id: 'retired-request', requestHash: 'retired', status: 'REJECTED', structuredInvoiceId: null })
+    await expect(issueStructuredInvoice('tenant-a', validOutgoingInput(), 'retired-request-key-01')).rejects.toThrow(/request was rejected/)
+    expect(mocks.transaction).not.toHaveBeenCalled()
+    expect(mocks.write).not.toHaveBeenCalled()
+  })
 
   it('validates representative EN-16931 XML while preserving the exact original bytes and provenance', () => {
     const bytes = readFileSync(resolve('src/core/data_fixtures/eInvoice/valid-ubl.xml'))

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { buildStructuredInvoiceRequest, calculateInvoiceTotals, euroToCents, isValidIban } from './structuredInvoiceForm'
+import { describe, expect, it, test } from 'vitest'
+import { buildCreditNoteRequest, buildStructuredInvoiceRequest, calculateInvoiceTotals, euroToCents, isValidIban } from './structuredInvoiceForm'
 
 describe('structured UBL invoice form arithmetic', () => {
   it('Given German or dot decimal input, when converted, then exact integer cents are retained', () => {
@@ -31,5 +31,16 @@ describe('structured UBL invoice request', () => {
     expect(isValidIban('DE89370400440532013000')).toBe(true)
     expect(() => buildStructuredInvoiceRequest({ ...values, paymentIban: 'DE00370400440532013000' })).toThrow(/IBAN/)
     expect(() => buildStructuredInvoiceRequest({ ...values, lines: [{ ...values.lines[0], quantity: '0' }] })).toThrow(/positive/)
+  })
+})
+
+
+describe('credit-note request capture', () => {
+  const values = { issueDate: '2026-08-05', description: 'Partial credit', net: '20.00', rate: '19', template: { data: { buyer: { name: 'Synthetic buyer' }, currency: 'EUR', lines: [{ taxRateBasisPoints: 1900, unitCode: 'C62' }] }, buyerReference: 'TEST', buyerElectronicAddress: { schemeId: 'EM' as const, value: 'buyer@example.test' }, paymentTerms: '14 days', paymentIban: 'DE89370400440532013000' } }
+  test('Given a partial credit, when its intent is captured, then exact amounts, dates and source payment terms are retained', () => {
+    expect(buildCreditNoteRequest(values, 'credit-ui-request-01')).toMatchObject({ kind: 'credit-note', requestKey: 'credit-ui-request-01', issueDate: '2026-08-05', supplyDate: '2026-08-05', netAmountCents: 2000, taxAmountCents: 380, grossAmountCents: 2380, buyerReference: 'TEST', lines: [{ description: 'Partial credit', netAmountCents: 2000 }] })
+  })
+  test.each([{ net: '0' }, { net: 'NaN' }, { net: '1.001' }, { rate: '20' }, { issueDate: '2026-02-30' }, { description: '  ' }])('Given invalid credit facts %j, when preparing an intent, then no request is captured', invalid => {
+    expect(() => buildCreditNoteRequest({ ...values, ...invalid }, 'credit-ui-request-01')).toThrow()
   })
 })

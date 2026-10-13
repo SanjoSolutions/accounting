@@ -912,6 +912,9 @@
     "value": "Wert"
   },
   "StructuredInvoices": {
+    "pendingTitle": "Offene Rechnungsanfrage bestätigen",
+    "pendingHelp": "Das Ergebnis ist noch nicht bestätigt. Wiederholen Sie die gespeicherte Anfrage, bevor Sie Angaben ändern oder eine weitere Rechnung oder Gutschrift erstellen.",
+    "retryRequest": "Gespeicherte Anfrage wiederholen",
     "creditNote": "Gutschrift erstellen",
     "newCredit": "Gutschrift zu {number}",
     "creditReason": "Gutschriftsgrund",

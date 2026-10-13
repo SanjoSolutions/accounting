@@ -912,6 +912,9 @@
     "value": "Value"
   },
   "StructuredInvoices": {
+    "pendingTitle": "Confirm pending invoice request",
+    "pendingHelp": "The result is not confirmed. Retry the saved request before changing details or issuing another invoice or credit note.",
+    "retryRequest": "Retry saved request",
     "creditNote": "Issue credit note",
     "newCredit": "Credit note for {number}",
     "creditReason": "Credit reason",
