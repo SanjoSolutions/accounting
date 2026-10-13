@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { SaxesParser } from 'saxes'
 import { canonicalJson } from './auditExport'
 import { hasDenseNonblankStrings, hasDenseOwnElements, hasStrictEvidenceIds } from './validation'
 import { compareCanonicalText, compareDottedVersions } from './deterministicOrder'
@@ -68,6 +69,13 @@ export function createEBalanceReport(profile: EBalanceProfile, taxonomy: Taxonom
   const payloadEvidence = canonicalPayloadEvidence(canonicalPayload)
   if (!containsCanonicalPayloadEvidence(content, payloadEvidence)) throw new Error('E-Bilanz serializer output must contain the exact canonical report payload evidence.')
   if (!containsExactCanonicalXbrlBody(content, createEBalanceSemanticFacts(serializerPayload), payloadEvidence)) throw new Error('Serialized XBRL must contain exactly the canonical schema reference, contexts, unit, report facts and payload evidence without additional semantic content.')
+  // A serializer's assertion is not a parser result. Parse the exact string
+  // before UTF-8 encoding can silently replace an unpaired surrogate.
+  try {
+    if (Buffer.from(content, 'utf8').toString('utf8') !== content) throw new Error('Lossy UTF-8 encoding')
+    new SaxesParser({ xmlns: true }).write(content).close()
+  }
+  catch { throw new Error('E-Bilanz output must be well-formed namespace-aware XML.') }
   return { payload: returnedPayload, content, transmittedBytes: new TextEncoder().encode(content), checksum: createHash('sha256').update(content, 'utf8').digest('hex') }
 }
 export interface EBalanceDiagnostic { code: string; severity: string; message: string; path?: string }
@@ -77,6 +85,10 @@ export interface EBalanceSubmissionVersion { id: string; version: number; report
 interface NormalizedEricReceipt { receivedAt: string; transmissionId: string; reportChecksum: string; status: 'ACCEPTED' | 'REJECTED'; diagnostics: readonly EBalanceDiagnostic[] }
 export interface EricSubmissionAuthority { readonly __ericSubmissionAuthority: unique symbol }
 export interface EricSubmissionStateAuthenticator { keyId: string; sign(payload: string): string; verify(payload: string, signature: string, keyId: string): boolean }
+/** Trusted per-authority durable store. Atomically compare the head and persist the
+ * complete signed snapshot with its new revision. The authority's monotonic head
+ * must survive restart and signing-key rotation; keyId must not reset the stream.
+ * Return false on a stale head, and never acknowledge an uncommitted snapshot. */
 export interface EricSubmissionRevisionStore { currentRevision(keyId: string): number; commitSnapshot(keyId: string, expectedRevision: number, snapshot: EricSubmissionStateSnapshot): boolean }
 export interface EricSubmissionStateSnapshot { version: 1; revision: number; submissions: readonly EBalanceSubmissionVersion[]; transmissions: readonly { transmissionId: string; submissionId: string }[]; authenticity: { keyId: string; signature: string } }
 interface EricSubmissionState { revision: number; submissions: Map<string, EBalanceSubmissionVersion>; transmissions: Map<string, string> }
@@ -159,14 +171,55 @@ function hydrateEricSubmissionState(snapshotValue: unknown, authenticatorValue: 
     if (!canonicalIdentifier(entry.transmissionId) || !canonicalIdentifier(entry.submissionId) || transmissions.has(entry.transmissionId) || !submissions.has(entry.submissionId)) throw new Error('ERiC transmission ownership is malformed, duplicated or orphaned.')
     transmissions.set(entry.transmissionId, entry.submissionId)
   }
+  const receipts = new Map<string, NormalizedEricReceipt>()
   for (const submission of submissions.values()) {
     if (submission.immutableReceipt === undefined) continue
     let receiptValue: unknown; try { receiptValue = JSON.parse(submission.immutableReceipt) } catch { throw new Error('ERiC submission state contains a malformed immutable receipt.') }
     const receipt = normalizeReceipt(receiptValue)
+    if (canonicalJson(receipt) !== submission.immutableReceipt) throw new Error('ERiC submission state receipt must use exact canonical bytes without undeclared fields.')
     if (receipt.reportChecksum !== submission.reportChecksum || transmissions.get(receipt.transmissionId) !== submission.id || (submission.status === 'REJECTED' ? receipt.status !== 'REJECTED' : receipt.status !== 'ACCEPTED')) throw new Error('ERiC submission state receipt and transmission ownership do not reconcile.')
+    receipts.set(submission.id, receipt)
   }
   if ([...transmissions].some(([transmissionId, submissionId]) => { const receipt = submissions.get(submissionId)?.immutableReceipt; return !receipt || (JSON.parse(receipt) as { transmissionId?: unknown }).transmissionId !== transmissionId })) throw new Error('ERiC submission state contains transmission ownership without its immutable receipt.')
+  validateHydratedSupersession(submissions, receipts)
   return { revision: snapshot.revision as number, submissions, transmissions }
+}
+
+function validateHydratedSupersession(submissions: ReadonlyMap<string, EBalanceSubmissionVersion>, receipts: ReadonlyMap<string, NormalizedEricReceipt>) {
+  const children = new Map<string, EBalanceSubmissionVersion[]>()
+  const invalid = () => { throw new Error('ERiC submission state contains an invalid supersession chain or receipt chronology.') }
+  for (const submission of submissions.values()) {
+    if (submission.supersedesId === undefined) {
+      // Initial prepared requests are not authority state until a receipt has
+      // been recorded. Only createAmendedSubmission reserves a prepared row.
+      if (submission.status === 'PREPARED') invalid()
+      continue
+    }
+    if (!canonicalIdentifier(submission.supersedesId)) invalid()
+    const parent = submissions.get(submission.supersedesId)
+    if (!parent || !['ACCEPTED', 'SUPERSEDED'].includes(parent.status)
+      || submission.version <= parent.version
+      || submission.id !== `${parent.id}:amendment:${submission.version}`) invalid()
+    children.set(submission.supersedesId, [...(children.get(submission.supersedesId) ?? []), submission])
+  }
+  for (const parent of submissions.values()) {
+    const attempts = (children.get(parent.id) ?? []).sort((a, b) => a.version - b.version)
+    let lastReceivedAt = receipts.has(parent.id) ? Date.parse(receipts.get(parent.id)!.receivedAt) : Number.NEGATIVE_INFINITY
+    for (let index = 0; index < attempts.length; index++) {
+      const attempt = attempts[index]
+      if (attempt.version !== parent.version + index + 1
+        || (index < attempts.length - 1 && attempt.status !== 'REJECTED')) invalid()
+      const receipt = receipts.get(attempt.id)
+      if (receipt) {
+        const receivedAt = Date.parse(receipt.receivedAt)
+        if (receivedAt <= lastReceivedAt) invalid()
+        lastReceivedAt = receivedAt
+      }
+    }
+    const successor = attempts.at(-1)
+    const hasAcceptedSuccessor = successor?.status === 'ACCEPTED' || successor?.status === 'SUPERSEDED'
+    if ((parent.status === 'SUPERSEDED') !== hasAcceptedSuccessor) invalid()
+  }
 }
 function captureEricStateAuthenticator(value: unknown, operation: 'sign' | 'verify') { const adapter = captureOwnDataRecord(value, ['keyId', 'sign', 'verify'], [], 'ERiC state authenticator'); if (typeof adapter.keyId !== 'string' || !adapter.keyId.trim() || typeof adapter.sign !== 'function' || typeof adapter.verify !== 'function') throw new Error(`ERiC state authenticator must provide a keyId plus sign and verify functions for ${operation}.`); return adapter as unknown as EricSubmissionStateAuthenticator }
 function captureEricRevisionStore(value: unknown) { const store = captureOwnDataRecord(value, ['currentRevision', 'commitSnapshot'], [], 'ERiC state revision store'); if (typeof store.currentRevision !== 'function' || typeof store.commitSnapshot !== 'function') throw new Error('ERiC state revision store is malformed.'); return store as unknown as EricSubmissionRevisionStore }

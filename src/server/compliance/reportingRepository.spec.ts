@@ -18,6 +18,8 @@ vi.mock('@/server/persistence/client', () => ({ prisma: { ...mocks.transaction, 
 vi.mock('@/server/compliance/objectStorage', () => ({ persistComplianceObject: mocks.persist }))
 vi.mock('@/server/storage', () => ({ getDocumentStorage: () => ({ delete: mocks.remove }) }))
 vi.mock('@/server/compliance/auditPersistence', () => ({ appendAuditEvent: mocks.audit }))
+vi.mock('./retainedReportingPackage', async importOriginal => ({ ...await importOriginal<typeof import('./retainedReportingPackage')>(), readRetainedReportingPackage: vi.fn() }))
+vi.mock('./closeEvidence', async importOriginal => ({ ...await importOriginal<typeof import('./closeEvidence')>(), loadVerifiedCloseEvidence: vi.fn(async () => ({ evidence: [], missingEvidenceIds: [] })) }))
 vi.mock('@/core/hgbWorkpapers', () => ({ validateHgbWorkpaper: (value: unknown) => value, hgbWorkpaperChecksum: () => 'trusted-checksum' }))
 vi.mock('./runtime', () => ({ ComplianceRuntimeError: class ComplianceRuntimeError extends Error { constructor(message: string, readonly status = 400) { super(message) } } }))
 
@@ -116,18 +118,17 @@ describe('reporting compliance repository', () => {
       { kind: 'OPENING_BALANCE', schedule: { type: 'OPENING_BALANCE', approvedComparativeLeaves: expectedLeaves } },
       ...['MAPPING_AND_PRESENTATION', 'RECOGNITION_AND_OWNERSHIP', 'CUT_OFF_AND_ACCRUAL_DEFERRAL', 'PROVISIONS_AND_CONTINGENCIES', 'RECEIVABLE_AND_MARKET_VALUATION'].map(kind => ({ kind, schedule: { type: kind } })),
     ].map((payload, index) => ({ id: `wp-${index}`, kind: payload.kind, version: 1, status: 'REVIEWED', checksum: 'trusted-checksum', payload: JSON.stringify(payload) }))
-    const entry = (amount: number) => ({ state: 'POSTED', lines: [
-      { accountId: 'bank', debitCents: amount, creditCents: 0, account: { number: 1200 } },
-      { accountId: 'revenue', debitCents: 0, creditCents: amount, account: { number: 8400 } },
+    const entry = (amount: number) => ({ id: `entry-${amount}`, state: 'POSTED', lines: [
+      { id: 'bank-line', accountId: 'bank', debitCents: amount, creditCents: 0, account: { number: 1200 } },
+      { id: 'revenue-line', accountId: 'revenue', debitCents: 0, creditCents: amount, account: { number: 8400 } },
     ] })
-    mocks.transaction.fiscalYear.findFirst
-      .mockResolvedValueOnce({ id: 'fy-2025', ownerId: 'tenant-a', year: 2025, startsAt: new Date('2025-01-01Z'), endsAt: new Date('2025-12-31Z') })
-      .mockResolvedValueOnce({ id: 'fy-2024', year: 2024, startsAt: new Date('2024-01-01Z'), endsAt: new Date('2024-12-31Z'), journalEntries: [entry(90)] })
-      .mockResolvedValueOnce({ id: 'fy-2025', year: 2025, startsAt: new Date('2025-01-01Z'), endsAt: new Date('2025-12-31Z'), journalEntries: [entry(100)] })
+    mocks.transaction.fiscalYear.findFirst.mockImplementation(async ({ where }: { where: { endsAt?: unknown } }) => where.endsAt
+      ? { id: 'fy-2024', year: 2024, startsAt: new Date('2024-01-01Z'), endsAt: new Date('2024-12-31Z'), journalEntries: [entry(90)] }
+      : { id: 'fy-2025', ownerId: 'tenant-a', year: 2025, startsAt: new Date('2025-01-01Z'), endsAt: new Date('2025-12-31Z'), journalEntries: [entry(100)] })
     mocks.transaction.companyProfileVersion.findFirst.mockResolvedValue({ payload: JSON.stringify({ chart: 'CUSTOM:HGB', companyName: 'Example GmbH', legalForm: 'GMBH', registerCourt: 'Berlin', registerNumber: 'HRB 1', registeredAddress: { city: 'Berlin' } }) })
     mocks.transaction.accountMappingVersion.findMany.mockResolvedValue([
-      { accountNumber: 1200, hgbPosition: 'BS.A.B', normalBalance: 'DEBIT', presentationSign: 1, effectiveFrom: new Date('2024-01-01Z'), effectiveTo: new Date('2025-12-31Z') },
-      { accountNumber: 8400, hgbPosition: 'IS.M.1', normalBalance: 'CREDIT', presentationSign: 1, effectiveFrom: new Date('2024-01-01Z'), effectiveTo: new Date('2025-12-31Z') },
+      { id: 'map-bank', accountNumber: 1200, hgbPosition: 'BS.A.B', normalBalance: 'DEBIT', presentationSign: 1, effectiveFrom: new Date('2024-01-01Z'), effectiveTo: new Date('2025-12-31Z') },
+      { id: 'map-revenue', accountNumber: 8400, hgbPosition: 'IS.M.1', normalBalance: 'CREDIT', presentationSign: 1, effectiveFrom: new Date('2024-01-01Z'), effectiveTo: new Date('2025-12-31Z') },
     ])
     mocks.transaction.hgbWorkpaperRecord.findMany.mockResolvedValue(workpapers)
     mocks.transaction.hgbAdjustmentRecord.findMany.mockResolvedValue([])

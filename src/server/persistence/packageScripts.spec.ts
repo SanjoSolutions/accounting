@@ -64,7 +64,7 @@ describe('Prisma development startup', () => {
     expect(gitignore).toContain('/roles-playwright.db*')
   })
 
-  it('keeps Prisma runtime packages aligned and forces the patched transitive URL parser', () => {
+  test('Given the security-patched dependency policy, when runtime and test packages are installed, then Prisma and coverage stay aligned and vulnerable versions stay excluded', () => {
     const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as { dependencies: Record<string, string>; devDependencies: Record<string, string> }
     const workspaceConfig = readFileSync(resolve(process.cwd(), 'pnpm-workspace.yaml'), 'utf8')
 
@@ -72,8 +72,10 @@ describe('Prisma development startup', () => {
     expect(packageJson.dependencies['@prisma/adapter-better-sqlite3']).toBe('^7.9.1')
     expect(packageJson.dependencies.prisma).toBe('^7.9.1')
     expect(packageJson.devDependencies.prisma).toBeUndefined()
-    expect(packageJson.dependencies.next).toBe('^16.3.0')
-    expect(workspaceConfig).toMatch(/overrides:\s+[\s\S]*fast-uri: 3\.1\.5/)
+    expect(packageJson.dependencies.next).toBe('^16.3.8')
+    expect(packageJson.devDependencies['@vitest/coverage-v8']).toBe(packageJson.devDependencies['@vitest/ui'])
+    expect(packageJson.devDependencies.vitest).toBe(`^${packageJson.devDependencies['@vitest/coverage-v8']}`)
+    expect(workspaceConfig).toMatch(/overrides:\s+[\s\S]*fast-uri: 3\.1\.8/)
   })
 
   it('provides enforced type, coverage, build and no-mock browser quality gates', () => {

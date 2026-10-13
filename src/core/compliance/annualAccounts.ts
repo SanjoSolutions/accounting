@@ -11,6 +11,10 @@ export interface Approval { approvedBy: readonly string[]; approvedAt: string; e
 export interface AnnualAccountsPackage { id: string; version: number; status: 'PREPARED' | 'APPROVED' | 'SUPERSEDED'; immutablePayload: string; checksum: string; approval?: Approval; supersedesId?: string }
 export interface AnnualApprovalAuthority { readonly __annualApprovalAuthority: unique symbol }
 export interface AnnualApprovalStateAuthenticator { keyId: string; sign(payload: string): string; verify(payload: string, signature: string, keyId: string): boolean }
+/** Trusted per-authority durable store. Atomically compare the head and persist the
+ * complete signed snapshot with its new revision. The authority's monotonic head
+ * must survive restart and signing-key rotation; keyId must not reset the stream.
+ * Return false on a stale head, and never acknowledge an uncommitted snapshot. */
 export interface AnnualApprovalRevisionStore { currentRevision(keyId: string): number; commitSnapshot(keyId: string, expectedRevision: number, snapshot: AnnualApprovalStateSnapshot): boolean }
 export interface AnnualApprovalStateSnapshot { version: 1; revision: number; packages: readonly AnnualAccountsPackage[]; activePackageIds: readonly string[]; authenticity: { keyId: string; signature: string } }
 interface AnnualApprovalState { revision: number; packages: Map<string, AnnualAccountsPackage>; activeByChain: Map<string, string>; packageByChainVersion: Map<string, string> }

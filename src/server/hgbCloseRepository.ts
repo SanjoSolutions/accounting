@@ -8,9 +8,12 @@ import {
 } from '@/core/hgbClose'
 import { prisma } from '@/server/persistence/client'
 import { appendAuditEvent } from '@/server/compliance/auditPersistence'
-import { ComplianceRuntimeError } from '@/server/compliance/runtime'
+import { ComplianceRuntimeError } from '@/server/compliance/errors'
 import { AccountingValidationError } from '@/core/doubleEntry'
 import { hgbWorkpaperChecksum, validateHgbWorkpaper, type HgbWorkpaperDraft } from '@/core/hgbWorkpapers'
+import { closeEvidenceIds, loadVerifiedCloseEvidence } from './compliance/closeEvidence'
+import { readRetainedReportingPackage } from './compliance/retainedReportingPackage'
+import { assertCurrentAnnualPackage } from './compliance/annualReportingSource'
 
 type JsonRecord = Record<string, unknown>
 
@@ -32,21 +35,6 @@ const dateOnly = (value: Date) => value.toISOString().slice(0, 10)
 const record = (value: unknown, label: string): JsonRecord => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ComplianceRuntimeError(`${label} must be an object`)
   return structuredClone(value) as JsonRecord
-}
-
-function persistedWorkpaperEvidenceIds(payload: JsonRecord): string[] {
-  const ids: string[] = []
-  const collect = (value: unknown, key = ''): void => {
-    if (Array.isArray(value)) {
-      if (/evidenceIds$/i.test(key)) { for (const id of value) if (typeof id === 'string' && id.trim()) ids.push(id.trim()) }
-      else { for (const item of value) collect(item, key) }
-      return
-    }
-    if (!value || typeof value !== 'object') { if (/evidenceId$/i.test(key) && typeof value === 'string' && value.trim()) ids.push(value.trim()); return }
-    for (const [childKey, child] of Object.entries(value as JsonRecord)) collect(child, childKey)
-  }
-  collect(payload)
-  return [...new Set(ids)].sort()
 }
 
 export function hgbCloseFingerprint(input: {
@@ -103,17 +91,11 @@ async function loadAuthoritativeContext(client: HgbPersistenceClient, ownerId: s
   const workpaperEvidenceIds = workpapers.flatMap(item => {
     try {
       const payload = JSON.parse(item.payload) as JsonRecord
-      return persistedWorkpaperEvidenceIds(payload)
+      return closeEvidenceIds(payload)
     } catch { return [] }
   })
   const uniqueEvidenceIds = [...new Set([...suppliedEvidenceIds, ...workpaperEvidenceIds])].sort()
-  const [artifacts, documents] = await Promise.all([
-    uniqueEvidenceIds.length ? client.retainedArtifact.findMany({ where: { ownerId, id: { in: uniqueEvidenceIds }, disposedAt: null, storageDeletedAt: null }, select: { id: true, contentHash: true } }) : [],
-    uniqueEvidenceIds.length ? client.documentRecord.findMany({ where: { ownerId, id: { in: uniqueEvidenceIds } }, select: { id: true, payload: true } }) : [],
-  ])
-  const evidence = [...artifacts.map(item => ({ id: item.id, source: 'RETAINED_ARTIFACT', contentHash: item.contentHash })), ...documents.map(item => ({ id: item.id, source: 'DOCUMENT', contentHash: sha256(item.payload) }))]
-  const resolvedEvidenceIds = new Set(evidence.map(item => item.id))
-  const missingEvidenceIds = uniqueEvidenceIds.filter(id => !resolvedEvidenceIds.has(id))
+  const { evidence, missingEvidenceIds } = await loadVerifiedCloseEvidence(client, ownerId, uniqueEvidenceIds)
   const ledgerFingerprint = hgbCloseFingerprint({ fiscalPeriod, profileVersion, mappings, entries: fiscalPeriod.journalEntries, evidence: [...evidence, ...missingEvidenceIds.map(id => ({ id, source: 'MISSING', contentHash: '' }))], workpapers, adjustments })
   return { fiscalPeriod, profileVersion, companyProfile, mappings, workpapers, adjustments, invalidWorkpaperIds, ledgerFingerprint, missingEvidenceIds }
 }
@@ -176,9 +158,12 @@ async function requireAuthoritativeAnnualPackage(ownerId: string, fiscalPeriodId
   const readiness = evaluateHgbClose(input)
   if (!input.annualAccountsPackageId || !input.annualAccountsChecksum) return readiness
   const annualPackage = await prisma.compliancePackage.findFirst({ where: { id: input.annualAccountsPackageId, ownerId, fiscalPeriodId, kind: 'ANNUAL_ACCOUNTS', status: 'APPROVED', checksum: input.annualAccountsChecksum } })
-  if (annualPackage) return readiness
+  if (annualPackage) {
+    try { await readRetainedReportingPackage(prisma, annualPackage); await assertCurrentAnnualPackage(prisma, annualPackage); return readiness }
+    catch { /* Corrupt or missing bytes cannot authorize a close. */ }
+  }
   const blockers = readiness.blockers.filter(blocker => blocker.code !== 'ANNUAL_ACCOUNTS_PACKAGE_MISSING')
-  blockers.push({ code: 'ANNUAL_ACCOUNTS_PACKAGE_NOT_AUTHORITATIVE', message: 'The annual-accounts package does not belong to this tenant and fiscal period or its checksum does not match.', authority: 'HGB §§ 242-245, 264-275' })
+  blockers.push({ code: 'ANNUAL_ACCOUNTS_PACKAGE_NOT_AUTHORITATIVE', message: 'Prepare and approve current annual accounts with intact retained evidence for this tenant and fiscal period.', authority: 'HGB §§ 242-245, 264-275' })
   return { ...readiness, status: 'BLOCKED', blockers }
 }
 
@@ -237,8 +222,10 @@ export async function requireCurrentReadyHgbClose(transaction: Prisma.Transactio
   if (sha256(canonicalJson(storedInput)) !== latest.inputChecksum) throw new AccountingValidationError(['The latest HGB close run input checksum is invalid.'])
   const packageId = typeof storedInput.annualAccountsPackageId === 'string' ? storedInput.annualAccountsPackageId : ''
   const packageChecksum = typeof storedInput.annualAccountsChecksum === 'string' ? storedInput.annualAccountsChecksum : ''
-  const annualPackage = await transaction.compliancePackage.findFirst({ where: { id: packageId, ownerId, fiscalPeriodId: fiscalYear.id, kind: 'ANNUAL_ACCOUNTS', status: 'APPROVED', checksum: packageChecksum }, select: { id: true } })
+  const annualPackage = await transaction.compliancePackage.findFirst({ where: { id: packageId, ownerId, fiscalPeriodId: fiscalYear.id, kind: 'ANNUAL_ACCOUNTS', status: 'APPROVED', checksum: packageChecksum } })
   if (!annualPackage) throw new AccountingValidationError(['The approved annual-accounts package bound to the HGB close run is no longer authoritative.'])
+  try { await readRetainedReportingPackage(transaction, annualPackage); await assertCurrentAnnualPackage(transaction, annualPackage) }
+  catch { throw new AccountingValidationError(['The approved annual-accounts package failed retained-byte or current-source verification.']) }
   const context = await loadAuthoritativeContext(transaction, ownerId, fiscalYear.year, referencedEvidenceIds(storedInput))
   if (context.fiscalPeriod.id !== fiscalYear.id || context.missingEvidenceIds.length || context.invalidWorkpaperIds.length || context.ledgerFingerprint !== latest.ledgerFingerprint) throw new AccountingValidationError(['The latest HGB close run is stale because ledger, profile, mappings, workpapers, or retained evidence changed.'])
   return latest

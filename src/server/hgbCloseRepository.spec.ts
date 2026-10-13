@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, test, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 import { HGB_WORKPAPER_KINDS } from '@/core/hgbClose'
 
 const mocks = vi.hoisted(() => {
@@ -24,10 +25,16 @@ const mocks = vi.hoisted(() => {
       $transaction: vi.fn(async (callback: (transaction: unknown) => unknown) => callback(transaction)),
     },
     appendAuditEvent: vi.fn(),
+    readEvidence: vi.fn(),
+    readPackage: vi.fn(),
+    assertAnnualCurrent: vi.fn(),
   }
 })
 
 vi.mock('server-only', () => ({}))
+vi.mock('@/server/storage', () => ({ getDocumentStorage: () => ({ read: mocks.readEvidence }) }))
+vi.mock('./compliance/retainedReportingPackage', () => ({ readRetainedReportingPackage: mocks.readPackage }))
+vi.mock('./compliance/annualReportingSource', () => ({ assertCurrentAnnualPackage: mocks.assertAnnualCurrent }))
 vi.mock('@/server/persistence/client', () => ({ prisma: mocks.prisma }))
 vi.mock('@/server/compliance/auditPersistence', () => ({ appendAuditEvent: mocks.appendAuditEvent }))
 vi.mock('@/server/compliance/runtime', () => ({ ComplianceRuntimeError: class ComplianceRuntimeError extends Error { constructor(message: string, public status = 400) { super(message) } } }))
@@ -74,13 +81,16 @@ function reviewedWorkpapers() {
 describe('HGB close run repository', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.readPackage.mockResolvedValue({})
+    mocks.assertAnnualCurrent.mockResolvedValue(undefined)
     mocks.prisma.fiscalYear.findUnique.mockResolvedValue(period)
     mocks.prisma.companyProfileVersion.findFirst.mockResolvedValue(profileVersion)
     mocks.prisma.accountMappingVersion.findMany.mockResolvedValue(mappings)
     mocks.prisma.hgbWorkpaperRecord.findMany.mockResolvedValue(reviewedWorkpapers())
     mocks.prisma.hgbAdjustmentRecord.findMany.mockResolvedValue([])
-    mocks.prisma.retainedArtifact.findMany.mockResolvedValue([])
-    mocks.prisma.documentRecord.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.map(id => ({ id, payload: JSON.stringify({ evidence: id }) })))
+    mocks.readEvidence.mockImplementation(async (key: string) => Buffer.from(key))
+    mocks.prisma.retainedArtifact.findMany.mockImplementation(async ({ where }: { where: { OR: Array<{ id?: { in: string[] } }> } }) => where.OR[0].id!.in.map(id => ({ id: `retained-${id}`, objectId: id, objectType: 'Document', storageKey: `documents/${id}`, contentHash: createHash('sha256').update(`documents/${id}`).digest('hex') })))
+    mocks.prisma.documentRecord.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.map(id => ({ id, payload: JSON.stringify({ evidence: id, storageKey: `documents/${id}` }) })))
     mocks.prisma.compliancePackage.findFirst.mockResolvedValue(null)
     mocks.prisma.compliancePackage.findMany.mockResolvedValue([])
     mocks.prisma.hgbCloseRun.findUnique.mockResolvedValue(null)
@@ -159,5 +169,31 @@ describe('HGB close run repository', () => {
     const result = await evaluateAndPersistHgbClose('tenant-a', 'actor-a', 2026, readyRequest())
     expect(result.status).toBe('READY_TO_LOCK')
     expect(mocks.prisma.$transaction).toHaveBeenCalledTimes(2)
+  })
+
+  test('Given unchanged evidence metadata but replaced retained bytes, when a ready close is checked, then the close fails closed', async () => {
+    mocks.prisma.compliancePackage.findFirst.mockResolvedValue({ id: 'annual-1', status: 'APPROVED' })
+    const result = await evaluateAndPersistHgbClose('tenant-a', 'actor-a', 2026, readyRequest())
+    expect(result.status).toBe('READY_TO_LOCK')
+    mocks.transaction.hgbCloseRun.findFirst.mockResolvedValue(mocks.transaction.hgbCloseRun.create.mock.calls[0][0].data)
+    mocks.readEvidence.mockResolvedValue(Buffer.from('replaced signature or workpaper bytes'))
+    await expect(requireCurrentReadyHgbClose(mocks.transaction as never, 'tenant-a', { id: 'fy-2026', year: 2026 })).rejects.toThrow(/stale/)
+  })
+
+  test('Given missing or unretained document bytes, when close readiness is evaluated, then metadata alone cannot satisfy the evidence gate', async () => {
+    mocks.prisma.compliancePackage.findFirst.mockResolvedValue({ id: 'annual-1', status: 'APPROVED' })
+    mocks.readEvidence.mockRejectedValue(new Error('missing object'))
+    const result = await evaluateAndPersistHgbClose('tenant-a', 'actor-a', 2026, readyRequest())
+    expect(result.status).toBe('BLOCKED')
+    expect(result.payload).toMatchObject({ readiness: { blockers: expect.arrayContaining([expect.objectContaining({ code: 'EVIDENCE_NOT_AUTHORITATIVE' })]) } })
+  })
+
+  test('Given a retained annual package which fails fixity, when readiness or a current close is checked, then approval metadata cannot authorize the close', async () => {
+    mocks.prisma.compliancePackage.findFirst.mockResolvedValue({ id: 'annual-1', status: 'APPROVED' })
+    await evaluateAndPersistHgbClose('tenant-a', 'actor-a', 2026, readyRequest())
+    mocks.transaction.hgbCloseRun.findFirst.mockResolvedValue(mocks.transaction.hgbCloseRun.create.mock.calls[0][0].data)
+    mocks.readPackage.mockRejectedValue(new Error('bytes changed'))
+    await expect(requireCurrentReadyHgbClose(mocks.transaction as never, 'tenant-a', { id: 'fy-2026', year: 2026 })).rejects.toThrow(/retained-byte/)
+    expect((await evaluateAndPersistHgbClose('tenant-a', 'actor-a', 2026, readyRequest())).status).toBe('BLOCKED')
   })
 })

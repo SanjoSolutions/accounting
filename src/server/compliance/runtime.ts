@@ -14,10 +14,9 @@ import { validateMappings, type AccountMapping } from './chartLifecycle'
 import { persistComplianceObject } from './objectStorage'
 import { exerciseIsolatedObjectRestore, snapshotStorageReferences, verifyRestoredStorageObjects, verifySnapshotInIsolatedDatabase, type TenantBackupSnapshot } from './restoreVerification'
 import { captureRegisteredTenantSnapshot } from './tenantBackupRegistry'
+import { ComplianceRuntimeError } from './errors'
 
-export class ComplianceRuntimeError extends Error {
-  constructor(message: string, readonly status = 400) { super(message) }
-}
+export { ComplianceRuntimeError } from './errors'
 
 export async function authorizeComplianceTenant(actorId: string, requestedOwnerId?: unknown): Promise<string> {
   const ownerId = typeof requestedOwnerId === 'string' && requestedOwnerId.trim() ? requestedOwnerId.trim() : actorId

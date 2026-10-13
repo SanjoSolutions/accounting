@@ -27,14 +27,14 @@ export class ComplianceSetupPage {
     await this.fillSettled(section, 'Business activity', 'Software')
     await this.fillSettled(section, 'Authoritative chart', 'CUSTOM:HGB-MICRO')
     await this.fillSettled(section, 'Profile effective from', `${input.year - 1}-01-01`)
-    await this.fillSettled(section, 'Amtlicher Gemeindeschlüssel (8 Stellen)', '11000000')
-    await this.fillSettled(section, 'Gewerbesteuer-Hebesatz (%)', '410')
+    await this.fillSettled(section, 'Official municipality code (8 digits)', '11000000')
+    await this.fillSettled(section, 'Trade-tax multiplier (%)', '410')
     await this.fillSettled(section, 'Change reason', 'Verified company register and master data')
   }
 
   async createPeriod(year: number) {
     const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Fiscal periods' }) })
-    if (await section.locator('.history-list li').filter({ hasText: `${year}-01-01–${year}-12-31` }).count()) return
+    if (await this.periodItem(year).count()) return
     await section.getByLabel('Reference year').fill(String(year))
     await section.getByLabel('Label').fill(`HGB ${year}`)
     await section.getByLabel('Starts').fill(`${year}-01-01`)
@@ -45,7 +45,7 @@ export class ComplianceSetupPage {
     await refreshed
     await this.waitReady()
     await expect(this.page.getByRole('status')).toContainText('fiscal period was created')
-    await expect(section.locator('.history-list')).toContainText(`${year}-01-01–${year}-12-31`)
+    await expect(this.periodItem(year)).toBeVisible()
   }
 
   async onboardHistoricalHgb(years: number[], evidenceId: string) {
@@ -73,11 +73,11 @@ export class ComplianceSetupPage {
     const details = section.locator('details')
     await details.locator('summary').click()
     const mappings = JSON.parse((await details.locator('pre').textContent()) || '[]') as Array<{ id: string }>
-    return mappings.filter(item => String((item as { effectiveFrom?: string }).effectiveFrom ?? '').startsWith(String(year))).map(item => item.id)
+    return mappings.filter(item => new RegExp(`\\b${year}\\b`).test(String((item as { effectiveFrom?: string }).effectiveFrom ?? ''))).map(item => item.id)
   }
 
   async configureReviewPolicy(ownerId: string, reviewerId: string) {
-    const section = this.page.locator('fieldset').filter({ hasText: 'Jurisdiction, reviewers and recovery policy' })
+    const section = this.page.getByRole('group', { name: 'Storage jurisdiction and recovery policy', exact: true })
     await section.getByLabel('Operator user IDs').fill(`${ownerId}, ${reviewerId}`)
     await section.getByLabel('Allowed storage regions').fill('DE')
     await section.getByLabel('Recovery point objective (minutes)').fill('60')
@@ -129,7 +129,7 @@ export class ComplianceSetupPage {
   }
 
   async runOperation(operation: string, payload: Record<string, unknown>) {
-    const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Controlled workflows and operator controls' }) })
+    const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Controlled workflows and operator permissions' }) })
     const form = section.locator('form').filter({ has: this.page.getByRole('button', { name: 'Execute controlled operation' }) })
     await form.locator('select').selectOption(operation)
     await form.locator('textarea').fill(JSON.stringify(payload, null, 2))
@@ -145,8 +145,13 @@ export class ComplianceSetupPage {
   private async waitReady() { const workspace = this.page.locator('.compliance-workspace'); await expect(workspace).toHaveAttribute('aria-busy', 'false'); await expect(workspace).toHaveAttribute('data-compliance-ready', 'true') }
 
   async visiblePeriodId(year: number) {
-    const item = this.page.locator('.history-list li').filter({ hasText: `${year}-01-01–${year}-12-31` })
+    const item = this.periodItem(year)
     return (await item.locator('code').textContent())!.trim()
+  }
+
+  private periodItem(year: number) {
+    const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Fiscal periods' }) })
+    return section.locator('.history-list li').filter({ has: this.page.locator('strong').filter({ hasText: new RegExp(`^(?:HGB )?${year}$`) }) })
   }
 
 }

@@ -1,10 +1,9 @@
 import 'server-only'
 
 import { createHash, createHmac, randomUUID } from 'node:crypto'
+import type { Prisma } from '@/generated/prisma/client'
 import { canonicalJson, createAuditPackage, verifyAuditPackage, type AuditExportSource, type MigrationPackageAuthenticator } from '@/core/compliance/auditExport'
-import { BALANCE_SHEET_ORDER, GKV_ORDER, MICRO_BALANCE_SHEET_ORDER, SMALL_BALANCE_SHEET_ORDER, UKV_ORDER, prepareAnnualAccounts, type AnnualPackageInput } from '@/core/compliance/annualAccounts'
-import { buildHgbStatements, createHgbStatementRuleSet, type HgbStatementLineResult, type HgbTrialBalanceAccount } from '@/core/hgbStatements'
-import { hgbWorkpaperChecksum, validateHgbWorkpaper, type HgbWorkpaperDraft, type OpeningBalanceSchedule, type PolicyElectionsSchedule, type NotesQuestionnaireSchedule } from '@/core/hgbWorkpapers'
+import { prepareAnnualAccounts } from '@/core/compliance/annualAccounts'
 import { closePhysicalInventory, createAssetSchedules, type AssetEvent, type FixedAsset, type InventoryCount, type InventoryItem } from '@/core/compliance/assetsInventory'
 import { exportCashAudit, type CashBook } from '@/core/compliance/cashBook'
 import { validateProcedureVersion, type ProcedureDocumentVersion } from '@/core/compliance/procedureDocumentation'
@@ -12,8 +11,9 @@ import { prisma } from '@/server/persistence/client'
 import { getDocumentStorage } from '@/server/storage'
 import { appendAuditEvent } from './auditPersistence'
 import { persistComplianceObject } from './objectStorage'
-import { ComplianceRuntimeError } from './runtime'
-import { complianceReferenceDate } from './referenceDate'
+import { ComplianceRuntimeError } from './errors'
+import { assertCurrentAnnualPackage, loadAuthoritativeAnnualSource } from './annualReportingSource'
+import { readRetainedReportingPackage, reportingPackageChecksum } from './retainedReportingPackage'
 
 const PACKAGE_KINDS = ['AUDIT_EXPORT', 'MIGRATION_EXPORT', 'PROCEDURE_PACKAGE', 'ANNUAL_ACCOUNTS', 'DISCLOSURE_PACKAGE', 'ASSET_SCHEDULE', 'INVENTORY_CLOSE', 'CASH_AUDIT'] as const
 export type CompliancePackageKind = typeof PACKAGE_KINDS[number]
@@ -51,7 +51,7 @@ async function createReportingPackage(ownerId: string, actorId: string, period: 
   const fiscalPeriodId = period.id
   const authorityRef = typeof input.authorityReference === 'string' ? input.authorityReference.trim() || null : null
   const payload = safePayload(input.payload)
-  const checksum = createHash('sha256').update(canonicalJson({ kind, fiscalPeriodId, authorityRef, payload: JSON.parse(payload) })).digest('hex')
+  const checksum = reportingPackageChecksum({ kind, fiscalPeriodId, authorityRef, payload })
   const existing = await prisma.compliancePackage.findUnique({ where: { ownerId_checksum: { ownerId, checksum } } })
   if (existing) return existing
   const id = randomUUID()
@@ -63,6 +63,7 @@ async function createReportingPackage(ownerId: string, actorId: string, period: 
       const version = (latest?.version ?? 0) + 1
       if (inventorySnapshot) await transaction.inventoryCountSnapshot.create({ data: { id: randomUUID(), ownerId, fiscalPeriodId, payload: inventorySnapshot.payload, checksum: inventorySnapshot.checksum, closedBy: actorId, closedAt: inventorySnapshot.closedAt } })
       const record = await transaction.compliancePackage.create({ data: { id, ownerId, kind, fiscalPeriodId, version, status: 'CREATED', payload, checksum, storageKey, supersedesId: latest?.id, authorityRef, createdBy: actorId } })
+      if (kind === 'ANNUAL_ACCOUNTS') await assertCurrentAnnualPackage(transaction, record)
       const periodEndsAt = period.endsAt
       const retainUntil = new Date(periodEndsAt); retainUntil.setUTCFullYear(retainUntil.getUTCFullYear() + 10)
       await transaction.retainedArtifact.create({ data: { ownerId, objectType: 'CompliancePackage', objectId: id, version, retentionClass: 'ACCOUNTING_RECORDS', contentHash: createHash('sha256').update(content).digest('hex'), provenance: kind, storageKey, periodEndsAt, retainUntil } })
@@ -83,12 +84,12 @@ export async function createDomainReportingPackage(ownerId: string, actorId: str
   if (kind === 'AUDIT_EXPORT' || kind === 'MIGRATION_EXPORT') {
     const authorityReference = required(input.authorityReference, 'authorityReference')
     const purpose = kind === 'AUDIT_EXPORT' ? 'AUDIT' as const : 'MIGRATION' as const
-    const source = await loadAuthoritativeAuditSource(ownerId, period)
+    const source = await prisma.$transaction(transaction => loadAuthoritativeAuditSource(transaction, ownerId, period))
     payload = await createAuditPackage(source, { tenantId: ownerId, actorId, authorityReference, accessedAt: new Date().toISOString(), purpose }, { record: () => undefined }, purpose === 'MIGRATION' ? migrationAuthenticator() : undefined)
   } else if (kind === 'ANNUAL_ACCOUNTS') {
-    const annualInput = await loadAuthoritativeAnnualInput(ownerId, actorId, period, input)
+    const { annualInput, sourceFingerprint } = await prisma.$transaction(transaction => loadAuthoritativeAnnualSource(transaction, ownerId, actorId, period))
     const latest = await prisma.compliancePackage.findFirst({ where: { ownerId, fiscalPeriodId: period.id, kind: 'ANNUAL_ACCOUNTS' }, orderBy: { version: 'desc' }, select: { id: true, version: true } })
-    payload = prepareAnnualAccounts(annualInput, (latest?.version ?? 0) + 1, latest?.id)
+    payload = { ...prepareAnnualAccounts(annualInput, (latest?.version ?? 0) + 1, latest?.id), sourceFingerprint }
   } else if (kind === 'ASSET_SCHEDULE') {
     const [assets, events] = await Promise.all([prisma.fixedAssetRecord.findMany({ where: { ownerId } }), prisma.assetEventRecord.findMany({ where: { ownerId }, orderBy: [{ assetId: 'asc' }, { sequence: 'asc' }] })])
     payload = createAssetSchedules(ownerId, assets.map(row => JSON.parse(row.payload) as FixedAsset), events.map(row => JSON.parse(row.payload) as AssetEvent), periodRange(period))
@@ -109,6 +110,8 @@ export async function createDomainReportingPackage(ownerId: string, actorId: str
   } else if (kind === 'DISCLOSURE_PACKAGE') {
     const annual = await prisma.compliancePackage.findFirst({ where: { ownerId, fiscalPeriodId: period.id, kind: 'ANNUAL_ACCOUNTS', status: 'APPROVED' }, orderBy: { version: 'desc' } })
     if (!annual) throw new ComplianceRuntimeError('An approved annual-accounts package is required', 409)
+    await readRetainedReportingPackage(prisma, annual)
+    await assertCurrentAnnualPackage(prisma, annual)
     payload = { destination: 'Unternehmensregister', annualAccountsId: annual.id, annualAccountsChecksum: annual.checksum, deadline: required(input.deadline, 'deadline'), reliefs: Array.isArray(input.reliefs) ? input.reliefs : [], generatedAt: new Date().toISOString() }
   } else throw new ComplianceRuntimeError('Unsupported domain reporting workflow')
   return createReportingPackage(ownerId, actorId, period, { ...input, kind, payload }, inventorySnapshot)
@@ -128,6 +131,13 @@ export async function approveReportingPackage(ownerId: string, actorId: string, 
     if (!record) throw new ComplianceRuntimeError('Reporting package not found', 404)
     if (record.status !== 'CREATED') throw new ComplianceRuntimeError('Only a created package can be approved')
     if (record.createdBy === actorId) throw new ComplianceRuntimeError('Independent approval is required', 403)
+    await readRetainedReportingPackage(transaction, record)
+    if (record.kind === 'ANNUAL_ACCOUNTS') {
+      await assertCurrentAnnualPackage(transaction, record)
+      const newerApproval = await transaction.compliancePackage.findFirst({ where: { ownerId, kind: record.kind, fiscalPeriodId: record.fiscalPeriodId, status: 'APPROVED', version: { gt: record.version } } })
+      if (newerApproval) throw new ComplianceRuntimeError('A newer annual-account version has already been approved', 409)
+      await transaction.compliancePackage.updateMany({ where: { ownerId, kind: record.kind, fiscalPeriodId: record.fiscalPeriodId, status: 'APPROVED', version: { lt: record.version } }, data: { status: 'SUPERSEDED' } })
+    }
     const approvedAt = new Date()
     const approved = await transaction.compliancePackage.update({ where: { id: record.id }, data: { status: 'APPROVED', approvedBy: actorId, approvedAt } })
     await appendAuditEvent(transaction, { ownerId, actorId, action: 'PACKAGE_APPROVED', reason, objectType: 'CompliancePackage', objectId: record.id, before: { status: record.status }, after: { status: approved.status, approvedAt: approvedAt.toISOString() } })
@@ -138,12 +148,11 @@ export async function approveReportingPackage(ownerId: string, actorId: string, 
 export async function downloadReportingPackage(ownerId: string, actorId: string, packageId: string) {
   const record = await prisma.compliancePackage.findFirst({ where: { id: packageId, ownerId, kind: { in: ['AUDIT_EXPORT', 'MIGRATION_EXPORT'] } } })
   if (!record?.storageKey) throw new ComplianceRuntimeError('Audit or migration package not found', 404)
-  const artifact = await prisma.retainedArtifact.findFirst({ where: { ownerId, objectType: 'CompliancePackage', objectId: record.id, version: record.version, disposedAt: null, storageDeletedAt: null } })
-  if (!artifact) throw new ComplianceRuntimeError('The retained export registration is unavailable', 409)
-  const storage = getDocumentStorage(); if (!await storage.exists(record.storageKey)) throw new ComplianceRuntimeError('The retained export bytes are unavailable', 409)
-  const content = await storage.read(record.storageKey); if (createHash('sha256').update(content).digest('hex') !== artifact.contentHash) throw new ComplianceRuntimeError('The retained export failed its fixity check', 409)
+  const { content, artifact } = await readRetainedReportingPackage(prisma, record)
   let auditPackage: unknown; try { auditPackage = JSON.parse(content.toString('utf8')) } catch { throw new ComplianceRuntimeError('The retained export is not valid JSON', 409) }
   const issues = verifyAuditPackage(auditPackage); if (issues.length) throw new ComplianceRuntimeError(`The retained export is invalid: ${issues.join('; ')}`, 409)
+  const manifest = (auditPackage as { manifest: { tenantId: string; purpose: string; authorityReference: string } }).manifest
+  if (manifest.tenantId !== ownerId || manifest.purpose !== (record.kind === 'AUDIT_EXPORT' ? 'AUDIT' : 'MIGRATION') || manifest.authorityReference !== record.authorityRef) throw new ComplianceRuntimeError('The retained export manifest does not match the selected tenant and package', 409)
   const period = record.fiscalPeriodId ? await prisma.fiscalYear.findFirst({ where: { id: record.fiscalPeriodId, ownerId }, select: { year: true } }) : null
   await prisma.$transaction(transaction => appendAuditEvent(transaction, { ownerId, actorId, action: 'EXPORT_DOWNLOADED', reason: 'Authenticated download of retained GoBD package', objectType: 'CompliancePackage', objectId: record.id, after: { kind: record.kind, version: record.version, contentHash: artifact.contentHash } }))
   return { content, fileName: `gobd-${record.kind === 'AUDIT_EXPORT' ? 'audit' : 'migration'}-${period?.year ?? 'all'}-v${record.version}.json`, contentHash: artifact.contentHash }
@@ -174,27 +183,27 @@ function requirePayloadDate(value: unknown, label: string) {
   return value
 }
 
-async function loadAuthoritativeAuditSource(ownerId: string, period: AuthoritativePeriod): Promise<AuditExportSource> {
+async function loadAuthoritativeAuditSource(client: Prisma.TransactionClient, ownerId: string, period: AuthoritativePeriod): Promise<AuditExportSource> {
   const [profiles, mappings, year, priorEntries, auditEvents, taxSubmissions, documents, businessPartners, commercialDocuments, openItems, paymentSettlements, settlementAllocations, correctionNettings, bankAccounts, bankStatements, bankTransactions, bankTransactionMatches, fixedAssets, assetEvents, cashBooks, cashEntries, cashCloses] = await Promise.all([
-    prisma.companyProfileVersion.findMany({ where: { ownerId, effectiveFrom: { lte: period.endsAt } }, orderBy: { effectiveFrom: 'asc' } }),
-    prisma.accountMappingVersion.findMany({ where: { ownerId, effectiveFrom: { lte: period.endsAt } }, orderBy: [{ accountNumber: 'asc' }, { effectiveFrom: 'asc' }] }),
-    prisma.fiscalYear.findFirst({ where: { id: period.id, ownerId }, include: { journalEntries: { where: { state: 'POSTED' }, include: { lines: { include: { account: true, vatPosting: true } }, documents: true } } } }),
-    prisma.journalEntry.findMany({ where: { ownerId, state: 'POSTED', bookingDate: { lt: period.startsAt } }, include: { lines: { include: { account: true } } }, orderBy: [{ bookingDate: 'asc' }, { sequenceNumber: 'asc' }] }),
-    prisma.auditEvent.findMany({ where: { ownerId }, orderBy: { occurredAt: 'asc' } }),
-    prisma.taxWorkflowRecord.findMany({ where: { ownerId } }),
-    prisma.documentRecord.findMany({ where: { ownerId } }),
-    prisma.businessPartner.findMany({ where: { ownerId }, orderBy: { partnerNumber: 'asc' } }),
-    prisma.commercialDocument.findMany({ where: { ownerId, serviceDate: { lte: period.endsAt } }, orderBy: [{ serviceDate: 'asc' }, { id: 'asc' }] }),
-    prisma.openItem.findMany({ where: { ownerId, commercialDocument: { serviceDate: { lte: period.endsAt } } }, orderBy: { createdAt: 'asc' } }),
-    prisma.paymentSettlement.findMany({ where: { ownerId, occurredOn: { lte: period.endsAt } }, orderBy: [{ occurredOn: 'asc' }, { id: 'asc' }] }),
-    prisma.settlementAllocation.findMany({ where: { ownerId, effectiveDate: { lte: period.endsAt } }, orderBy: [{ effectiveDate: 'asc' }, { id: 'asc' }] }),
-    prisma.correctionNetting.findMany({ where: { ownerId, effectiveDate: { lte: period.endsAt } }, orderBy: [{ effectiveDate: 'asc' }, { id: 'asc' }] }),
-    prisma.bankAccount.findMany({ where: { ownerId }, include: { ledgerAccount: true }, orderBy: { id: 'asc' } }),
-    prisma.bankStatement.findMany({ where: { ownerId, periodStart: { lte: period.endsAt }, periodEnd: { gte: period.startsAt } }, orderBy: [{ periodStart: 'asc' }, { id: 'asc' }] }),
-    prisma.bankTransaction.findMany({ where: { ownerId, bookingDate: { gte: period.startsAt, lte: period.endsAt } }, orderBy: [{ bookingDate: 'asc' }, { id: 'asc' }] }),
-    prisma.bankTransactionMatch.findMany({ where: { ownerId, effectiveDate: { gte: period.startsAt, lte: period.endsAt } }, orderBy: [{ effectiveDate: 'asc' }, { id: 'asc' }] }),
-    prisma.fixedAssetRecord.findMany({ where: { ownerId }, orderBy: { createdAt: 'asc' } }), prisma.assetEventRecord.findMany({ where: { ownerId }, orderBy: [{ assetId: 'asc' }, { sequence: 'asc' }] }),
-    prisma.cashBookRecord.findMany({ where: { ownerId } }), prisma.cashEntryRecord.findMany({ where: { ownerId, businessDate: { gte: period.startsAt, lte: period.endsAt } } }), prisma.cashCloseRecord.findMany({ where: { ownerId, businessDate: { gte: period.startsAt, lte: period.endsAt } } }),
+    client.companyProfileVersion.findMany({ where: { ownerId, effectiveFrom: { lte: period.endsAt } }, orderBy: { effectiveFrom: 'asc' } }),
+    client.accountMappingVersion.findMany({ where: { ownerId, effectiveFrom: { lte: period.endsAt } }, orderBy: [{ accountNumber: 'asc' }, { effectiveFrom: 'asc' }] }),
+    client.fiscalYear.findFirst({ where: { id: period.id, ownerId }, include: { journalEntries: { where: { state: 'POSTED' }, include: { lines: { include: { account: true, vatPosting: true } }, documents: true } } } }),
+    client.journalEntry.findMany({ where: { ownerId, state: 'POSTED', bookingDate: { lt: period.startsAt } }, include: { lines: { include: { account: true } } }, orderBy: [{ bookingDate: 'asc' }, { sequenceNumber: 'asc' }] }),
+    client.auditEvent.findMany({ where: { ownerId }, orderBy: { occurredAt: 'asc' } }),
+    client.taxWorkflowRecord.findMany({ where: { ownerId } }),
+    client.documentRecord.findMany({ where: { ownerId } }),
+    client.businessPartner.findMany({ where: { ownerId }, orderBy: { partnerNumber: 'asc' } }),
+    client.commercialDocument.findMany({ where: { ownerId, serviceDate: { lte: period.endsAt } }, orderBy: [{ serviceDate: 'asc' }, { id: 'asc' }] }),
+    client.openItem.findMany({ where: { ownerId, commercialDocument: { serviceDate: { lte: period.endsAt } } }, orderBy: { createdAt: 'asc' } }),
+    client.paymentSettlement.findMany({ where: { ownerId, occurredOn: { lte: period.endsAt } }, orderBy: [{ occurredOn: 'asc' }, { id: 'asc' }] }),
+    client.settlementAllocation.findMany({ where: { ownerId, effectiveDate: { lte: period.endsAt } }, orderBy: [{ effectiveDate: 'asc' }, { id: 'asc' }] }),
+    client.correctionNetting.findMany({ where: { ownerId, effectiveDate: { lte: period.endsAt } }, orderBy: [{ effectiveDate: 'asc' }, { id: 'asc' }] }),
+    client.bankAccount.findMany({ where: { ownerId }, include: { ledgerAccount: true }, orderBy: { id: 'asc' } }),
+    client.bankStatement.findMany({ where: { ownerId, periodStart: { lte: period.endsAt }, periodEnd: { gte: period.startsAt } }, orderBy: [{ periodStart: 'asc' }, { id: 'asc' }] }),
+    client.bankTransaction.findMany({ where: { ownerId, bookingDate: { gte: period.startsAt, lte: period.endsAt } }, orderBy: [{ bookingDate: 'asc' }, { id: 'asc' }] }),
+    client.bankTransactionMatch.findMany({ where: { ownerId, effectiveDate: { gte: period.startsAt, lte: period.endsAt } }, orderBy: [{ effectiveDate: 'asc' }, { id: 'asc' }] }),
+    client.fixedAssetRecord.findMany({ where: { ownerId }, orderBy: { createdAt: 'asc' } }), client.assetEventRecord.findMany({ where: { ownerId }, orderBy: [{ assetId: 'asc' }, { sequence: 'asc' }] }),
+    client.cashBookRecord.findMany({ where: { ownerId } }), client.cashEntryRecord.findMany({ where: { ownerId, businessDate: { gte: period.startsAt, lte: period.endsAt } } }), client.cashCloseRecord.findMany({ where: { ownerId, businessDate: { gte: period.startsAt, lte: period.endsAt } } }),
   ])
   if (!year) throw new ComplianceRuntimeError('Fiscal period not found', 404)
   const tenant = <T extends object>(row: T) => ({ tenantId: ownerId, ...row })
@@ -218,11 +227,15 @@ async function loadAuthoritativeAuditSource(ownerId: string, period: Authoritati
   for (const record of [...exportedFixedAssets, ...exportedAssetEvents]) { const payload = JSON.parse(record.payload) as Record<string, unknown>; if (typeof payload.evidenceDocumentId === 'string') referencedEvidenceIds.add(payload.evidenceDocumentId); if (Array.isArray(payload.evidenceIds)) for (const id of payload.evidenceIds) if (typeof id === 'string') referencedEvidenceIds.add(id) }
   for (const record of cashEntries) { const payload = JSON.parse(record.payload) as Record<string, unknown>; if (Array.isArray(payload.evidenceIds)) for (const id of payload.evidenceIds) if (typeof id === 'string') referencedEvidenceIds.add(id) }
   const missingEvidence = [...referencedEvidenceIds].filter(id => !documents.some(document => document.id === id)); if (missingEvidence.length) throw new ComplianceRuntimeError(`Referenced evidence is missing: ${missingEvidence.join(', ')}`, 409)
+  const evidenceRegistrations = referencedEvidenceIds.size ? await client.retainedArtifact.findMany({ where: { ownerId, objectType: 'Document', objectId: { in: [...referencedEvidenceIds] }, disposedAt: null, storageDeletedAt: null } }) : []
   const evidence = await Promise.all(documents.filter(document => referencedEvidenceIds.has(document.id)).map(async document => {
     let payload: Record<string, unknown>; try { payload = JSON.parse(document.payload) as Record<string, unknown> } catch { throw new ComplianceRuntimeError(`Evidence document ${document.id} has malformed storage metadata`, 409) }
     const storageKey = typeof payload.storageKey === 'string' ? payload.storageKey : ''; if (!storageKey) throw new ComplianceRuntimeError(`Evidence document ${document.id} has no retained original`, 409)
     const storage = getDocumentStorage(); if (!await storage.exists(storageKey)) throw new ComplianceRuntimeError(`Evidence document ${document.id} original is unavailable`, 409)
     const bytes = await storage.read(storageKey); const journalEntryId = year.journalEntries.find(entry => entry.documents.some(link => link.documentId === document.id))?.id
+    const registered = evidenceRegistrations.filter(item => item.objectId === document.id && item.storageKey === storageKey)
+    const contentHash = createHash('sha256').update(bytes).digest('hex')
+    if (!registered.length || registered.some(item => item.contentHash !== contentHash)) throw new ComplianceRuntimeError('Export evidence failed its retained-original fixity check: ' + document.id, 409)
     return tenant({ id: document.id, ...(journalEntryId ? { journalEntryId } : {}), fileName: typeof payload.fileName === 'string' && payload.fileName.trim() ? payload.fileName : document.id, mediaType: typeof payload.contentType === 'string' && payload.contentType.trim() ? payload.contentType : 'application/octet-stream', sizeBytes: bytes.byteLength, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: new Uint8Array(bytes) })
   }))
   const allocationNet = new Map<string, number>(); const settlementAllocationNet = new Map<string, number>(); for (const row of settlementAllocations) { allocationNet.set(row.openItemId, (allocationNet.get(row.openItemId) ?? 0) + row.amountCents); settlementAllocationNet.set(row.settlementId, (settlementAllocationNet.get(row.settlementId) ?? 0) + row.amountCents) } for (const row of correctionNettings) { allocationNet.set(row.originalOpenItemId, (allocationNet.get(row.originalOpenItemId) ?? 0) + row.amountCents); allocationNet.set(row.creditOpenItemId, (allocationNet.get(row.creditOpenItemId) ?? 0) + row.amountCents) }
@@ -246,81 +259,6 @@ async function loadAuthoritativeAuditSource(ownerId: string, period: Authoritati
     fixedAssets: exportedFixedAssets.map(row => tenant({ ...JSON.parse(row.payload), id: row.id, acquisitionJournalLineId: row.acquisitionJournalLineId, createdBy: row.createdBy })), assetEvents: exportedAssetEvents.map(row => tenant({ ...JSON.parse(row.payload), id: row.id, assetId: row.assetId, sequence: row.sequence, postingId: row.postingId, approvedBy: row.approvedBy, approvedAt: row.approvedAt.toISOString() })),
     cashBooks: cashBooks.filter(row => cashEntries.some(entry => entry.cashBookId === row.id) || cashCloses.some(close => close.cashBookId === row.id)).map(row => tenant({ version: 1, id: row.id, glAccountId: row.glAccountId, location: row.location, register: row.register, timeZone: row.timeZone, currency: row.currency, retainedThrough: dateOnly(row.retainedThrough) })), cashBookEntries: cashEntries.map(row => tenant(JSON.parse(row.payload))), cashDailyCloses: cashCloses.map(row => tenant(JSON.parse(row.payload))),
   }
-}
-
-async function loadAuthoritativeAnnualInput(ownerId: string, actorId: string, period: AuthoritativePeriod, input: Record<string, unknown>): Promise<AnnualPackageInput> {
-  const [profileVersion, previous] = await Promise.all([prisma.companyProfileVersion.findFirst({ where: { ownerId, effectiveFrom: { lte: period.endsAt }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: period.endsAt } }] }, orderBy: { effectiveFrom: 'desc' } }), prisma.fiscalYear.findFirst({ where: { ownerId, endsAt: { lt: period.startsAt } }, orderBy: { endsAt: 'desc' }, include: { journalEntries: { where: { state: 'POSTED' }, include: { lines: { include: { account: true } } } } } })])
-  if (!profileVersion || !previous) throw new ComplianceRuntimeError('Authoritative company profile and comparative fiscal period are required', 409)
-  const current = await prisma.fiscalYear.findFirst({ where: { id: period.id, ownerId }, include: { journalEntries: { where: { state: 'POSTED' }, include: { lines: { include: { account: true } } } } } })
-  if (!current) throw new ComplianceRuntimeError('Fiscal period not found', 404)
-  const profile = JSON.parse(profileVersion.payload) as Record<string, unknown>
-  const chart = required(profile.chart, 'Authoritative company profile chart')
-  const [mappings, records] = await Promise.all([
-    prisma.accountMappingVersion.findMany({ where: { ownerId, chartId: chart, active: true, effectiveFrom: { lte: period.endsAt }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: previous.startsAt } }] }, orderBy: [{ accountNumber: 'asc' }, { effectiveFrom: 'asc' }] }),
-    prisma.hgbWorkpaperRecord.findMany({ where: { ownerId, fiscalPeriodId: period.id }, orderBy: [{ kind: 'asc' }, { version: 'desc' }] }),
-  ])
-  const latest = records.filter((item, index) => records.findIndex(candidate => candidate.kind === item.kind) === index)
-  const reviewed = new Map<string, HgbWorkpaperDraft>()
-  for (const item of latest.filter(item => item.status === 'REVIEWED')) {
-    let payload: ReturnType<typeof validateHgbWorkpaper>
-    try { payload = validateHgbWorkpaper(JSON.parse(item.payload) as HgbWorkpaperDraft, { startsAt: dateOnly(period.startsAt), endsAt: dateOnly(period.endsAt) }) } catch { throw new ComplianceRuntimeError(`The reviewed ${item.kind} workpaper is malformed`, 409) }
-    if (hgbWorkpaperChecksum({ ownerId, fiscalPeriodId: period.id, kind: item.kind, payload }) !== item.checksum) throw new ComplianceRuntimeError(`The reviewed ${item.kind} workpaper checksum is invalid`, 409)
-    reviewed.set(item.kind, payload)
-  }
-  const adjustments = latest.length ? await prisma.hgbAdjustmentRecord.findMany({ where: { ownerId, workpaperId: { in: latest.map(item => item.id) } } }) : []
-  if (adjustments.some(item => item.status !== 'POSTED')) throw new ComplianceRuntimeError('Every reviewed workpaper adjustment must be posted before annual-account generation', 409)
-  const requireWorkpaper = (kind: string) => { const workpaper = reviewed.get(kind); if (!workpaper) throw new ComplianceRuntimeError(`A current independently reviewed ${kind} workpaper is required`, 409); return workpaper }
-  const sizeSchedule = requireWorkpaper('SIZE_AND_APPLICABILITY').schedule
-  if (sizeSchedule.type !== 'SIZE_APPLICABILITY') throw new ComplianceRuntimeError('The reviewed size workpaper is malformed', 409)
-  const size = sizeSchedule.establishedSize
-  const policySchedule = requireWorkpaper('POLICY_ELECTIONS').schedule as PolicyElectionsSchedule
-  const methods = policySchedule.elections.filter(item => item.applicable && item.selected && (item.policy === 'TOTAL_COST_PNL' || item.policy === 'FUNCTION_OF_EXPENSE_PNL'))
-  if (methods.length !== 1) throw new ComplianceRuntimeError('Exactly one reviewed income-statement method election is required', 409)
-  const method = methods[0].policy === 'TOTAL_COST_PNL' ? 'GKV' as const : 'UKV' as const
-  if (size === 'MICRO' && method !== 'GKV') throw new ComplianceRuntimeError('The initial micro-entity annual-package adapter supports the condensed HGB § 275a layout with total-cost presentation only', 409)
-  const opening = requireWorkpaper('OPENING_BALANCE').schedule as OpeningBalanceSchedule
-  requireWorkpaper('MAPPING_AND_PRESENTATION'); requireWorkpaper('RECOGNITION_AND_OWNERSHIP'); requireWorkpaper('CUT_OFF_AND_ACCRUAL_DEFERRAL'); requireWorkpaper('PROVISIONS_AND_CONTINGENCIES'); requireWorkpaper('RECEIVABLE_AND_MARKET_VALUATION')
-  const ruleSet = createHgbStatementRuleSet(size, method)
-  const trialBalance = (year: typeof current): HgbTrialBalanceAccount[] => {
-    const accounts = new Map<string, HgbTrialBalanceAccount>()
-    for (const entry of year.journalEntries) for (const line of entry.lines) {
-      const key = String(line.account.number); const value = accounts.get(key) ?? { accountNumber: key, openingDebitCents: 0, openingCreditCents: 0, debitCents: 0, creditCents: 0 }
-      value.debitCents += line.debitCents; value.creditCents += line.creditCents
-      if (!Number.isSafeInteger(value.debitCents) || !Number.isSafeInteger(value.creditCents)) throw new ComplianceRuntimeError(`Trial balance arithmetic is unsafe for account ${key}`, 409)
-      accounts.set(key, value)
-    }
-    return [...accounts.values()].sort((left, right) => left.accountNumber.localeCompare(right.accountNumber))
-  }
-  const statement = buildHgbStatements({
-    ruleSet,
-    current: { startsAt: dateOnly(current.startsAt), endsAt: dateOnly(current.endsAt), accounts: trialBalance(current) },
-    comparative: { startsAt: dateOnly(previous.startsAt), endsAt: dateOnly(previous.endsAt), accounts: trialBalance(previous as typeof current) },
-    mappings: mappings.map(mapping => ({ accountNumber: String(mapping.accountNumber), lineId: mapping.hgbPosition, normalBalance: mapping.normalBalance as 'DEBIT' | 'CREDIT', presentationSign: mapping.presentationSign as 1 | -1, effectiveFrom: dateOnly(mapping.effectiveFrom), ...(mapping.effectiveTo ? { effectiveTo: dateOnly(mapping.effectiveTo) } : {}) })),
-    expectedComparativeLeaves: opening.approvedComparativeLeaves,
-  })
-  const accountIds = new Map<number, string>(); for (const year of [current, previous as typeof current]) for (const entry of year.journalEntries) for (const line of entry.lines) accountIds.set(line.account.number, line.accountId)
-  const byId = new Map(statement.lines.map(line => [line.id, line]))
-  const sourceAccounts = (lineId: string) => statement.mappedAccounts.filter(item => item.lineId === lineId).map(item => accountIds.get(Number(item.accountNumber))).filter((id): id is string => Boolean(id))
-  const convert = (codes: readonly string[], map: Record<string, string>) => codes.map(code => { const line = byId.get(map[code]); const sign = line?.role === 'EXPENSE' ? -1 : 1; return { code, label: line?.label ?? code, amountCents: (line?.amountCents ?? 0) * sign, comparativeCents: (line?.comparativeAmountCents ?? 0) * sign, accountIds: line ? [...new Set(sourceAccounts(line.id))] : [] } })
-  const balanceMap = hgbAnnualBalanceMap()
-  const incomeMap = hgbAnnualIncomeMap(size, method)
-  const balanceCodes = size === 'MICRO' ? MICRO_BALANCE_SHEET_ORDER : SMALL_BALANCE_SHEET_ORDER
-  const incomeCodes = method === 'GKV' ? GKV_ORDER.filter(code => code !== 'GROSS_PROFIT') : UKV_ORDER
-  const notesWorkpaper = reviewed.get('NOTES')?.schedule as NotesQuestionnaireSchedule | undefined
-  const notes = notesWorkpaper?.type === 'NOTES_QUESTIONNAIRE' && Array.isArray(notesWorkpaper.questions) ? notesWorkpaper.questions.filter(item => item.answer === 'YES' && item.disclosureText?.trim()).map(item => item.disclosureText!.trim()) : ['Anhangangaben werden aufgrund der dokumentierten Kleinstkapitalgesellschaft-Erleichterung unter der Bilanz ausgewiesen.']
-  return { profile: { tenantId: ownerId, legalName: String(profile.companyName ?? ''), legalForm: String(profile.legalForm ?? ''), registerCourt: String(profile.registerCourt ?? ''), registerNumber: String(profile.registerNumber ?? ''), registeredOffice: String((profile.registeredAddress as Record<string, unknown> | undefined)?.city ?? ''), size, currency: 'EUR', language: 'de' }, fiscalYear: period.year, previousFiscalYear: previous.year, previousFiscalPeriodStart: dateOnly(previous.startsAt), previousFiscalPeriodEnd: dateOnly(previous.endsAt), previousFiscalPeriodId: previous.id, fiscalPeriodStart: dateOnly(period.startsAt), fiscalPeriodEnd: dateOnly(period.endsAt), fiscalTimeZone: 'Europe/Berlin', method, balanceSheet: convert(balanceCodes, balanceMap), incomeStatement: convert(incomeCodes, incomeMap), policies: policySchedule.elections.filter(item => item.applicable && item.selected).map(item => `${item.policy}: ${item.rationale.trim()}`), notes, checks: { nonOffsetting: true, accrual: true, provisions: true, valuation: true, continuity: true }, preparedBy: actorId, preparedAt: `${complianceReferenceDate()}T12:00:00.000Z` }
-}
-
-function hgbAnnualBalanceMap(): Record<string, string> {
-  return { 'A.ASSETS': 'BS.ASSETS', 'A.FIXED': 'BS.A.A', 'A.INTANGIBLE': 'BS.A.A.I', 'A.TANGIBLE': 'BS.A.A.II', 'A.FINANCIAL': 'BS.A.A.III', 'A.CURRENT': 'BS.A.B', 'A.INVENTORIES': 'BS.A.B.I', 'A.RECEIVABLES': 'BS.A.B.II', 'A.SECURITIES': 'BS.A.B.III', 'A.CASH': 'BS.A.B.IV', 'A.PREPAID': 'BS.A.C', 'A.DEFERRED_TAX': 'BS.A.D', 'A.PENSION_DIFFERENCE': 'BS.A.E', 'B.EQUITY_LIABILITIES': 'BS.EQUITY_LIABILITIES', 'B.EQUITY': 'BS.P.A', 'B.SUBSCRIBED_CAPITAL': 'BS.P.A.I', 'B.CAPITAL_RESERVE': 'BS.P.A.II', 'B.REVENUE_RESERVES': 'BS.P.A.III', 'B.CARRYFORWARD': 'BS.P.A.IV', 'B.NET_INCOME': 'BS.P.A.V', 'B.PROVISIONS': 'BS.P.B', 'B.LIABILITIES': 'BS.P.C', 'B.DEFERRED': 'BS.P.D', 'B.DEFERRED_TAX': 'BS.P.E' }
-}
-
-function hgbAnnualIncomeMap(size: 'MICRO' | 'SMALL', method: 'GKV' | 'UKV'): Record<string, string> {
-  if (size === 'MICRO') return { REVENUE: 'IS.M.1', OTHER_INCOME: 'IS.M.2', MATERIAL_RAW: 'IS.M.3', PERSONNEL_WAGES: 'IS.M.4', DEPRECIATION_FIXED: 'IS.M.5', OTHER_EXPENSE: 'IS.M.6', INCOME_TAX: 'IS.M.7', RESULT_AFTER_TAX: 'IS.M.8', NET_INCOME: 'IS.M.8' }
-  const prefix = `IS.${method}`
-  return method === 'GKV'
-    ? { REVENUE: 'IS.GKV.1', INVENTORY_CHANGE: 'IS.GKV.2', OWN_WORK: 'IS.GKV.3', OTHER_INCOME: 'IS.GKV.4', MATERIAL_RAW: 'IS.GKV.5.A', MATERIAL_SERVICES: 'IS.GKV.5.B', PERSONNEL_WAGES: 'IS.GKV.6.A', PERSONNEL_SOCIAL: 'IS.GKV.6.B', DEPRECIATION_FIXED: 'IS.GKV.7.A', DEPRECIATION_CURRENT: 'IS.GKV.7.B', OTHER_EXPENSE: 'IS.GKV.8', PARTICIPATION_INCOME: `${prefix}.FIN.1`, AFFILIATED_INCOME: `${prefix}.FIN.2`, INTEREST_INCOME: `${prefix}.FIN.3`, FINANCIAL_DEPRECIATION: `${prefix}.FIN.4`, INTEREST_EXPENSE: `${prefix}.FIN.5`, INCOME_TAX: `${prefix}.TAX.INCOME`, RESULT_AFTER_TAX: `${prefix}.AFTER_TAX`, OTHER_TAX: `${prefix}.TAX.OTHER`, NET_INCOME: `${prefix}.NET` }
-    : { REVENUE: 'IS.UKV.1', COST_OF_SALES: 'IS.UKV.2', GROSS_SALES_PROFIT: 'IS.UKV.3', DISTRIBUTION: 'IS.UKV.4', ADMINISTRATION: 'IS.UKV.5', OTHER_INCOME: 'IS.UKV.6', OTHER_EXPENSE: 'IS.UKV.7', PARTICIPATION_INCOME: `${prefix}.FIN.1`, AFFILIATED_INCOME: `${prefix}.FIN.2`, INTEREST_INCOME: `${prefix}.FIN.3`, FINANCIAL_DEPRECIATION: `${prefix}.FIN.4`, INTEREST_EXPENSE: `${prefix}.FIN.5`, INCOME_TAX: `${prefix}.TAX.INCOME`, RESULT_AFTER_TAX: `${prefix}.AFTER_TAX`, OTHER_TAX: `${prefix}.TAX.OTHER`, NET_INCOME: `${prefix}.NET` }
 }
 
 export async function getReportingOverview(ownerId: string) {

@@ -2,7 +2,8 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, test, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 
 vi.mock('server-only', () => ({}))
 const directory = mkdtempSync(join(tmpdir(), 'accounting-audit-export-'))
@@ -38,6 +39,7 @@ beforeAll(async () => {
   await prisma.journalEntry.create({ data: { id: 'opening-a', ownerId: 'tenant-a', fiscalYearId: 'fy-2025-a', sequenceNumber: 1, bookingDate: new Date('2025-12-31'), documentNumber: 'OPEN-1', description: 'Prior-year balance', lines: { create: [{ id: 'opening-bank', accountId: 'bank-a', debitCents: 100 }, { id: 'opening-revenue', accountId: 'revenue-a', creditCents: 100 }] } } })
   await prisma.journalEntry.create({ data: { id: 'prior-expense-a', ownerId: 'tenant-a', fiscalYearId: 'fy-2025-a', sequenceNumber: 2, bookingDate: new Date('2025-12-31'), documentNumber: 'EXP-1', description: 'Prior-year expense', lines: { create: [{ id: 'prior-expense-line', accountId: 'expense-a', debitCents: 30 }, { id: 'prior-expense-bank', accountId: 'bank-a', creditCents: 30 }] } } })
   await prisma.documentRecord.create({ data: { id: 'invoice-evidence-a', ownerId: 'tenant-a', payload: JSON.stringify({ storageKey: 'documents/tenant-a/invoice.pdf', fileName: 'invoice.pdf', contentType: 'application/pdf' }) } })
+  await prisma.retainedArtifact.create({ data: { ownerId: 'tenant-a', objectType: 'Document', objectId: 'invoice-evidence-a', version: 1, retentionClass: 'INVOICE', contentHash: createHash('sha256').update('immutable invoice evidence').digest('hex'), provenance: 'Synthetic original evidence', storageKey: 'documents/tenant-a/invoice.pdf', periodEndsAt: new Date('2026-12-31'), retainUntil: new Date('2036-12-31') } })
   await prisma.journalEntry.create({ data: { id: 'invoice-entry-a', ownerId: 'tenant-a', fiscalYearId: 'fy-2026-a', sequenceNumber: 1, bookingDate: new Date('2026-02-01'), documentNumber: 'INV-1', description: 'Customer invoice', lines: { create: [{ id: 'invoice-rec', accountId: 'receivable-a', debitCents: 119 }, { id: 'invoice-revenue', accountId: 'revenue-a', creditCents: 119 }] }, documents: { create: { documentId: 'invoice-evidence-a' } } } })
   await prisma.journalEntry.create({ data: { id: 'payment-entry-a', ownerId: 'tenant-a', fiscalYearId: 'fy-2026-a', sequenceNumber: 2, bookingDate: new Date('2026-02-10'), documentNumber: 'PAY-1', description: 'Partial payment', lines: { create: [{ id: 'payment-bank', accountId: 'bank-a', debitCents: 19 }, { id: 'payment-rec', accountId: 'receivable-a', creditCents: 19 }] } } })
   await prisma.journalEntry.create({ data: { id: 'credit-entry-a', ownerId: 'tenant-a', fiscalYearId: 'fy-2026-a', sequenceNumber: 3, bookingDate: new Date('2026-03-01'), documentNumber: 'CN-1', description: 'Customer credit note', lines: { create: [{ id: 'credit-revenue', accountId: 'revenue-a', debitCents: 40 }, { id: 'credit-rec', accountId: 'receivable-a', creditCents: 40 }] } } })
@@ -92,5 +94,27 @@ describe('persistent authoritative GoBD export', () => {
     await prisma.fixedAssetRecord.create({ data: { id: 'asset-malformed', ownerId: 'tenant-a', payload: JSON.stringify({ acquisitionDate: '2026-02-30' }), createdBy: 'owner-a' } })
     await expect(api.createDomainReportingPackage('tenant-a', 'owner-a', 'AUDIT_EXPORT', { fiscalPeriodId: 'fy-2026-a', authorityReference: 'AO §147(6)', reason: 'Malformed asset check' })).rejects.toThrow('must be a real ISO date')
     await prisma.fixedAssetRecord.delete({ where: { id: 'asset-malformed' } })
+  })
+
+  test('Given changed source document bytes, when a new audit package is requested, then the export cannot bless the tampering with a new hash', async () => {
+    const storage = (await import('@/server/storage')).getDocumentStorage()
+    const metadata = { contentType: 'application/pdf', fileName: 'invoice.pdf' }
+    await storage.write('documents/tenant-a/invoice.pdf', Buffer.from('substituted evidence'), metadata)
+    try {
+      await expect(api.createDomainReportingPackage('tenant-a', 'owner-a', 'AUDIT_EXPORT', { fiscalPeriodId: 'fy-2026-a', authorityReference: 'review-20', reason: 'Tamper regression' })).rejects.toThrow(/retained-original fixity/)
+    } finally { await storage.write('documents/tenant-a/invoice.pdf', Buffer.from('immutable invoice evidence'), metadata) }
+  })
+
+  test('Given a retained package, when metadata or object bytes are changed, then immutable storage and approval/download fixity checks reject tampering', async () => {
+    const record = await api.createDomainReportingPackage('tenant-a', 'owner-a', 'AUDIT_EXPORT', { fiscalPeriodId: 'fy-2026-a', authorityReference: 'review-20-metadata', reason: 'Metadata tamper regression' })
+    await expect(prisma.compliancePackage.update({ where: { id: record.id }, data: { payload: '{}' } })).rejects.toThrow()
+    const storage = (await import('@/server/storage')).getDocumentStorage()
+    const metadata = { contentType: 'application/json', fileName: 'synthetic-package.json' }
+    await storage.write(record.storageKey!, Buffer.from('{}'), metadata)
+    try {
+      await expect(api.downloadReportingPackage('tenant-a', 'reader-a', record.id)).rejects.toThrow(/fixity/)
+      await expect(api.approveReportingPackage('tenant-a', 'reviewer-a', record.id, 'Review')).rejects.toThrow(/fixity/)
+      expect((await prisma.compliancePackage.findUniqueOrThrow({ where: { id: record.id } })).status).toBe('CREATED')
+    } finally { await storage.write(record.storageKey!, Buffer.from(record.payload), metadata) }
   })
 })

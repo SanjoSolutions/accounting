@@ -12,7 +12,7 @@ export class EBalancePage {
     await expect(this.page.getByLabel('Company name')).toHaveValue(expected.companyName)
     await expect(this.page.getByLabel('Street and house number')).toHaveValue(expected.street)
     await expect(this.page.getByLabel('Postal code')).toHaveValue(expected.postalCode)
-    await expect(this.page.getByLabel('City')).toHaveValue(expected.city)
+    await expect(this.page.getByLabel('Town')).toHaveValue(expected.city)
     await expect(this.page.getByLabel('13-digit ELSTER tax number')).toHaveValue(expected.taxNumber)
     await expect(this.page.getByLabel('Legal form')).toHaveValue(expected.legalForm)
   }
@@ -26,8 +26,8 @@ export class EBalancePage {
   }
 
   async expectAuthoritativeSourceStale() {
-    await expect(this.page.getByLabel('City')).toHaveValue('Berlin-Mitte')
-    await expect(this.page.getByLabel('City')).toHaveAttribute('readonly', '')
+    await expect(this.page.getByLabel('Town')).toHaveValue('Berlin-Mitte')
+    await expect(this.page.getByLabel('Town')).toHaveAttribute('readonly', '')
     await expect(this.page.getByRole('alert').filter({ hasText: 'Regeneration and revalidation required' })).toBeVisible()
     await expect(this.page.getByText(/v1 · EXPORTED · STALE/)).toBeVisible()
     await expect(this.page.getByRole('button', { name: 'Validate officially with ERiC' })).toBeDisabled()
