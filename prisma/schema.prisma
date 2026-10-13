@@ -257,6 +257,8 @@ model DocumentExtraction {
   providerVersion  String
   inputHash        String
   attempt          Int            @default(1)
+  attemptId        String?
+  leaseExpiresAt   DateTime?
   extractedData    String?
   rawTextHash      String?
   failureCode      String?
