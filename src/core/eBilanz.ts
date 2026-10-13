@@ -57,6 +57,7 @@ export function getEBalanceTaxonomy(year: number) {
   throw new AccountingValidationError([`Für das Wirtschaftsjahr ${year} ist in dieser Version keine freigegebene E-Bilanz-Taxonomie hinterlegt.`])
 }
 
+/** @deprecated Legacy draft preview only. Filing exports use serializeEBalanceFilingXml with an approved immutable dataset. */
 export function createEBalanceXbrl(
   company: EBalanceCompanyData,
   statements: FinancialStatements,
