@@ -71,15 +71,21 @@ export async function withCalculatedOriginalVatPostings<T>(
   splits: readonly VatSourceSplit[],
   persist: (details: readonly VatPostingDetail[], markers: readonly string[]) => Promise<T>,
 ): Promise<T> {
+  return withVatPostingContext(ownerId, async context => {
+    if (splits.some(split => split.ownerId !== ownerId || split.reversalOf)) throw new Error('Atomic journal VAT preparation accepts only original postings for the same tenant.')
+    const details = calculateMixedVat(splits, germanVatRuleBook, [], context.registry)
+    return persist(details, [...context.pending!])
+  })
+}
+
+/** The callback must commit all pending markers with its VAT evidence, or roll back. */
+export async function withVatPostingContext<T>(ownerId: string, persist: (context: VatReversalContext) => Promise<T>): Promise<T> {
   return withVatOwnerLock(ownerId, async () => {
     const context = await vatReversalContext(ownerId)
     context.pending = new Set()
     try {
-      if (splits.some(split => split.ownerId !== ownerId || split.reversalOf)) throw new Error('Atomic journal VAT preparation accepts only original postings for the same tenant.')
-      const details = calculateMixedVat(splits, germanVatRuleBook, [], context.registry)
-      const markers = [...context.pending]
-      const result = await persist(details, markers)
-      markers.forEach(marker => context.values.add(marker))
+      const result = await persist(context)
+      context.pending.forEach(marker => context.values.add(marker))
       context.pending = undefined
       return result
     } catch (error) {
@@ -129,6 +135,6 @@ export function vatPostingCreateData(ownerId: string, journalLineId: string | un
 }
 
 export function vatControlAccount(detail: VatPostingDetail, direction: 'output' | 'input') {
-  const rule = germanVatRuleBook.at(detail.ruleId, detail.taxPoint)
+  const rule = germanVatRuleBook.at(detail.ruleId, detail.originalTaxPoint ?? detail.taxPoint)
   return direction === 'output' ? rule.outputAccount : rule.inputAccount
 }

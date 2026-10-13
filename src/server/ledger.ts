@@ -16,6 +16,7 @@ import {
   validateManualAccountCombination,
   type AccountCategory,
   type LedgerBalance,
+  type PostingLineInput,
 } from '@/core/doubleEntry'
 import { createEBalanceXbrl, getEBalanceTaxonomy, type EBalanceMasterData } from '@/core/eBilanz'
 import { createEBalancePackage, validateEBalanceConcepts } from '@/core/eBilanzPackage'
@@ -35,7 +36,9 @@ import {
   vatControlAccount,
   vatPostingCreateData,
   withCalculatedOriginalVatPostings,
+  withVatPostingContext,
 } from './tax/vatPostingCalculation'
+import { bindCorrectionReversal, calculateCorrectionVat, persistedVatSpecification, validateCorrectionVat, type CorrectionLine } from './tax/journalCorrectionVat'
 
 export const DEFAULT_ACCOUNTS = [
   [300, 'Andere Anlagen, Betriebs- und Geschäftsausstattung', 'ASSET', 'bs.ass.fixAss.tan.otherEquipm'],
@@ -351,10 +354,12 @@ export function validateJournalVatControls(
 export function correctionPostingFingerprint(input: {
   fiscalYearId: string; bookingDate: string; documentNumber: string; description: string; source: string; entryDate: string | null; lateReason: string | null;
   reversalOfId: string | null; replacementOfId: string | null; externalKey: string | null;
-  lines: Array<{ accountId: string; debitCents: number; creditCents: number; taxCode?: string | null }>;
+  lines: Array<{ accountId: string; debitCents: number; creditCents: number; taxCode?: string | null; vat?: PostingLineInput['vat'] }>;
   documentIds: string[]
 }) {
-  const lines = input.lines.map(line => ({ accountId: line.accountId, debitCents: line.debitCents, creditCents: line.creditCents, taxCode: line.taxCode ?? null })).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+  const lines = input.lines.map(line => ({ accountId: line.accountId, debitCents: line.debitCents, creditCents: line.creditCents, taxCode: line.vat?.ruleId ?? line.taxCode ?? null,
+    vat: line.vat ? { ruleId: line.vat.ruleId, mode: line.vat.mode, direction: line.vat.direction } : null,
+  })).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
   return JSON.stringify({ ...input, documentNumber: input.documentNumber.trim(), description: input.description.trim(), lateReason: input.lateReason?.trim() || null, lines, documentIds: [...input.documentIds].sort() })
 }
 export function resolveCorrectionEntryDate(requested: unknown, originalEntryDate: Date | null, now = new Date(), persistedCorrectionDate?: string): string {
@@ -536,7 +541,8 @@ export async function postJournalCorrection(ownerId: string, actorId: string, or
     if (accounts.length !== accountIds.length) throw new AccountingValidationError(['Mindestens ein Konto ist ungültig oder gehört zu einem anderen Mandanten.'])
     if (documentIds.length && await prisma.documentRecord.count({ where: { id: { in: documentIds }, ownerId } }) !== documentIds.length) throw new AccountingValidationError(['Mindestens ein ausgewählter Beleg ist ungültig oder gehört zu einem anderen Mandanten.'])
     const ledgerProfile = await prisma.ledgerProfile.findUniqueOrThrow({ where: { ownerId } })
-    return { validated, documentIds, fiscalYear, accountIds, accountFingerprint: accountSemanticFingerprint(ledgerProfile.chart, accounts), requiresActiveAccounts, source, metadata }
+    const lines: CorrectionLine[] = validated.lines.map(line => ({ ...line, id: randomUUID() }))
+    return { id: randomUUID(), lines, validated, documentIds, fiscalYear, accountIds, accountFingerprint: accountSemanticFingerprint(ledgerProfile.chart, accounts), requiresActiveAccounts, source, metadata }
   }
   const entryInstant = new Date(`${entryDate}T00:00:00.000Z`)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate) || !Number.isFinite(entryInstant.getTime()) || entryInstant.toISOString().slice(0, 10) !== entryDate) throw new AccountingValidationError(['Das Erfassungsdatum ist ungültig.'])
@@ -546,22 +552,26 @@ export async function postJournalCorrection(ownerId: string, actorId: string, or
   const replacementPlan = await prepare(replacementInput, 'CORRECTION', { entryDate, replacementOfId: originalId, lateReason: reason, externalKey: replacementKey })
 
   try {
-    return await prisma.$transaction(async transaction => {
-      const original = await transaction.journalEntry.findFirst({ where: { id: originalId, fiscalYear: { ownerId }, state: 'POSTED' } })
+    return await withVatPostingContext(ownerId, async context => prisma.$transaction(async transaction => {
+      // Serialize corrections before reading retry/reversal state, including across processes.
+      await transaction.$executeRaw`UPDATE FiscalYear SET id = id WHERE ownerId = ${ownerId}`
+      const original = await transaction.journalEntry.findFirst({ where: { id: originalId, fiscalYear: { ownerId }, state: 'POSTED' }, include: { lines: { include: { vatPosting: true } }, documents: true } })
       if (!original) throw new AccountingValidationError(['Die zu korrigierende Buchung wurde nicht gefunden.'])
+      bindCorrectionReversal(reversalPlan.lines, original.lines)
+      reversalPlan.documentIds = [...new Set([...original.documents.map(item => item.documentId), ...original.lines.flatMap(line => line.vatPosting?.documentId ? [line.vatPosting.documentId] : [])])]
       const [existingReversal, existingReplacement] = await Promise.all([
-        transaction.journalEntry.findUnique({ where: { externalKey: reversalKey }, include: { lines: true, documents: true } }),
-        transaction.journalEntry.findUnique({ where: { externalKey: replacementKey }, include: { lines: true, documents: true } }),
+        transaction.journalEntry.findUnique({ where: { externalKey: reversalKey }, include: { lines: { include: { vatPosting: true } }, documents: true } }),
+        transaction.journalEntry.findUnique({ where: { externalKey: replacementKey }, include: { lines: { include: { vatPosting: true } }, documents: true } }),
       ])
       if (existingReversal || existingReplacement) {
         const matches = (entry: NonNullable<typeof existingReversal>, plan: typeof reversalPlan) => correctionPostingFingerprint({
           fiscalYearId: entry.fiscalYearId, bookingDate: entry.bookingDate.toISOString().slice(0, 10), documentNumber: entry.documentNumber, description: entry.description, source: entry.source,
           entryDate: entry.entryDate?.toISOString().slice(0, 10) ?? null, lateReason: entry.lateReason, reversalOfId: entry.reversalOfId, replacementOfId: entry.replacementOfId, externalKey: entry.externalKey,
-          lines: entry.lines, documentIds: entry.documents.map(document => document.documentId),
+          lines: entry.lines.map(line => ({ ...line, vat: persistedVatSpecification(line.vatPosting) })), documentIds: entry.documents.map(document => document.documentId),
         }) === correctionPostingFingerprint({
           fiscalYearId: plan.fiscalYear.id, bookingDate: plan.validated.bookingDate, documentNumber: plan.validated.documentNumber, description: plan.validated.description, source: plan.source,
           entryDate, lateReason: reason, reversalOfId: plan.metadata.reversalOfId ?? null, replacementOfId: plan.metadata.replacementOfId ?? null, externalKey: plan.metadata.externalKey ?? null,
-          lines: plan.validated.lines, documentIds: plan.documentIds,
+          lines: plan.lines, documentIds: plan.documentIds,
         })
         if (existingReversal && existingReplacement && matches(existingReversal, reversalPlan) && matches(existingReplacement, replacementPlan)) return { originalId, reversal: existingReversal, replacement: existingReplacement }
         if (existingReversal && existingReplacement) throw new AccountingValidationError(['Die vorhandene Korrektur widerspricht den erneut übermittelten Korrekturdaten.'])
@@ -578,28 +588,42 @@ export async function postJournalCorrection(ownerId: string, actorId: string, or
         const periodYear = postingOrderPeriodYear(plan.fiscalYear)
         const closedSuccessors = await transaction.fiscalYear.findMany({ where: { ownerId, year: { gt: periodYear }, status: 'CLOSED' }, select: { year: true }, orderBy: { year: 'asc' } })
         validatePostingOrder(periodYear, closedSuccessors.map(item => item.year))
+        const vatDetails = calculateCorrectionVat(ownerId, plan.id, plan.validated.bookingDate, plan.lines, context)
+        validateCorrectionVat(vatDetails, plan.lines, currentAccounts, currentProfile.accountLength ?? 4)
+        const detailByLine = new Map(vatDetails.map(detail => [detail.sourceId.split(':').at(-1)!, detail]))
         if (await transaction.journalEntry.findFirst({ where: { fiscalYearId: plan.fiscalYear.id, documentNumber: plan.validated.documentNumber.trim() } })) throw new AccountingValidationError(['Die Belegnummer ist in diesem Geschäftsjahr bereits vergeben.'])
         const last = await transaction.journalEntry.findFirst({ where: { fiscalYearId: plan.fiscalYear.id }, orderBy: { sequenceNumber: 'desc' }, select: { sequenceNumber: true } })
         const entry = await transaction.journalEntry.create({ data: {
+          id: plan.id,
           ownerId,
           sequenceNumber: (last?.sequenceNumber ?? 0) + 1,
           bookingDate: new Date(`${plan.validated.bookingDate}T12:00:00.000Z`),
           documentNumber: plan.validated.documentNumber.trim(), description: plan.validated.description.trim(), fiscalYearId: plan.fiscalYear.id,
           source: plan.source, entryDate: new Date(`${entryDate}T12:00:00.000Z`), lateReason: reason,
           reversalOfId: plan.metadata.reversalOfId ?? null, replacementOfId: plan.metadata.replacementOfId ?? null, externalKey: plan.metadata.externalKey ?? null,
-          lines: { create: plan.validated.lines.map(line => ({ accountId: line.accountId, debitCents: line.debitCents, creditCents: line.creditCents, taxCode: line.taxCode || null })) },
+          lines: { create: plan.lines.map(line => {
+            const detail = detailByLine.get(line.id)
+            return { id: line.id, accountId: line.accountId, debitCents: line.debitCents, creditCents: line.creditCents, taxCode: line.taxCode || null, ...(detail ? journalLineVatData(detail) : {}) }
+          }) },
           documents: { create: plan.documentIds.map(documentId => ({ documentId })) },
         }, include: { lines: true, documents: true } })
+        for (const line of plan.lines) {
+          const detail = detailByLine.get(line.id)
+          if (detail) await transaction.vatPostingRecord.create({ data: vatPostingCreateData(ownerId, line.id, detail,
+            line.originalVat ? line.originalVat.documentId ?? undefined : plan.documentIds.length === 1 ? plan.documentIds[0] : undefined) })
+        }
         await extendAttachedDocumentRetention(transaction, ownerId, plan.documentIds, plan.fiscalYear.endsAt)
         return entry
       }
 
       const reversal = await create(reversalPlan)
       const replacement = await create(replacementPlan)
+      for (const marker of context.pending!) await transaction.vatReversalMarker.create({ data: { ownerId, marker } })
       await appendAuditEvent(transaction, { ownerId, actorId, action: 'JOURNAL_ENTRY_CORRECTED', reason, objectType: 'JournalEntry', objectId: originalId, before: { originalId }, after: { reversalId: reversal.id, replacementId: replacement.id } })
       return { originalId, reversal, replacement }
-    })
+    }))
   } catch (error) {
+    if (error instanceof VatValidationError) throw new AccountingValidationError([...error.issues])
     if ((error as { code?: string }).code === 'P2002') throw new AccountingValidationError(['Belegnummer oder Journalnummer ist in diesem Geschäftsjahr bereits vergeben.'])
     throw error
   }
