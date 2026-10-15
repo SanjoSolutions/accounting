@@ -54,11 +54,11 @@ test.describe('real annual close', () => {
     await context.close()
   })
 
-  for (const scenario of [{ legalForm: 'UG' as const, year: 2025 }, { legalForm: 'GMBH' as const, year: 2026 }]) test(`completes the reviewed HGB close, E-Bilanz export, KSt and GewSt lifecycle for a ${scenario.year} ${scenario.legalForm}`, async ({ browser }, testInfo) => {
+  for (const scenario of [{ legalForm: 'UG' as const, year: 2025, exportOnly: false }, { legalForm: 'GMBH' as const, year: 2026, exportOnly: false }, { legalForm: 'UG' as const, year: 2026, exportOnly: true }]) test(`completes the reviewed HGB close and ${scenario.exportOnly ? 'authoritative E-Bilanz download' : 'E-Bilanz export, KSt and GewSt lifecycle'} for a ${scenario.year} ${scenario.legalForm}`, async ({ browser }, testInfo) => {
     const year = scenario.year; const priorYear = year - 1
     const baseURL = testInfo.project.use.baseURL as string
     const ownerContext = await browser.newContext({ baseURL }); await ownerContext.addCookies([{ name: 'NEXT_LOCALE', value: 'en', url: baseURL }]); const ownerPage = await ownerContext.newPage()
-    const reviewerContext = await browser.newContext({ baseURL }); const reviewerPage = await reviewerContext.newPage()
+    const reviewerContext = await browser.newContext({ baseURL }); await reviewerContext.addCookies([{ name: 'NEXT_LOCALE', value: 'en', url: baseURL }]); const reviewerPage = await reviewerContext.newPage()
     const password = 'Annual-close-password-2026!'
     const ownerEmail = `hgb-owner-${randomUUID()}@example.test`; const reviewerEmail = `hgb-reviewer-${randomUUID()}@example.test`
     await ownerPage.goto('/sign-up'); await new AuthenticationPage(ownerPage).signUp('HGB owner', ownerEmail, password); await expect(ownerPage).toHaveURL('/')
@@ -89,7 +89,9 @@ test.describe('real annual close', () => {
     const eBalance = new EBalancePage(ownerPage)
     await eBalance.open(year)
     await eBalance.expectAuthoritativeMasterData({ companyName: companyProfile.companyName, street: 'Test 1', postalCode: '10115', city: 'Berlin', taxNumber: '1234567890123', legalForm: scenario.legalForm })
+    await eBalance.approveSyntheticTaxBalance(periodId, year, evidenceId)
     await eBalance.exportCurrentValidationPackage(year)
+    if (scenario.exportOnly) { await ownerContext.close(); await reviewerContext.close(); return }
 
     const corporationTax = new TaxWorkflowPage(ownerPage, year)
     await corporationTax.prepare('KST')
@@ -135,6 +137,7 @@ test.describe('real annual close', () => {
       await reviewerCompliance.approvePeriodReopen(reopenRequestId)
       await ownerAnnualClose.lockReadyFiscalYear(year)
       await eBalance.open(year)
+      await eBalance.approveSyntheticTaxBalance(periodId, year, evidenceId)
       await eBalance.exportRemediatedAuthoritativePackage(year)
     }
     await ownerContext.close(); await reviewerContext.close()

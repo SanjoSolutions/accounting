@@ -72,8 +72,14 @@ export class ComplianceSetupPage {
     const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Chart and mapping lifecycle' }) })
     const details = section.locator('details')
     await details.locator('summary').click()
-    const mappings = JSON.parse((await details.locator('pre').textContent()) || '[]') as Array<{ id: string }>
-    return mappings.filter(item => new RegExp(`\\b${year}\\b`).test(String((item as { effectiveFrom?: string }).effectiveFrom ?? ''))).map(item => item.id)
+    const response = await this.page.request.get('/api/compliance')
+    expect(response.ok()).toBe(true)
+    const body = await response.json()
+    const mappings = (body.data ?? body).chart.mappings as Array<{ id: string; effectiveFrom: string }>
+    const ids = mappings.filter(item => item.effectiveFrom.startsWith(String(year))).map(item => item.id)
+    expect(ids.length).toBeGreaterThan(0)
+    for (const id of ids) await expect(details.locator('pre')).toContainText(id)
+    return ids
   }
 
   async configureReviewPolicy(ownerId: string, reviewerId: string) {

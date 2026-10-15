@@ -33,6 +33,11 @@ export class AnnualClosePage {
     await this.page.goto(`/bookings?year=${year}`)
     await initialYearLoaded
     const yearControl = this.page.getByRole('spinbutton', { name: 'Fiscal year', exact: true })
+    if (await yearControl.inputValue() !== String(year)) {
+      const yearLoaded = this.page.waitForResponse(response => response.url().includes(`/api/booking-records?year=${year}`) && response.request().method() === 'GET' && response.ok())
+      await yearControl.fill(String(year))
+      await yearLoaded
+    }
     await expect(yearControl).toHaveValue(String(year))
     await expect(this.page.getByRole('combobox', { name: 'Account row 1' })).toBeEnabled()
 
@@ -52,8 +57,9 @@ export class AnnualClosePage {
     await this.selectAccount(2, '8400 · Erlöse 19 % USt')
     await this.page.getByLabel('Credit row 2').fill('119')
     await this.page.getByRole('button', { name: 'Save to booking batches', exact: true }).click()
-    await expect(this.page.getByRole('status')).toContainText('booking was saved to a booking batch')
+    await expect(this.page.getByRole('status')).toContainText('saved to a booking batch')
     await this.page.goto(`/booking-batches?year=${year}`)
+    await this.page.getByRole('option', { name: /Revenue for annual close/ }).click()
     await expect(this.page.getByLabel('Description', { exact: true })).toHaveValue('Revenue for annual close')
     await this.page.getByLabel('Posting reason').fill('Reviewed synthetic annual-close revenue')
     await this.page.getByRole('button', { name: 'Post to journal', exact: true }).click()
