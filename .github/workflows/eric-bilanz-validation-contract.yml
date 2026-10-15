@@ -1,4 +1,4 @@
-name: ERiC Bilanz validation contract
+name: ERiC Bilanz sample smoke contract
 
 on:
   workflow_dispatch:
@@ -39,7 +39,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Validate an ELSTER envelope through the real Bilanz_6.9 plugin without submission
-        run: pnpm test:contract:eric
+        run: pnpm test:contract:eric:sample
       - name: Retain redacted validation-only protocols
         if: always()
         uses: actions/upload-artifact@v4

@@ -1,0 +1,55 @@
+name: ERiC retained app-output validation contract
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorization:
+        description: Confirm authorized validation-only use of the retained synthetic package and installed runtime
+        required: true
+        type: choice
+        options:
+          - DO_NOT_RUN
+          - AUTHORIZED_VALIDATION_ONLY
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eric-retained-validation
+  cancel-in-progress: false
+
+jobs:
+  retained-validation:
+    if: inputs.authorization == 'AUTHORIZED_VALIDATION_ONLY'
+    runs-on: [self-hosted, Windows, X64, eric]
+    timeout-minutes: 15
+    environment: eric-test-qualification
+    env:
+      ERIC_RETAINED_CONTRACT_ENABLED: 'true'
+      ERIC_QUALIFICATION_AUTHORIZED_TEST_MODE: 'true'
+      ERIC_QUALIFICATION_BRIDGE_PATH: ${{ vars.ERIC_QUALIFICATION_BRIDGE_PATH }}
+      ERIC_QUALIFICATION_RUNTIME_DIR: ${{ vars.ERIC_QUALIFICATION_RUNTIME_DIR }}
+      ERIC_QUALIFICATION_MANUFACTURER_ID: ${{ secrets.ERIC_QUALIFICATION_MANUFACTURER_ID }}
+      ERIC_QUALIFICATION_TEST_MARKER: ${{ secrets.ERIC_QUALIFICATION_TEST_MARKER }}
+      ERIC_QUALIFICATION_TEST_TAX_NUMBER: ${{ secrets.ERIC_QUALIFICATION_TEST_TAX_NUMBER }}
+      ERIC_RETAINED_PACKAGE_PATH: ${{ vars.ERIC_RETAINED_PACKAGE_PATH }}
+      ERIC_RETAINED_MANIFEST_PATH: ${{ vars.ERIC_RETAINED_MANIFEST_PATH }}
+      ERIC_QUALIFICATION_EVIDENCE_DIR: ${{ runner.temp }}\eric-retained-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate retained app output and intentional content rejection without submission
+        run: pnpm test:contract:eric
+      - name: Archive redacted protocol summaries only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eric-retained-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}\eric-retained-${{ github.run_id }}-${{ github.run_attempt }}\*.json
+          if-no-files-found: error
+          retention-days: 90
