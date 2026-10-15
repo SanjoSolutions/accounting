@@ -58,6 +58,7 @@ export const tenantBackupRegistry = [
   collection('TaxWorkflowRecord', 'taxWorkflowRecord', 'taxWorkflows', 10),
   collection('TaxSubmissionRequest', 'taxSubmissionRequest', 'taxSubmissionRequests', 10),
   collection('TaxAdjustmentRecord', 'taxAdjustmentRecord', 'taxAdjustments', 10),
+  collection('EuerRevision', 'euerRevision', 'euerRevisions', 20),
   collection('AuditEvent', 'auditEvent', 'audit', 20),
   collection('AuditHead', 'auditHead', 'auditHead', 21, { shape: 'singleton' }),
   collection('BackupManifest', 'backupManifest', 'backupManifests', 20, { mode: 'backupManifests' }),

@@ -9,6 +9,7 @@ import { localizeErrorDates } from './errorFormatting'
 import { LocalCurrency } from './LocalNumber'
 import { UstvaCopyView, type UstvaCopyContext } from './UstvaCopyView'
 import { ustvaPeriodOptions } from './core/ustvaCopy'
+import Link from 'next/link'
 
 type Workflow = { submissionId: string; kind: string; period: string; state: string; receipt?: string | null; correctsId?: string | null; updatedAt: string }
 type Applicability = { kinds: string[]; deadline: string; professionalValidationRequired: boolean }
@@ -242,7 +243,7 @@ export function TaxWorkspace({ year }: { year: number }) {
   }
 
   return <div className="workspace pb-4">
-    <PageHeading title={t('title', { year })} subtitle={t('subtitle')} />
+    <PageHeading title={t('title', { year })} subtitle={t('subtitle')}><Link href={`/tax/${year}/euer`} className="btn btn-outline-primary">EÜR</Link></PageHeading>
     {message && <p className="alert alert-danger" role="status">{localizeErrorDates(message, locale)}</p>}
     {gatewayStatus?.mode === 'LOCAL_LIFECYCLE_EMULATOR' && <p className="alert alert-warning" role="status">{t('gatewayLocal')}</p>}
     {gatewayStatus?.mode === 'NOT_CONFIGURED' && <p className="alert alert-danger" role="status">{t('gatewayNotConfigured')}</p>}

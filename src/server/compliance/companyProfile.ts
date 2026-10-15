@@ -1,3 +1,5 @@
+import { usesEuer, validateSoleTraderTaxProfile, type SoleTraderTaxProfile } from '@/core/companyTaxProfile'
+
 export type LegalForm = 'SOLE_TRADER' | 'GMBH' | 'UG' | 'AG' | 'OHG' | 'KG' | 'GMBH_CO_KG' | 'GBR' | 'PARTNERSHIP' | 'OTHER'
 export type VatRegime = 'STANDARD' | 'SMALL_BUSINESS' | 'EXEMPT'
 export type FilingFrequency = 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'
@@ -17,6 +19,7 @@ export interface CompanyProfile {
   sizeClass: 'MICRO' | 'SMALL' | 'MEDIUM' | 'LARGE'
   chart: 'SKR03' | 'SKR04' | `CUSTOM:${string}`
   elections: string[]
+  soleTraderTaxProfile?: SoleTraderTaxProfile
   annualTaxProfile?: {
     tradeBusiness: boolean
     establishments: number
@@ -119,6 +122,7 @@ export function validateCompanyProfile(profile: unknown): string[] {
   const issues: string[] = []
   if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return ['company profile must be an object']
   const value = profile as Partial<CompanyProfile>
+  issues.push(...validateSoleTraderTaxProfile(value.legalForm, value.soleTraderTaxProfile))
   for (const [label, field] of [['companyName', value.companyName], ['taxNumber', value.taxNumber], ['taxOffice', value.taxOffice], ['activity', value.activity]] as const) {
     if (typeof field !== 'string' || !field.trim()) issues.push(`${label} is required`)
   }
@@ -224,8 +228,8 @@ export function deriveReportApplicability(profile: CompanyProfile): Record<Repor
   const derived: Record<ReportKind, boolean> = {
     VAT_ADVANCE: profile.vatRegime === 'STANDARD' && profile.vatFilingFrequency !== 'ANNUAL',
     VAT_ANNUAL: profile.vatRegime !== 'EXEMPT',
-    E_BILANZ: !profile.elections.includes('E_BILANZ_EXEMPT'),
-    HGB_FINANCIAL_STATEMENTS: !['SOLE_TRADER', 'GBR'].includes(profile.legalForm) || profile.sizeClass !== 'MICRO',
+    E_BILANZ: !usesEuer(profile) && !profile.elections.includes('E_BILANZ_EXEMPT'),
+    HGB_FINANCIAL_STATEMENTS: !usesEuer(profile) && (!['SOLE_TRADER', 'GBR'].includes(profile.legalForm) || profile.sizeClass !== 'MICRO'),
   }
   return Object.fromEntries(Object.entries(derived).map(([kind, applicable]) => {
     const override = profile.applicabilityOverrides?.[kind as ReportKind]
