@@ -104,6 +104,8 @@ describe('explicit corporate report scope and reconciliation', () => {
     expect(xml).toContain(`legalStatus.${legalForm}`)
     expect(xml).toContain('reportElements.AV')
     expect(xml).toContain('Buchwert steuerlich (EUR): 950.00')
+    expect(xml).toContain('Konto: 400; Taxonomieposition: bs.ass.fixAss.tan.otherEquipm')
+    expect(xml).toContain('Planmäßige Abschreibungen Wirtschaftsjahr (EUR): 250.00')
     await expect(validateEBalanceFilingXml(xml, dataset, archives[0])).resolves.toMatchObject({ valid: true, level: 'LOCAL_STRUCTURAL' })
   }, 60000)
 

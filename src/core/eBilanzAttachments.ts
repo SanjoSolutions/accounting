@@ -9,10 +9,12 @@ export function eBalanceFilingAttachments(dataset: EBalanceExportDataset) {
     attachments.push({ concept: 'nt.reg', reportElement: 'AV', text: dataset.assets.map(asset => [
       `Anlage: ${asset.book.assetId} - ${asset.book.description}`,
       `Anschaffung: ${asset.acquisitionDate}; Standort: ${asset.book.location}`,
-      `Konto: ${asset.accountId}; Taxonomieposition: ${asset.concept}`,
+      `Konto: ${dataset.accounts.find(account => account.accountId === asset.accountId)!.number}; Taxonomieposition: ${asset.concept}`,
       `Anschaffungs-/Herstellungskosten (EUR): ${centsText(asset.tax.closingCostCents)}`,
       `Abschreibungen kumuliert (EUR): ${centsText(asset.tax.closingAccumulatedDepreciationCents)}`,
-      `Abschreibungen Wirtschaftsjahr (EUR): ${centsText(asset.tax.currentDepreciationCents)}`,
+      `Planmäßige Abschreibungen Wirtschaftsjahr (EUR): ${centsText(asset.tax.currentDepreciationCents)}`,
+      `Außerplanmäßige Abschreibungen Wirtschaftsjahr (EUR): ${centsText(asset.tax.impairmentsCents)}`,
+      `Zuschreibungen Wirtschaftsjahr (EUR): ${centsText(asset.tax.reversalsCents)}`,
       `Buchwert steuerlich (EUR): ${centsText(asset.tax.carryingAmountCents)}`,
       `Buchwert handelsrechtlich (EUR): ${centsText(asset.book.carryingAmountCents)}`,
     ].join('\n')).join('\n\n') })
