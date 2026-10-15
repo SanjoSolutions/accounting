@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  taxonomyFindMany: vi.fn(), reportFindMany: vi.fn(), reconciliationFindMany: vi.fn(), fiscalYearFindFirst: vi.fn(), currentGeneration: vi.fn(),
+  taxonomyFindMany: vi.fn(), reportFindMany: vi.fn(), reconciliationFindMany: vi.fn(), fiscalYearFindFirst: vi.fn(), currentGeneration: vi.fn(), currentReport: vi.fn(),
 }))
 vi.mock('server-only', () => ({}))
 vi.mock('@/server/persistence/client', () => ({ prisma: {
@@ -10,6 +10,7 @@ vi.mock('@/server/persistence/client', () => ({ prisma: {
   eBalanceReconciliationRecord: { findMany: mocks.reconciliationFindMany }, fiscalYear: { findFirst: mocks.fiscalYearFindFirst },
 } }))
 vi.mock('@/server/fiscalCloseGeneration', () => ({ requireCurrentFiscalCloseGeneration: mocks.currentGeneration }))
+vi.mock('./eBilanzExportRepository', () => ({ assertCurrentEBalanceReport: mocks.currentReport }))
 
 import { getEBalanceLifecycleOverview } from './eBilanzRepository'
 
@@ -20,9 +21,10 @@ describe('persisted E-Bilanz lifecycle overview', () => {
   beforeEach(() => {
     vi.clearAllMocks(); mocks.taxonomyFindMany.mockResolvedValue([taxonomy]); mocks.reconciliationFindMany.mockResolvedValue([])
     mocks.fiscalYearFindFirst.mockResolvedValue(fiscalYear); mocks.currentGeneration.mockResolvedValue({ id: 'generation-current' })
+    mocks.currentReport.mockResolvedValue(undefined)
   })
 
-  it('labels only the newest report bound to the exact current locked-close generation as current', async () => {
+  test('given a current official filing, labels only its newest exact version as current', async () => {
     mocks.reportFindMany.mockResolvedValue([
       { id: 'new', fiscalYearId: 'fy-2026', closeGenerationId: 'generation-current' },
       { id: 'superseded', fiscalYearId: 'fy-2026', closeGenerationId: 'generation-current' },
@@ -35,7 +37,7 @@ describe('persisted E-Bilanz lifecycle overview', () => {
     expect(mocks.fiscalYearFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'fy-2026', ownerId: 'tenant-a' } }))
   })
 
-  it('fails the visible evidence state closed when authoritative close verification rejects staleness', async () => {
+  test('given stale close evidence, fails the visible report state closed', async () => {
     mocks.reportFindMany.mockResolvedValue([{ id: 'report', fiscalYearId: 'fy-2026', closeGenerationId: 'generation-old' }])
     mocks.currentGeneration.mockRejectedValue(new Error('The fiscal close generation is stale.'))
     await expect(getEBalanceLifecycleOverview('tenant-a', 'fy-2026')).resolves.toMatchObject({
@@ -44,7 +46,13 @@ describe('persisted E-Bilanz lifecycle overview', () => {
     })
   })
 
-  it('does not expose a foreign tenant fiscal period or its report evidence', async () => {
+  test('given changed reconciliation or internal XML, labels the newest report stale', async () => {
+    mocks.reportFindMany.mockResolvedValue([{ id: 'report', closeGenerationId: 'generation-current' }])
+    mocks.currentReport.mockRejectedValue(new Error('Reconciliation changed'))
+    await expect(getEBalanceLifecycleOverview('tenant-a', 'fy-2026')).resolves.toMatchObject({ reports: [{ id: 'report', sourceStatus: 'STALE' }] })
+  })
+
+  test('given a foreign tenant fiscal period, does not expose its report evidence', async () => {
     mocks.reportFindMany.mockResolvedValue([]); mocks.fiscalYearFindFirst.mockResolvedValue(null)
     await expect(getEBalanceLifecycleOverview('tenant-a', 'foreign-fy')).resolves.toMatchObject({ reports: [], reconciliations: [], closeEvidence: null })
     expect(mocks.currentGeneration).not.toHaveBeenCalled()
