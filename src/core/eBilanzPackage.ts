@@ -54,9 +54,11 @@ function attribute(token: string, name: string) {
   return match?.[2]
 }
 
-export function createEBalancePackage(xml: string, year: number, officialTaxonomyArchive: Uint8Array) {
+export function createEBalancePackage(xml: string, year: number, officialTaxonomyArchive: Uint8Array, companions: Record<string, string> = {}) {
+  for (const name of Object.keys(companions)) if (!['export-data.json', 'local-validation.json', 'manifest.json'].includes(name)) throw new Error('Unsupported E-Bilanz package companion.')
   return zipSync({
     ...unzipSync(officialTaxonomyArchive),
     [`e-bilanz-${year}.xbrl`]: strToU8(xml),
+    ...Object.fromEntries(Object.entries(companions).map(([name, text]) => [name, strToU8(text)])),
   }, { level: 6 })
 }
