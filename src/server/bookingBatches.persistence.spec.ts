@@ -68,6 +68,8 @@ describe('booking batch persistence', () => {
     expect(retried.id).toBe(posted.id)
     expect(await prisma.journalEntry.count({ where: { ownerId } })).toBe(1)
     expect((await api.getBookingBatches(ownerId, 2026)).drafts).toHaveLength(0)
+    await expect(api.reviseBookingBatch(ownerId, 'actor-a', draft.id, { expectedVersion: 2, posting })).rejects.toThrow(/Editable draft not found/)
+    await expect(prisma.journalEntry.update({ where: { id: posted.id }, data: { description: 'Rewritten history' } })).rejects.toThrow()
   })
 
   test('does not expose another tenant draft or document metadata', async () => {
@@ -83,5 +85,50 @@ describe('booking batch persistence', () => {
     const listedA = await api.getBookingBatches(ownerA, 2027)
     expect(listedA.drafts.every(draft => draft.id !== draftB.id)).toBe(true)
     expect(listedA.drafts[0].documents).toEqual([])
+    await prisma.fiscalYear.create({ data: { ownerId: ownerA, year: 2026, startsAt: new Date('2026-01-01T00:00:00Z'), endsAt: new Date('2026-12-31T23:59:59Z') } })
+    expect((await api.getBookingBatches(ownerA, 2026)).drafts).toEqual([])
+    await expect(api.postBookingBatch(ownerA, 'actor-a', draftB.id)).rejects.toThrow(/not found/)
+    await expect(api.reviseBookingBatch(ownerA, 'actor-a', draftB.id, { expectedVersion: 1, posting: draftB.payload })).rejects.toThrow(/not found/)
+  })
+
+  test('Given a draft changed after review, when posting the old version, then nothing is posted until the new version is reviewed', async () => {
+    const ownerId = 'versioned-booking-owner'
+    const workspace = await api.getBookingBatches(ownerId, 2026)
+    const account = (number: number) => workspace.accounts.find(item => item.number === number)!.id
+    await prisma.documentRecord.create({ data: { id: 'versioned-booking-document', ownerId, payload: '{}' } })
+    const posting = { fiscalYear: 2026, bookingDate: '2026-08-10', description: 'Original review', documentIds: ['versioned-booking-document'], lines: [
+      { accountId: account(4930), debitCents: 1000, creditCents: 0 }, { accountId: account(1200), debitCents: 0, creditCents: 1000 },
+    ] }
+    const draft = await api.createBookingBatch(ownerId, 'actor-a', posting)
+    await api.reviseBookingBatch(ownerId, 'actor-b', draft.id, { expectedVersion: 1, posting: { ...posting, description: 'Revised review' } })
+    await expect(api.postBookingBatch(ownerId, 'actor-a', draft.id, { expectedVersion: 1 })).rejects.toMatchObject({ status: 409 })
+    expect(await prisma.journalEntry.count({ where: { ownerId } })).toBe(0)
+    expect(await prisma.journalDraft.findUniqueOrThrow({ where: { id: draft.id } })).toMatchObject({ status: 'DRAFT', version: 2 })
+    const entry = await api.postBookingBatch(ownerId, 'actor-a', draft.id, { expectedVersion: 2 })
+    expect(await prisma.journalEntry.findUniqueOrThrow({ where: { id: entry.id } })).toMatchObject({ description: 'Revised review' })
+    expect((await api.postBookingBatch(ownerId, 'actor-a', draft.id, { expectedVersion: 2 })).id).toBe(entry.id)
+    expect(await prisma.journalEntry.count({ where: { ownerId } })).toBe(1)
+  })
+
+  test('Given invalid references or a closed year, when posting, then all split lines remain unposted and the draft remains available', async () => {
+    const ownerId = 'invalid-booking-owner'
+    const workspace = await api.getBookingBatches(ownerId, 2026)
+    const account = (number: number) => workspace.accounts.find(item => item.number === number)!.id
+    await prisma.documentRecord.create({ data: { id: 'invalid-booking-document', ownerId, payload: '{}' } })
+    const posting = { fiscalYear: 2026, bookingDate: '2026-08-10', description: 'Three split lines', documentIds: ['invalid-booking-document'], lines: [
+      { accountId: account(4930), debitCents: 600, creditCents: 0 }, { accountId: account(4930), debitCents: 400, creditCents: 0 }, { accountId: account(1200), debitCents: 0, creditCents: 1000 },
+    ] }
+    const draft = await api.createBookingBatch(ownerId, 'actor-a', posting)
+    for (const expectedVersion of [0, -1, 1.5, '1', null]) {
+      await expect(api.postBookingBatch(ownerId, 'actor-a', draft.id, { expectedVersion })).rejects.toMatchObject({ status: 400 })
+    }
+    await prisma.ledgerAccount.update({ where: { id: account(4930) }, data: { active: false } })
+    await expect(api.postBookingBatch(ownerId, 'actor-a', draft.id, { expectedVersion: 1 })).rejects.toThrow(/Konto/)
+    await prisma.ledgerAccount.update({ where: { id: account(4930) }, data: { active: true } })
+    await prisma.fiscalYear.update({ where: { id: workspace.fiscalYear.id }, data: { status: 'CLOSED' } })
+    await expect(api.postBookingBatch(ownerId, 'actor-a', draft.id, { expectedVersion: 1 })).rejects.toThrow()
+    expect(await prisma.journalEntry.count({ where: { ownerId } })).toBe(0)
+    expect(await prisma.journalLine.count({ where: { account: { ownerId } } })).toBe(0)
+    expect(await prisma.journalDraft.findUniqueOrThrow({ where: { id: draft.id } })).toMatchObject({ status: 'DRAFT', version: 1 })
   })
 })

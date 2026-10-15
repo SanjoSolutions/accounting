@@ -75,6 +75,20 @@ describe('booking batches API', () => {
     expect(response.status).toBe(200)
     expect(mocks.postBookingBatch).toHaveBeenCalledWith('tenant-a', 'actor-a', 'draft-a', undefined)
   })
+
+  test('Given a read-only user, when posting, then access is denied before any draft mutation', async () => {
+    mocks.getCurrentUser.mockResolvedValue({ id: 'tenant-a', actorId: 'viewer-a', role: 'READ_ONLY' })
+    const response = await POST(new Request('http://localhost/api/booking-batches/draft-a/post', { method: 'POST' }), { params: Promise.resolve({ id: 'draft-a' }) })
+    expect(response.status).toBe(403)
+    expect(mocks.postBookingBatch).not.toHaveBeenCalled()
+  })
+
+  test('Given an accountant, when posting a reviewed version, then tenant and actor are passed separately', async () => {
+    mocks.getCurrentUser.mockResolvedValue({ id: 'tenant-a', actorId: 'accountant-a', role: 'ACCOUNTANT' })
+    const response = await POST(new Request('http://localhost/api/booking-batches/draft-a/post', { method: 'POST', body: JSON.stringify({ expectedVersion: 3 }) }), { params: Promise.resolve({ id: 'draft-a' }) })
+    expect(response.status).toBe(200)
+    expect(mocks.postBookingBatch).toHaveBeenCalledWith('tenant-a', 'accountant-a', 'draft-a', { expectedVersion: 3 })
+  })
 })
 
 function json(path: string, body: unknown) {

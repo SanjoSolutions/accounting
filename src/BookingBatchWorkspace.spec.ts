@@ -106,6 +106,7 @@ describe('booking batch editing requests', () => {
   test('serializes an optional posting reason without sending blank text', () => {
     expect(bookingBatchPostRequest('  Reviewed by finance  ')).toEqual({ reason: 'Reviewed by finance' })
     expect(bookingBatchPostRequest('   ')).toEqual({})
+    expect(bookingBatchPostRequest('  reviewed  ', 4)).toEqual({ reason: 'reviewed', expectedVersion: 4 })
   })
 
   test('keeps two editable lines when a draft has no lines', () => {

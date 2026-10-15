@@ -24,8 +24,9 @@ test.describe('accounting workspaces', () => {
     await page.route('**/api/booking-records', async route => {
       if (route.request().method() !== 'POST') return route.fallback()
       postedBody = route.request().postDataJSON()
-      await fulfillJson(route, { data: { id: 'entry-2' } }, 201)
+      await fulfillJson(route, { id: 'draft-2', version: 1 }, 201)
     })
+    await page.route('**/api/booking-batches/draft-2/post', route => fulfillJson(route, { id: 'entry-2' }))
 
     await bookings.open('/bookings')
     const previewResponse = page.waitForResponse(response =>

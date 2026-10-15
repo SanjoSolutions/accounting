@@ -61,6 +61,8 @@ label { display: flex; flex-direction: column; gap: 6px; color: #435048; font-si
 .account-selector-option:hover,.account-selector-option:focus,.account-selector-option[aria-selected="true"] { background: var(--green-soft); color: var(--green); outline: 0; }
 .account-selector-empty { margin: 0; padding: 12px 8px; color: var(--muted); font-size: .8rem; }
 .money-input { display: flex; }.money-input input { width: 100%; }.money-input .input-group-text { position: static; color: var(--muted); }
+.posting-money-field { min-width: 0; }.posting-money-label { display: none; }
+@media (max-width: 700px) { .posting-money-label { display: block; margin-bottom: .25rem; color: var(--muted); font-size: .75rem; } }
 .icon-button { width: 36px; height: 42px; font-size: 1.3rem; }.icon-button:disabled { opacity: .35; }
 .add-line { padding: 7px 0; font-weight: 750; }
 .balance-bar { margin-top: 18px; border-radius: 12px; padding: 14px; background: #f7f3ed; display: grid; grid-template-columns: repeat(3,1fr) auto; gap: 18px; align-items: end; border: 1px solid #eadfce; }
