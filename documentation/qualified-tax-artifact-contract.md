@@ -118,3 +118,25 @@ access and explicit submission permission, and then:
 
 This task has not enrolled with a provider, configured remote secrets,
 dispatched the workflow, submitted a return, or changed production settings.
+
+## Local verification
+
+Verified on 15 October 2026 with current main merged into the task branch:
+
+- The three focused Vitest suites passed all 55 tests. They cover the eight
+  offline exchanges, artifact integrity, exact request acknowledgement,
+  environment mismatches, negative cases, replay and evidence privacy.
+- The full one-worker run passed 1,772 tests and skipped five optional tests.
+  One unchanged server-action inventory test exceeded its five-second default
+  at 5.46 seconds. Its unchanged seven-test file then passed separately with
+  the original timeout. This is not an uninterrupted green full-suite result.
+- Production build and final TypeScript validation passed. The build reports
+  the existing dynamic filesystem-tracing warnings in `tools/db-safety.mjs`.
+- Disabled-contract Playwright verification skipped all eight external cases,
+  with no network calls or acceptance evidence.
+
+Heavy verification used `Local\CodexAccountingHeavyVerification`, one worker,
+explicit disposable databases and isolated document storage. No app server,
+browser session or layout change was involved. The change supports SPEC S15,
+S16 and its qualified-transmission product boundary; it does not establish
+external fulfillment of those requirements or the whole product specification.
