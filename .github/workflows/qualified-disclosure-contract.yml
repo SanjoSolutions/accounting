@@ -1,5 +1,9 @@
 name: Qualified Unternehmensregister disclosure contract
 
+permissions:
+  contents: read
+  actions: read
+
 on:
   workflow_dispatch:
     inputs:
@@ -19,12 +23,12 @@ jobs:
     environment: disclosure-qualification
     env:
       QUALIFIED_DISCLOSURE_CONTRACT_ENABLED: 'true'
-      QUALIFIED_DISCLOSURE_CONTRACT_URL: ${{ secrets.QUALIFIED_DISCLOSURE_CONTRACT_URL }}
-      QUALIFIED_DISCLOSURE_CONTRACT_CREDENTIAL: ${{ secrets.QUALIFIED_DISCLOSURE_CONTRACT_CREDENTIAL }}
-      QUALIFIED_DISCLOSURE_CONTRACT_SUBMITTER_ID: ${{ secrets.QUALIFIED_DISCLOSURE_CONTRACT_SUBMITTER_ID }}
       QUALIFIED_DISCLOSURE_CONTRACT_GATEWAY_ID: ${{ vars.QUALIFIED_DISCLOSURE_CONTRACT_GATEWAY_ID }}
       QUALIFIED_DISCLOSURE_CONTRACT_QUALIFICATION_ID: ${{ vars.QUALIFIED_DISCLOSURE_CONTRACT_QUALIFICATION_ID }}
       QUALIFIED_DISCLOSURE_CONTRACT_SCHEMA_VERSION: ${{ vars.QUALIFIED_DISCLOSURE_CONTRACT_SCHEMA_VERSION }}
+      QUALIFIED_DISCLOSURE_CONTRACT_ENVIRONMENT: ${{ vars.QUALIFIED_DISCLOSURE_CONTRACT_ENVIRONMENT }}
+      QUALIFIED_DISCLOSURE_CONTRACT_FIXTURE_DIR: ${{ runner.temp }}/qualified-disclosure-inputs
+      QUALIFIED_DISCLOSURE_CONTRACT_FIXTURE_MANIFEST_SHA256: ${{ vars.QUALIFIED_DISCLOSURE_CONTRACT_FIXTURE_MANIFEST_SHA256 }}
       QUALIFIED_DISCLOSURE_CONTRACT_CASES: MICRO-HINTERLEGUNG,SMALL-OFFENLEGUNG
       QUALIFIED_DISCLOSURE_CONTRACT_ALLOW_SUBMISSION: 'true'
       QUALIFIED_DISCLOSURE_CONTRACT_PROTOCOL_DIR: ${{ runner.temp }}/qualified-disclosure-protocols
@@ -36,13 +40,28 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Require a reviewed fixture run
+        env:
+          FIXTURE_RUN_ID: ${{ vars.QUALIFIED_DISCLOSURE_CONTRACT_FIXTURE_RUN_ID }}
+        run: '[[ "$FIXTURE_RUN_ID" =~ ^[1-9][0-9]*$ ]]'
+      - name: Download reviewed synthetic app exports and provider payloads
+        uses: actions/download-artifact@v4
+        with:
+          name: qualified-disclosure-inputs
+          run-id: ${{ vars.QUALIFIED_DISCLOSURE_CONTRACT_FIXTURE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/qualified-disclosure-inputs
       - name: Execute authorized TEST/STAGING validation, rejection, and acceptance contracts
+        env:
+          QUALIFIED_DISCLOSURE_CONTRACT_URL: ${{ secrets.QUALIFIED_DISCLOSURE_CONTRACT_URL }}
+          QUALIFIED_DISCLOSURE_CONTRACT_CREDENTIAL: ${{ secrets.QUALIFIED_DISCLOSURE_CONTRACT_CREDENTIAL }}
+          QUALIFIED_DISCLOSURE_CONTRACT_SUBMITTER_ID: ${{ secrets.QUALIFIED_DISCLOSURE_CONTRACT_SUBMITTER_ID }}
         run: pnpm test:contract:qualified-disclosure
       - name: Retain redacted machine-readable protocols
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qualified-disclosure-protocols-${{ github.run_id }}
+          name: qualified-disclosure-protocols-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/qualified-disclosure-protocols
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
