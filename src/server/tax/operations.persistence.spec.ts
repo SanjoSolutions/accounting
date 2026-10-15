@@ -17,6 +17,7 @@ describe('persisted tax operations readiness', () => {
     vi.stubEnv('TAX_GATEWAY_URL', 'https://gateway.example/api'); vi.stubEnv('TAX_GATEWAY_CREDENTIAL', 'gateway-secret-value')
     vi.stubEnv('ANNUAL_TAX_CALCULATOR_URL', 'https://calculator.example/api'); vi.stubEnv('ANNUAL_TAX_CALCULATOR_CREDENTIAL', 'calculator-secret-value')
     vi.stubEnv('TAX_PRODUCTION_FILING_ENABLED', 'true'); vi.stubEnv('TAX_GATEWAY_QUALIFICATION_ID', 'qualification-1'); vi.stubEnv('TAX_GATEWAY_QUALIFIED_FORM_VERSIONS', 'USTVA-2026.1')
+    vi.stubEnv('TAX_PROFESSIONAL_REVIEW_ID', 'professional-review-2026'); vi.stubEnv('TAX_PROFESSIONALLY_REVIEWED_FORM_VERSIONS', 'USTVA-2026.1,UST_ANNUAL-2026.1')
     mocks.fiscalYear.mockResolvedValue({ id: 'fy-1', startsAt: new Date('2026-01-01'), endsAt: new Date('2026-12-31') })
     mocks.profile.mockResolvedValue({ chart: 'SKR04', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY' })
     mocks.mappings.mockResolvedValue([
@@ -26,6 +27,19 @@ describe('persisted tax operations readiness', () => {
     mocks.drafts.mockResolvedValue(0); mocks.sequence.mockResolvedValue({ nextValue: 42 }); mocks.onboarding.mockResolvedValue(null)
   })
   afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs() })
+
+  test('Given profile and VAT controls effective for one month, when monthly readiness is checked, then unrelated yearly transitions do not block it', async () => {
+    mocks.onboarding.mockResolvedValue({ firstUnusedNumber: 42, importedCount: 3, importedNumbersHash: 'b'.repeat(64), confirmedBy: 'admin-a' })
+    mocks.mappings.mockResolvedValue([
+      { effectiveFrom: new Date('2026-02-01'), effectiveTo: new Date('2026-02-28'), active: true, eBilanzPosition: 'bs.ass.currAss.receiv.other.vat' },
+      { effectiveFrom: new Date('2026-02-01'), effectiveTo: new Date('2026-02-28'), active: true, eBilanzPosition: 'bs.eqLiab.liab.other.theroffTax.vat' },
+    ])
+    expect((await getTaxReadiness('tenant-a', 'USTVA', '2026-02')).ready).toBe(true)
+    expect(mocks.profile).toHaveBeenCalledWith('tenant-a', new Date('2026-02-01'), new Date('2026-02-28'))
+    expect(mocks.mappings).toHaveBeenCalledWith({ where: { ownerId: 'tenant-a', chartId: 'SKR04', effectiveFrom: { lte: new Date('2026-02-28') } } })
+    const annual = await getTaxReadiness('tenant-a', 'UST_ANNUAL', '2026')
+    expect(annual.checks.find(check => check.id === 'vat-mappings')?.ready).toBe(false)
+  })
 
   it('keeps an otherwise ready tenant blocked when only the legacy sequence record exists', async () => {
     const report = await getTaxReadiness('tenant-a', 'USTVA', '2026-01')

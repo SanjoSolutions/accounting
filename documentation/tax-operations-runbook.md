@@ -1,6 +1,8 @@
 # Production tax operations runbook
 
-Production filing is fail-closed. `TAX_PRODUCTION_FILING_ENABLED=true` is necessary but is not sufficient: both service URLs must be HTTPS, both credentials must be supplied through the deployment secret store, `TAX_GATEWAY_QUALIFICATION_ID` must identify the retained qualification record, and `TAX_GATEWAY_QUALIFIED_FORM_VERSIONS` must contain the exact form version being sent. Never place credential values in logs, tickets, qualification records, or diagnostics.
+Production filing is fail-closed. `TAX_PRODUCTION_FILING_ENABLED=true` is necessary but is not sufficient. The official gateway URL must be HTTPS and its credential must come from the deployment secret store. Income-tax forms also require the annual-tax calculator HTTPS endpoint and credential; VAT does not depend on that calculator. `TAX_GATEWAY_QUALIFICATION_ID` must identify the retained qualification record, and `TAX_GATEWAY_QUALIFIED_FORM_VERSIONS` must contain the exact form version being sent. Separately, `TAX_PROFESSIONAL_REVIEW_ID` must identify professional German tax sign-off and `TAX_PROFESSIONALLY_REVIEWED_FORM_VERSIONS` must contain that exact version. Never place credential values in logs, tickets, qualification records, or diagnostics.
+
+These settings are operator attestations, not independent proof of qualification or professional approval. Deployment access must restrict who can change them. A successful readiness response means the local prerequisites and configured attestations are present; it cannot certify an external gateway or the contents of an approval record.
 
 ## Test gateway boundaries
 
@@ -104,10 +106,19 @@ software or configuration is explicitly non-evidence.
 
 ## Onboarding and release gate
 
-1. Reconcile imported outgoing invoice numbers for each tenant/year with `reconcile-number-sequence`. Supply the immutable imported numbers and explicitly confirm the first unused number. The service refuses duplicates, other formats, backward movement, and collisions with issued, reserved, or voided local numbers.
+1. As an administrator, open **Invoices > Invoice numbering** for each tenant/year. Enter the imported outgoing numbers (one canonical `YYYY-NNNNNN` number per line), then explicitly confirm the first unused number. With imported numbers, it must immediately follow their highest number; it must also exceed issued, reserved and voided local numbers. Leave the import list empty only when no outgoing numbers were imported. Both setup API actions require `ADMIN`; accounting write access alone is insufficient.
+   The UI uses `reconcile-number-sequence`, which saves immutable confirmation evidence. Existing legacy initializations are shown as **Reconciliation required** until this step is completed. An identical retry (including reordered imports) returns the current sequence without changing the evidence, its original confirmer or any subsequently allocated numbers. Different reconciliation inputs are rejected. A reconciled badge confirms this onboarding step only, not overall tax readiness.
 2. Call `GET /api/tax/readiness?kind=USTVA&period=YYYY-MM` (and each applicable annual kind/year). Resolve every failed check: effective STANDARD/MONTHLY profile, VAT control mappings, installed form version, annual facts, posted ledger, accepted authenticated E-Bilanz evidence, and invoice sequence.
 3. Qualify validation, submission, rejection, timeout, recovery, correction, and cancellation against the current official ELSTER/ERiC staging environment. Retain redacted protocols and receipts outside application logs. Add the exact qualified form versions and qualification record identifier to deployment configuration.
-4. Obtain professional German tax approval. Enable production filing only after the approval and gateway qualification records have been reviewed by two operators.
+4. Obtain professional German tax approval. Record its retained identifier and exact reviewed form versions in `TAX_PROFESSIONAL_REVIEW_ID` and `TAX_PROFESSIONALLY_REVIEWED_FORM_VERSIONS`. Enable production filing only after the approval and gateway qualification records have been reviewed by two operators.
+
+### External dependencies for issue #21
+
+Local checks and synthetic tests do not complete this issue. The deployment operator must provide the chosen production hosting/gateway boundary, HTTPS endpoints and secret-store references. The provider must document the JSON adapter contract and authorized test identities before any remote contract execution. No production environment is provisioned by this repository's local test configuration.
+
+Issue #30 owns official external gateway qualification: run the protected opt-in contracts against the authorized current TEST/STAGING gateway, retain the redacted diagnostics, receipts and exact version identities, and verify recovery/rotation/downtime behavior with that provider. The annual calculator needs its own authorized contract evidence. A qualified tax professional must then review the applicable forms and tenant facts and supply a retained sign-off record. Only after those dependencies exist may the deployment operator configure the attestations and enable production. No local emulator, skipped contract, placeholder ID or passing unit test substitutes for these records.
+
+The local onboarding browser check is reproducible with `pnpm exec playwright test --config playwright.tax-operations.config.ts`. It owns port `3221`, `tax-operations-playwright.db` and `.playwright/tax-operations` in its worktree, uses synthetic tenants, and never enables production filing. Do not point it at another app instance or company storage.
 
 ## Monitoring and response
 
@@ -117,4 +128,4 @@ Alert on gateway request timeout rate, HTTP failure rate, declarations in `UNKNO
 - Gateway downtime: disable new production filing, preserve queued prepared datasets, and continue recovery of already uncertain submissions when the gateway is reachable. Do not bypass readiness flags.
 - Credential rotation: install the new deployment secret, restart instances so cached adapters are replaced, exercise validation in staging, then revoke the old credential. The gateway configuration identity includes only a one-way credential fingerprint; the credential is never returned.
 - Suspected credential exposure: disable production filing, revoke and rotate immediately, search logs for the secret through an authorized out-of-band process, and open a security incident. Do not paste the secret into diagnostics.
-- Form/gateway upgrade: repeat the official contract suite and professional review. Update the qualification ID and exact version allow-list only after receipts and redacted diagnostics are retained.
+- Form/gateway upgrade: repeat the official contract suite and professional review. Update both retained record IDs and both exact version allow-lists only after receipts, redacted diagnostics and professional sign-off are retained.
