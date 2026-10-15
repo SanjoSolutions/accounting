@@ -5,6 +5,8 @@ export default defineConfig({
   testMatch: 'qualified-tax-gateway.contract.spec.ts',
   fullyParallel: false,
   workers: 1,
+  timeout: 300_000,
+  retries: 0,
   forbidOnly: true,
   reporter: [['list']],
 })

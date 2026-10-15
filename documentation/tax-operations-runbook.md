@@ -41,30 +41,46 @@ pnpm test:contract:qualified-tax
 The contract is disabled unless every `QUALIFIED_TAX_GATEWAY_CONTRACT_*`
 setting is supplied, the endpoint is HTTPS, the exact eight form versions are
 listed, an independent qualification-record ID is named, an absolute protocol
-directory is configured, and submission is separately acknowledged. For each
+directory is configured, a reviewed retained application artifact bundle is
+pinned by SHA-256, and submission is separately acknowledged. The exact
+`QUALIFIED_TAX_GATEWAY_CONTRACT_ENVIRONMENT` must be `TEST` or `STAGING`. For each
 form it requires all three outcomes from the real remote adapter: successful
 validation, rejection after removing a required field, and accepted staging
 submission with a nonblank receipt. Every response must carry a
 machine-readable protocol object whose gateway ID, qualification ID, form
-version, outcome, protocol ID, timestamp, and `TEST`/`STAGING` marker match the
-configured contract. The exact same request and idempotency key is submitted a
+version, outcome, protocol ID, timestamp, environment, and `requestSha256`
+match the configured contract and exact UTF-8 JSON request bytes. Every request
+explicitly selects the environment; a wrong environment in validation stops
+before submission. The exact same request and idempotency key is submitted a
 second time; only the same protocol identity and receipt digest count as an
-idempotent replay. Redacted evidence records retain request, response and
-receipt SHA-256 digests, not declaration payloads, taxpayer IDs, credentials,
-PINs, or raw receipts. A non-JSON remote failure is also retained as its status,
-media type, byte length, digest and a bounded redacted excerpt before the
-contract fails closed.
+idempotent replay. Keys bind the gateway, qualification, environment,
+preparation identity and dataset hash, so retries of that same preparation use
+the original key. Redirects and automatic test retries are disabled.
+Version-2 evidence records retain request, response, receipt, preparation and
+bundle digests, with an explicit `checksPassed` result. Arbitrary remote
+diagnostics, non-JSON text, declaration payloads, taxpayer IDs, credentials,
+PINs and raw receipts are omitted. A non-JSON remote failure retains only its
+status, byte length and digest before the contract fails closed. A retained
+failure record is not acceptance evidence.
 
-The adapter request currently uses deterministic datasets produced by the
-application's versioned tax-form registry. Provider wire schemas remain a
+The adapter consumes exact datasets from the reviewed artifact bundle; there
+is no fallback to hard-coded registry fixtures. See the
+[artifact bundle contract and owner handoff](./qualified-tax-artifact-contract.md).
+All eight entries are checked before a credential-bearing client is created.
+Provider wire schemas remain a
 provider-owned boundary: this repository does not guess an ELSTER or gateway
 schema. Qualification is valid only when the authorized adapter explicitly
 accepts this documented JSON contract or is replaced by a reviewed transformer
 for the provider-issued schema.
 
 The manual `Qualified tax gateway contract` GitHub workflow is intentionally
-absent from ordinary push and pull-request CI. It requires an environment
-approval plus repository secrets. A skipped workflow or test proves nothing.
+absent from ordinary push and pull-request CI. Operators must configure
+required reviewers on the `tax-gateway-qualification` GitHub environment; naming
+an environment in YAML alone does not establish protection. The workflow
+downloads `qualified-tax-input-artifacts` from the explicitly selected run in
+this repository and checks `artifacts.json` against the separately reviewed
+environment variable `QUALIFIED_TAX_GATEWAY_CONTRACT_ARTIFACT_SHA256`. It uploads
+only redacted protocol files. A skipped workflow or test proves nothing.
 A passing run proves only the named gateway adapter and exact form versions
 against the named test environment and retained qualification record. It does
 not prove that this repository is listed by ELSTER as a software product, does

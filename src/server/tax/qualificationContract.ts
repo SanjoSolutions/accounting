@@ -16,6 +16,9 @@ export interface QualifiedGatewayContractConfig {
   gatewayId?: string
   qualificationId?: string
   protocolDirectory?: string
+  environment?: 'TEST' | 'STAGING'
+  artifactBundlePath?: string
+  artifactBundleSha256?: string
   allowSubmission: boolean
   qualifiedFormVersions: readonly string[]
 }
@@ -33,6 +36,9 @@ export function qualifiedGatewayContractConfiguration(environment: NodeJS.Proces
   const gatewayId = value(environment, 'QUALIFIED_TAX_GATEWAY_CONTRACT_GATEWAY_ID')
   const qualificationId = value(environment, 'QUALIFIED_TAX_GATEWAY_CONTRACT_QUALIFICATION_ID')
   const protocolDirectory = value(environment, 'QUALIFIED_TAX_GATEWAY_CONTRACT_PROTOCOL_DIR')
+  const gatewayEnvironment = value(environment, 'QUALIFIED_TAX_GATEWAY_CONTRACT_ENVIRONMENT')
+  const artifactBundlePath = value(environment, 'QUALIFIED_TAX_GATEWAY_CONTRACT_ARTIFACT_BUNDLE')
+  const artifactBundleSha256 = value(environment, 'QUALIFIED_TAX_GATEWAY_CONTRACT_ARTIFACT_SHA256')
   const allowSubmission = value(environment, 'QUALIFIED_TAX_GATEWAY_CONTRACT_ALLOW_SUBMISSION') === 'true'
   const qualifiedFormVersions = [...new Set(value(environment, 'QUALIFIED_TAX_GATEWAY_CONTRACT_FORM_VERSIONS').split(',').map(item => item.trim()).filter(Boolean))].sort()
   const issues = [
@@ -41,11 +47,14 @@ export function qualifiedGatewayContractConfiguration(environment: NodeJS.Proces
     ...(!/^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/.test(gatewayId) ? ['A stable gateway identity is required.'] : []),
     ...(!/^[A-Za-z0-9][A-Za-z0-9._:/-]{2,255}$/.test(qualificationId) ? ['A retained qualification record identity is required.'] : []),
     ...(!path.isAbsolute(protocolDirectory) ? ['The retained protocol directory must be an absolute path.'] : []),
+    ...(!['TEST', 'STAGING'].includes(gatewayEnvironment) ? ['An explicit TEST or STAGING environment is required.'] : []),
+    ...(!path.isAbsolute(artifactBundlePath) ? ['The retained application artifact bundle must be an absolute path.'] : []),
+    ...(!/^[a-f0-9]{64}$/.test(artifactBundleSha256) ? ['The reviewed application artifact bundle SHA-256 is required.'] : []),
     ...(!allowSubmission ? ['QUALIFIED_TAX_GATEWAY_CONTRACT_ALLOW_SUBMISSION=true is required for acceptance evidence.'] : []),
     ...(JSON.stringify(qualifiedFormVersions) !== JSON.stringify([...qualifiedContractFormVersions].sort()) ? [`The exact supported contract form versions are required: ${qualifiedContractFormVersions.join(',')}.`] : []),
   ]
   if (issues.length) throw new Error(issues.join(' '))
-  return { enabled: true, endpoint, credential, taxpayerId, gatewayId, qualificationId, protocolDirectory, allowSubmission, qualifiedFormVersions }
+  return { enabled: true, endpoint, credential, taxpayerId, gatewayId, qualificationId, protocolDirectory, environment: gatewayEnvironment as 'TEST' | 'STAGING', artifactBundlePath, artifactBundleSha256, allowSubmission, qualifiedFormVersions }
 }
 
 const sensitiveKey = /(?:authorization|credential|token|secret|password|pin|certificate|taxpayer|steuernummer|taxnumber|iban|street|address|name|payload|dataset|xml|receipt)/i
@@ -80,13 +89,15 @@ export function captureQualificationRemoteResponse(bodyText: string, contentType
 
 export type QualifiedProtocolStage = 'VALIDATED' | 'REJECTED' | 'ACCEPTED'
 
-export function assertQualifiedGatewayProtocol(protocol: unknown, expected: { gatewayId: string; qualificationId: string; formVersion: string; stage: QualifiedProtocolStage }) {
+export function assertQualifiedGatewayProtocol(protocol: unknown, expected: { gatewayId: string; qualificationId: string; formVersion: string; stage: QualifiedProtocolStage; environment: 'TEST' | 'STAGING'; requestSha256: string }) {
   if (!protocol || Array.isArray(protocol) || typeof protocol !== 'object') throw new Error('The qualified gateway must return a machine-readable protocol object.')
   const value = protocol as Record<string, unknown>
   if (value.gatewayId !== expected.gatewayId || value.qualificationId !== expected.qualificationId || value.formVersion !== expected.formVersion || value.stage !== expected.stage) throw new Error('The gateway protocol does not match the configured qualification, form version, or outcome.')
   if (typeof value.protocolId !== 'string' || !value.protocolId.trim()) throw new Error('The gateway protocol requires a nonblank protocol identity.')
   if (typeof value.timestamp !== 'string' || !Number.isFinite(new Date(value.timestamp).getTime())) throw new Error('The gateway protocol requires a valid timestamp.')
   if (!['TEST', 'STAGING'].includes(String(value.environment))) throw new Error('Qualification contracts are restricted to an explicit TEST or STAGING environment.')
+  if (value.environment !== expected.environment) throw new Error('The gateway protocol does not match the authorized environment.')
+  if (!sha256.test(expected.requestSha256) || value.requestSha256 !== expected.requestSha256) throw new Error('The gateway protocol is not bound to the exact request SHA-256.')
   return value
 }
 
@@ -99,12 +110,14 @@ export function qualificationEvidence(args: {
   result: unknown
   protocol: unknown
   secrets?: readonly string[]
+  artifact?: { bundleSha256: string; preparationIdSha256: string; datasetSha256: string }
 }) {
   return {
-    schema: 'qualified-tax-gateway-contract-evidence', version: 1,
+    schema: 'qualified-tax-gateway-contract-evidence', version: 2,
     recordedAt: new Date().toISOString(), case: args.caseName,
     gatewayId: args.config.gatewayId, qualificationId: args.config.qualificationId,
     declaration: { kind: args.dataset.kind, period: args.dataset.period, formVersion: args.dataset.formVersion },
+    ...(args.artifact ? { artifact: args.artifact } : {}),
     requestSha256: createHash('sha256').update(JSON.stringify(args.request)).digest('hex'),
     httpStatus: args.httpStatus,
     result: redactQualificationProtocol(args.result, args.secrets),

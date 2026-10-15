@@ -10,12 +10,20 @@ on:
         options:
           - DO_NOT_RUN
           - AUTHORIZED_TEST_OR_STAGING
+      artifact_run_id:
+        description: Run ID holding the reviewed qualified-tax-input-artifacts bundle (artifacts.json)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
 
 jobs:
   qualified-contract:
     if: inputs.authorization == 'AUTHORIZED_TEST_OR_STAGING'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     environment: tax-gateway-qualification
     env:
       QUALIFIED_TAX_GATEWAY_CONTRACT_ENABLED: 'true'
@@ -27,6 +35,9 @@ jobs:
       QUALIFIED_TAX_GATEWAY_CONTRACT_FORM_VERSIONS: USTVA-2025.1,UST_ANNUAL-2025.1,KST-2025.1,GEWST-2025.1,USTVA-2026.1,UST_ANNUAL-2026.1,KST-2026.1,GEWST-2026.1
       QUALIFIED_TAX_GATEWAY_CONTRACT_ALLOW_SUBMISSION: 'true'
       QUALIFIED_TAX_GATEWAY_CONTRACT_PROTOCOL_DIR: ${{ runner.temp }}/qualified-tax-protocols
+      QUALIFIED_TAX_GATEWAY_CONTRACT_ENVIRONMENT: ${{ vars.QUALIFIED_TAX_GATEWAY_CONTRACT_ENVIRONMENT }}
+      QUALIFIED_TAX_GATEWAY_CONTRACT_ARTIFACT_BUNDLE: ${{ runner.temp }}/qualified-tax-input/artifacts.json
+      QUALIFIED_TAX_GATEWAY_CONTRACT_ARTIFACT_SHA256: ${{ vars.QUALIFIED_TAX_GATEWAY_CONTRACT_ARTIFACT_SHA256 }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -35,6 +46,13 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Download the separately reviewed retained application artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: qualified-tax-input-artifacts
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/qualified-tax-input
       - name: Execute authorized TEST/STAGING validation, rejection, and acceptance contracts
         run: pnpm test:contract:qualified-tax
       - name: Retain redacted machine-readable protocols
