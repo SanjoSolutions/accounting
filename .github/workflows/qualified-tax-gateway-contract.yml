@@ -23,7 +23,7 @@ jobs:
   qualified-contract:
     if: inputs.authorization == 'AUTHORIZED_TEST_OR_STAGING'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     environment: tax-gateway-qualification
     env:
       QUALIFIED_TAX_GATEWAY_CONTRACT_ENABLED: 'true'
