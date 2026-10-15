@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/server/authentication'
 import { forbiddenUnless } from '@/server/authorization'
 import { authorizeComplianceTenant, complianceError } from '@/server/compliance/runtime'
 import { getEBalanceLifecycleOverview, prepareEBalanceLifecycleReport, recordEBalanceReconciliation, registerEBalanceTaxonomy } from '@/server/compliance/eBilanzRepository'
+import { approveEBalanceReport } from '@/server/compliance/eBilanzReportActions'
 
 export const runtime = 'nodejs'
 
@@ -22,6 +23,7 @@ export async function POST(request: Request) {
       case 'taxonomy.register': data = await registerEBalanceTaxonomy(user.actorId, body); break
       case 'reconciliation.record': data = await recordEBalanceReconciliation(ownerId, user.actorId, body); break
       case 'report.prepare': data = await prepareEBalanceLifecycleReport(ownerId, user.actorId, body); break
+      case 'report.approve': data = await approveEBalanceReport(ownerId, user.actorId, body); break
       default: return Response.json({ success: false, error: 'Unsupported E-Bilanz lifecycle action' }, { status: 400 })
     }
     return Response.json({ success: true, data }, { status: 201 })

@@ -1,4 +1,14 @@
 {
+  "EBalanceReportReview": {
+    "download": "Version {version} herunterladen",
+    "boundary": "Nur lokale Berichtsprüfung. Amtliche Validierung und Übermittlung erfolgen gesondert.",
+    "reason": "Prüfvermerk",
+    "confirm": "Ich habe Version {version} und die oben angezeigte Prüfsumme geprüft.",
+    "approve": "Bericht freigeben",
+    "saving": "Freigabe wird gespeichert…",
+    "approved": "Lokale Prüfung dokumentiert.",
+    "failed": "Die Freigabe konnte nicht gespeichert werden."
+  },
   "Metadata": {
     "title": "Buchhaltung",
     "description": "Anwendung für die Buchhaltung"

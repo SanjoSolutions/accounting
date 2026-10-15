@@ -9,7 +9,8 @@ import { appendAuditEvent } from './auditPersistence'
 import { ComplianceRuntimeError } from './runtime'
 import { createEBalanceReconciliationChecksum, taxonomyArchiveStorageKey, verifyTaxonomyArchive } from './eBilanzIntegration'
 import { requireCurrentFiscalCloseGeneration } from '@/server/fiscalCloseGeneration'
-import { assertCurrentEBalanceExport, assertCurrentEBalanceReport, prepareAuthoritativeEBalanceExport, recordTaxBalanceReconciliation, serializePreparedEBalanceEvidence } from './eBilanzExportRepository'
+import { assertCurrentEBalanceReport, prepareAuthoritativeEBalanceExport, recordTaxBalanceReconciliation } from './eBilanzExportRepository'
+import { retainEBalanceReport } from './eBilanzReportStore'
 
 function required(value: unknown, label: string) { if (typeof value !== 'string' || !value.trim()) throw new ComplianceRuntimeError(`${label} is required`); return value.trim() }
 function dateOnly(value: Date) { return value.toISOString().slice(0, 10) }
@@ -65,7 +66,7 @@ export async function recordEBalanceReconciliation(ownerId: string, actorId: str
 export async function getEBalanceLifecycleOverview(ownerId: string, fiscalYearId?: string) {
   const [taxonomies, reports, reconciliations] = await prisma.$transaction([
     prisma.eBalanceTaxonomyRelease.findMany({ orderBy: { validFrom: 'desc' } }),
-    prisma.eBalanceLifecycleReport.findMany({ where: { ownerId, ...(fiscalYearId ? { fiscalYearId } : {}) }, orderBy: { createdAt: 'desc' } }),
+    prisma.eBalanceLifecycleReport.findMany({ where: { ownerId, ...(fiscalYearId ? { fiscalYearId } : {}) }, orderBy: { version: 'desc' } }),
     prisma.eBalanceReconciliationRecord.findMany({ where: { ownerId, ...(fiscalYearId ? { fiscalYearId } : {}) }, orderBy: { createdAt: 'asc' } }),
   ])
   if (!fiscalYearId) return { taxonomies: taxonomies.map(taxonomyFromRecord), reports, reconciliations, closeEvidence: null }
@@ -99,6 +100,7 @@ export async function getEBalanceLifecycleOverview(ownerId: string, fiscalYearId
 }
 
 export async function prepareEBalanceLifecycleReport(ownerId: string, actorId: string, input: Record<string, unknown>) {
+  const reason = required(input.reason, 'reason')
   const fiscalYearId = required(input.fiscalYearId, 'fiscalYearId')
   const period = await prisma.fiscalYear.findFirst({ where: { id: fiscalYearId, ownerId }, select: { id: true, year: true, startsAt: true, endsAt: true, status: true, lockedAt: true, closingSnapshot: true } })
   if (!period) throw new ComplianceRuntimeError('Fiscal period not found', 404)
@@ -108,7 +110,7 @@ export async function prepareEBalanceLifecycleReport(ownerId: string, actorId: s
   let prepared: Awaited<ReturnType<typeof prepareAuthoritativeEBalanceExport>>
   try { prepared = await prepareAuthoritativeEBalanceExport(ownerId, fiscalYearId, { taxonomyVersion: typeof input.taxonomyVersion === 'string' ? input.taxonomyVersion : undefined }) }
   catch (error) { throw new ComplianceRuntimeError(error instanceof Error ? error.message : 'Invalid E-Bilanz preparation', 409) }
-  const { dataset, xml, reportChecksum } = prepared
+  const { xml, reportChecksum } = prepared
   const id = randomUUID(); const storageKey = `tax-exports/${encodeURIComponent(ownerId)}/e-bilanz-lifecycle-${id}.xbrl`; await getDocumentStorage().write(storageKey, Buffer.from(xml, 'utf8'), { contentType: 'application/xml', fileName: `e-bilanz-${dateOnly(period.endsAt)}-${id}.xml` })
   try {
     return await prisma.$transaction(async transaction => {
@@ -118,15 +120,9 @@ export async function prepareEBalanceLifecycleReport(ownerId: string, actorId: s
       try { currentCloseGeneration = await requireCurrentFiscalCloseGeneration(transaction, ownerId, currentPeriod) }
       catch (error) { throw new ComplianceRuntimeError(error instanceof Error ? error.message : 'The fiscal close generation became stale', 409) }
       if (currentCloseGeneration.id !== closeGeneration.id) throw new ComplianceRuntimeError('The fiscal close generation changed during E-Bilanz preparation', 409)
-      await assertCurrentEBalanceExport(transaction, ownerId, prepared)
-      const existing = await transaction.eBalanceLifecycleReport.findFirst({ where: { ownerId, fiscalYearId, closeGenerationId: currentCloseGeneration.id, reportChecksum } })
-      if (existing) { await getDocumentStorage().delete(storageKey); return existing }
-      const latest = await transaction.eBalanceLifecycleReport.findFirst({ where: { ownerId, fiscalYearId }, orderBy: { version: 'desc' } }); const version = (latest?.version ?? 0) + 1
-      const record = await transaction.eBalanceLifecycleReport.create({ data: { id, ownerId, fiscalYearId, closeGenerationId: currentCloseGeneration.id, version, status: 'PREPARED', taxonomyVersion: dataset.taxonomy.version, profileSnapshot: canonicalJson(dataset.company), reportPayload: serializePreparedEBalanceEvidence(prepared), reportXml: xml, reportChecksum, storageKey, supersedesId: latest?.id ?? null, createdBy: actorId } })
-      const retainUntil = new Date(period.endsAt); retainUntil.setUTCFullYear(retainUntil.getUTCFullYear() + 10)
-      await transaction.retainedArtifact.create({ data: { ownerId, objectType: 'EBalanceLifecycleReport', objectId: id, version, retentionClass: 'TAX_RECORD', contentHash: reportChecksum, provenance: `taxonomy:${dataset.taxonomy.version}`, storageKey, periodEndsAt: period.endsAt, retainUntil } })
-      await appendAuditEvent(transaction, { ownerId, actorId, action: 'E_BILANZ_REPORT_PREPARED', reason: required(input.reason, 'reason'), objectType: 'EBalanceLifecycleReport', objectId: id, after: { fiscalYearId, closeGenerationId: currentCloseGeneration.id, hgbCloseRunId: currentCloseGeneration.hgbCloseRunId, version, taxonomyVersion: dataset.taxonomy.version, reportChecksum, validationLevel: prepared.diagnostics.level } })
-      return record
+      const result = await retainEBalanceReport(transaction, { ownerId, actorId, id, prepared, storageKey, storageChecksum: reportChecksum, status: 'PREPARED', reason })
+      if (!result.created) await getDocumentStorage().delete(storageKey)
+      return result.report
     })
   } catch (error) { await getDocumentStorage().delete(storageKey).catch(() => undefined); throw error }
 }

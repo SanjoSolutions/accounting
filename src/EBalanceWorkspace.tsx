@@ -7,6 +7,7 @@ import { LocalDateTime } from './LocalDate'
 import { LocalCount, LocalPercentUnits, formatCount } from './LocalNumber'
 import { useRegionalFormat } from './RegionalFormatProvider'
 import { ExternalEBalancePanel } from './ExternalEBalancePanel'
+import { EBalanceReportReview } from './EBalanceReportReview'
 
 type LoadState = 'loading' | 'ready' | 'failed'
 type EricReadiness = { validationReady: boolean; submissionReady: boolean; testMode: boolean; issues: string[] }
@@ -274,7 +275,9 @@ export function EBalanceWorkspace({ year }: { year: number }) {
       </section>
       <section className="card panel"><div className="panel-title"><div><span className="step">{t('lifecycleEvidence')}</span><h2>{t('immutableReportVersions')}</h2></div><span className="badge text-bg-secondary"><LocalCount value={lifecycle.reports.length} /></span></div>
         {lifecycle.closeEvidence && <p className={`alert ${lifecycle.closeEvidence.sourceStatus === 'CURRENT' ? 'alert-success' : 'alert-danger'}`} role="status"><strong>{t('closeEvidence')}</strong> · {lifecycle.closeEvidence.sourceStatus}{lifecycle.closeEvidence.issue ? ` · ${lifecycle.closeEvidence.issue}` : ''}</p>}
-        {lifecycle.reports.length ? <ul className="list-group list-group-flush">{lifecycle.reports.map(report => <li className="list-group-item" key={report.id}><strong>v{report.version} · {report.status} · {sourceEdited ? 'STALE' : report.sourceStatus}</strong><br/>{t('closeGeneration')} <code>{report.closeGenerationId ?? '—'}</code><br/>{t('taxonomy')} {report.taxonomyVersion}<br/><code>{report.reportChecksum}</code></li>)}</ul> : <p>{t('noLifecycleReports')}</p>}
+        {lifecycle.reports.length ? <ul className="list-group list-group-flush">{lifecycle.reports.map(report => <li className="list-group-item" key={report.id}><strong>v{report.version} · {report.status} · {sourceEdited ? 'STALE' : report.sourceStatus}</strong><br/>{t('closeGeneration')} <code className="text-break">{report.closeGenerationId ?? '—'}</code><br/>{t('taxonomy')} {report.taxonomyVersion}<br/><code className="text-break">{report.reportChecksum}</code>
+          <EBalanceReportReview report={report} current={!sourceEdited && report.sourceStatus === 'CURRENT'} onApproved={() => setLifecycle(previous => ({ ...previous, reports: previous.reports.map(item => item.id === report.id ? { ...item, status: 'APPROVED' } : item) }))} />
+        </li>)}</ul> : <p>{t('noLifecycleReports')}</p>}
         <p className="small text-body-secondary">{t('reconciliationEvidenceCount', { count: lifecycle.reconciliations.length, countFormatted: formatCount(lifecycle.reconciliations.length, regionalLocale) })}</p>
       </section>
     </div>}
