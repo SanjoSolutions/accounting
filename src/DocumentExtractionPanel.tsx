@@ -64,6 +64,7 @@ export function DocumentExtractionPanel({ documentId }: { documentId: string }) 
   return <section className="document-extraction" aria-label={t('title')}>
     <div className="d-flex justify-content-between align-items-center gap-2 mt-3"><h3 className="h6 mb-0">{t('title')}</h3>{extraction && <span className="badge text-bg-light">{t(`status.${extraction.status}`)}</span>}</div>
     {!extraction && !supplierCredit && <button className="btn btn-outline-primary btn-sm mt-2" type="button" disabled={busy} onClick={extract}>{busy ? t('extracting') : t('extract')}</button>}
+    {extraction?.status === 'PROCESSING' && <button className="btn btn-outline-primary btn-sm mt-2" type="button" disabled={busy} onClick={extract}>{busy ? t('extracting') : t('retry')}</button>}
     {extraction?.status === 'FAILED' && <div className="alert alert-warning mt-2 mb-0"><strong>{extraction.failureCode}</strong><div>{extraction.failureMessage}</div>{extraction.retryable && <button className="btn btn-outline-primary btn-sm mt-2" type="button" disabled={busy} onClick={extract}>{t('retry')}</button>}</div>}
     {form && <form className="mt-2" onSubmit={confirm}>
       <div className="form-grid">

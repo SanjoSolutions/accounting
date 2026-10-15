@@ -13,6 +13,7 @@ node_modules
 /playwright.db-shm
 /playwright.db-wal
 /roles-playwright.db*
+/extraction-playwright.db*
 /external-playwright.db*
 /annual-documents-playwright.db*
 /database

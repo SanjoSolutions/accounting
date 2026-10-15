@@ -28,6 +28,29 @@ export class DocumentExtractionPage {
     await expect(this.page.getByText(/Source: local-pdf-text v1/)).toBeVisible()
   }
 
+  async uploadForRecovery(pdf: Buffer) {
+    await this.page.goto('/bookings')
+    const uploaded = this.page.waitForResponse(response => response.url().endsWith('/api/documents') && response.request().method() === 'POST')
+    await this.page.locator('.document-actions input[type="file"]').setInputFiles({ name: 'recovery-invoice.pdf', mimeType: 'application/pdf', buffer: pdf })
+    const response = await uploaded
+    expect(response.ok()).toBe(true)
+    const body = await response.json()
+    await expect(this.page.getByRole('button', { name: 'Extract invoice data', exact: true })).toBeVisible()
+    return body.data.id as string
+  }
+
+  async reopenInterruptedExtraction() {
+    await this.page.reload()
+    await expect(this.page.getByText('Processing', { exact: true })).toBeVisible()
+    await expect(this.page.getByRole('button', { name: 'Retry extraction', exact: true })).toBeEnabled()
+  }
+
+  async retryInterruptedExtraction() {
+    await this.page.getByRole('button', { name: 'Retry extraction', exact: true }).click()
+    await expect(this.page.getByLabel('Extracted invoice number')).toHaveValue('E2E-2026-001')
+    await expect(this.page.getByText('Needs review', { exact: true })).toBeVisible()
+  }
+
   async reviewAndProveDurability() {
     await this.page.getByLabel('Extracted supplier').fill('Reviewed Example Supplier GmbH')
     await this.page.getByRole('button', { name: 'Confirm reviewed invoice' }).click()
