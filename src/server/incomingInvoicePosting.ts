@@ -34,6 +34,8 @@ export async function getIncomingInvoicePostingContext(ownerId: string, document
   const recommendedExpenseAccountId = recommendIncomingInvoiceExpenseAccount(profile?.chart, profile?.accountLength, expenseAccounts)
   const structuredData = structured ? JSON.parse(structured.data) : null
   const recipientAssessedVat = structuredData ? (isIncomingEuGoodsAcquisitionCandidate(structuredData) ? classifyIncomingEuGoodsAcquisition(structuredData) : classifyIncomingGermanReverseCharge(structuredData)) : null
+  const recipientTaxDate = recipientAssessedVat?.kind === 'DE_EU_GOODS_ACQUISITION' ? acquisitionVatTaxPoint(structuredData.supplyDate, structuredData.issueDate) : recipientAssessedVat?.kind === 'DE_13B_EU_SERVICE' ? structuredData.supplyDate : structuredData?.issueDate
+  const smallBusiness = recipientAssessedVat && await companyVatRegimeAt(ownerId, recipientTaxDate) === 'SMALL_BUSINESS'
   const settingsPayload = settings ? JSON.parse(settings.payload) as Record<string, unknown> : null
   const configured = recipientAssessedVat?.kind === 'DE_EU_GOODS_ACQUISITION'
     ? parseIncomingEuAcquisitionAccounts(settingsPayload?.incomingEuAcquisitionAccounts)
@@ -42,7 +44,7 @@ export async function getIncomingInvoicePostingContext(ownerId: string, document
     ? await prisma.ledgerAccount.findMany({ where: { ownerId, active: true, number: { in: [configured.inputVatAccountNumber, configured.outputVatAccountNumber] } }, select: { number: true, category: true } })
     : []
   const controlsReady = Boolean(configured
-    && controls.some(account => account.number === configured.inputVatAccountNumber && account.category === 'ASSET')
+    && (smallBusiness || controls.some(account => account.number === configured.inputVatAccountNumber && account.category === 'ASSET'))
     && controls.some(account => account.number === configured.outputVatAccountNumber && account.category === 'LIABILITY'))
   return { posting: existing, expenseAccounts, recommendedExpenseAccountId, recipientAssessedVatTreatment: recipientAssessedVat ? { ...recipientAssessedVat, configured: controlsReady } : null }
 }
@@ -180,7 +182,7 @@ export async function postConfirmedIncomingInvoice(ownerId: string, actorId: str
 }
 
 function isRecipientAssessedVat(ruleId: StructuredIncomingVatGroup['ruleId']) { return ruleId === 'DE_13B' || ruleId === 'EU_13B_SERVICE_RECIPIENT' || ruleId === 'EU_ACQUISITION' }
-function isCrossBorderRecipientAssessedRule(ruleId: string) { return ruleId === 'EU_13B_SERVICE_RECIPIENT' || ruleId === 'EU_ACQUISITION' }
+function isCrossBorderRecipientAssessedRule(ruleId: string) { const base = ruleId.replace(/_NO_INPUT_VAT$/, ''); return base === 'EU_13B_SERVICE_RECIPIENT' || base === 'EU_ACQUISITION' }
 function normalizeVatId(value: unknown) { return typeof value === 'string' ? value.normalize('NFKC').replaceAll(/[^A-Za-z0-9]/g, '').toUpperCase() : '' }
 function incomingPostingCommandFingerprint(input: { expenseAccountId: string; dueDate: string; reason: string; assessmentRateBasisPoints?: number; supplyClassification?: string }) { return createHash('sha256').update(JSON.stringify([input.expenseAccountId, input.dueDate, input.reason, input.supplyClassification ?? null, input.assessmentRateBasisPoints ?? null])).digest('hex') }
 async function requireMatchingEuRecipientAssessedReplay(client: Pick<typeof prisma, 'auditEvent'>, ownerId: string, commercialDocumentId: string, fingerprint: string) {

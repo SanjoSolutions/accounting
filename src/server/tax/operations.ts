@@ -111,7 +111,7 @@ export async function getTaxReadiness(ownerId: string, kind: DeclarationKind, pe
     const cadence = /^\d{4}-(?:0[1-9]|1[0-2])$/.test(period) ? 'MONTHLY' : /^\d{4}-Q[1-4]$/.test(period) ? 'QUARTERLY' : undefined
     if (profile.vatRegime !== 'STANDARD' || !cadence || profile.vatFilingFrequency !== cadence) profileIssues.push('UStVA production readiness requires an effective STANDARD VAT profile whose filing frequency matches the requested monthly or quarterly period.')
   }
-  if (kind === 'UST_ANNUAL' && profile?.vatRegime === 'EXEMPT') profileIssues.push('Annual VAT production readiness requires an effective non-EXEMPT VAT profile.')
+  if (kind === 'UST_ANNUAL' && profile && profile.vatRegime !== 'STANDARD') profileIssues.push('Annual VAT production readiness requires an effective STANDARD VAT profile. Exceptional Kleinunternehmer returns require a separately reviewed workflow.')
 
   const mappingIssues: string[] = []
   if (vatKinds.has(kind) && profile && fiscalYear) {

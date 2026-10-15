@@ -27,6 +27,14 @@ describe('persisted tax operations readiness', () => {
   })
   afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs() })
 
+  test('Given a Kleinunternehmer profile and annual gateway qualification, when readiness is checked, then the unsupported special annual workflow is still blocked', async () => {
+    vi.stubEnv('TAX_GATEWAY_QUALIFIED_FORM_VERSIONS', 'UST_ANNUAL-2026.1')
+    mocks.profile.mockResolvedValue({ chart: 'SKR04', vatRegime: 'SMALL_BUSINESS', vatFilingFrequency: 'ANNUAL' })
+    const report = await getTaxReadiness('tenant-a', 'UST_ANNUAL', '2026')
+    expect(report.ready).toBe(false)
+    expect(report.checks.flatMap(check => check.issues)).toContainEqual(expect.stringMatching(/Exceptional Kleinunternehmer returns/))
+  })
+
   it('keeps an otherwise ready tenant blocked when only the legacy sequence record exists', async () => {
     const report = await getTaxReadiness('tenant-a', 'USTVA', '2026-01')
     expect(report.ready).toBe(false)

@@ -86,8 +86,25 @@ describe('persisted Kleinunternehmer accounting', () => {
     const { structuredIncomingInvoiceReviewExtraction } = await import('@/core/structuredIncomingInvoice')
     await prisma.documentExtraction.create({ data: { ownerId: owner, documentId: owner, status: 'CONFIRMED', provider: 'synthetic', providerVersion: '1', inputHash: 'b'.repeat(64), extractedData: JSON.stringify(structuredIncomingInvoiceReviewExtraction(data)), reviewedBy: 'tester', reviewedAt: new Date() } })
     const expense = await prisma.ledgerAccount.findFirstOrThrow({ where: { ownerId: owner, number: 4930 } })
+    await expect(incoming.getIncomingInvoicePostingContext(owner, owner)).resolves.toMatchObject({ recipientAssessedVatTreatment: { configured: true } })
     const posted = await incoming.postConfirmedIncomingInvoice(owner, 'tester', owner, { expenseAccountId: expense.id, dueDate: '2026-05-15', reason: 'Reviewed synthetic reverse charge', assessmentRateBasisPoints: 1900, supplyClassification: 'SERVICE' })
     expect(posted.postingJournalEntry!.lines.map(line => [line.account.number, line.debitCents, line.creditCents])).toEqual([[4930, 11900, 0], [1787, 0, 1900], [1600, 0, 10000]])
+  })
+
+  test('Given a taxable supplier invoice posted without input deduction, when partially credited, then gross expense and payable are reduced with no input-VAT control', async () => {
+    const owner = 'supplier-credit'; await tenant(owner)
+    const data = invoice('SUPPLIER-ORIGINAL'); data.exemptionReason = undefined; data.lines = [{ ...data.lines[0], taxCategoryCode: 'S', taxRateBasisPoints: 1900, exemptionReason: undefined }]; data.taxAmountCents = 1900; data.grossAmountCents = 11900
+    await retained(owner, owner, data, 'INCOMING')
+    const { structuredIncomingInvoiceReviewExtraction } = await import('@/core/structuredIncomingInvoice')
+    await prisma.documentExtraction.create({ data: { ownerId: owner, documentId: owner, status: 'CONFIRMED', provider: 'synthetic', providerVersion: '1', inputHash: 'c'.repeat(64), extractedData: JSON.stringify(structuredIncomingInvoiceReviewExtraction(data)), reviewedBy: 'tester', reviewedAt: new Date() } })
+    const expense = await prisma.ledgerAccount.findFirstOrThrow({ where: { ownerId: owner, number: 4930 } })
+    await incoming.postConfirmedIncomingInvoice(owner, 'tester', owner, { expenseAccountId: expense.id, dueDate: '2026-05-15', reason: 'Synthetic original purchase' })
+    const credit = { ...data, kind: 'credit-note' as const, invoiceNumber: 'SUPPLIER-CREDIT', correctedInvoiceNumber: data.invoiceNumber, issueDate: '2026-05-02', supplyDate: '2026-05-02', netAmountCents: 5000, taxAmountCents: 950, grossAmountCents: 5950, lines: [{ ...data.lines[0], netAmountCents: 5000 }] }
+    await retained(owner, 'supplier-credit-evidence', credit, 'INCOMING', owner)
+    const { postIncomingSupplierCredit } = await import('@/server/incomingSupplierCreditNote')
+    const posted = await postIncomingSupplierCredit(owner, 'tester', 'supplier-credit-evidence', { effectiveDate: '2026-05-02', requestKey: 'synthetic-supplier-credit-28', reason: 'Confirmed supplier reduction' })
+    expect(posted.postingJournalEntry!.lines.map(line => [line.account.number, line.debitCents, line.creditCents])).toEqual([[1600, 5950, 0], [4930, 0, 5950]])
+    await expect(prisma.vatPostingRecord.findFirst({ where: { ownerId: owner, documentId: 'supplier-credit-evidence' } })).resolves.toMatchObject({ taxCents: -950, inputTaxCents: 0, deductibleTaxCents: 0 })
   })
 
   test('Given a later regime change, when the original exempt invoice is credited, then its exemption persists and dated profile checks reject new contradictory sales', async () => {

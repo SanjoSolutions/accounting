@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ profile: vi.fn(), fiscalYear: vi.fn() }))
 vi.mock('server-only', () => ({}))
@@ -22,6 +22,12 @@ describe('annual tax adjustment input', () => {
 
 describe('annual tax applicability profile', () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.fiscalYear.mockResolvedValue({ startsAt: new Date('2025-10-01T00:00:00.000Z'), endsAt: new Date('2026-09-30T00:00:00.000Z') }) })
+  test('Given a Kleinunternehmer profile, when annual obligations are listed, then routine VAT is omitted and an explicit tax-office request can be recorded', async () => {
+    mocks.profile.mockResolvedValue({ legalForm: 'UG', vatRegime: 'SMALL_BUSINESS' })
+    await expect(annualTaxApplicability('tenant-a', 2026)).resolves.toMatchObject({ kinds: [] })
+    mocks.profile.mockResolvedValue({ legalForm: 'UG', vatRegime: 'SMALL_BUSINESS', applicabilityOverrides: { VAT_ANNUAL: true } })
+    await expect(annualTaxApplicability('tenant-a', 2026)).resolves.toMatchObject({ kinds: ['UST_ANNUAL'] })
+  })
   it('keeps annual VAT applicable without inventing income-tax obligations when annual filing facts are absent', async () => {
     mocks.profile.mockResolvedValue({ legalForm: 'GMBH', vatRegime: 'STANDARD' })
     await expect(annualTaxApplicability('tenant-a', 2026)).resolves.toMatchObject({ profile: undefined, kinds: ['UST_ANNUAL'], deadline: '2027-07-31' })
