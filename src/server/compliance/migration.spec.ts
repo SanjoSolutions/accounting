@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, test } from 'vitest'
 
 const temporaryDirectories: string[] = []
 afterEach(() => temporaryDirectories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })))
@@ -70,7 +70,7 @@ describe('compliance foundations migration', () => {
     database.close()
   }, 30_000)
 
-  it('installs immutable E-Bilanz taxonomy, reconciliation, and report-version evidence', () => {
+  test('given a fresh database, installs immutable E-Bilanz taxonomy, reconciliation, and report-version evidence', () => {
     const directory = mkdtempSync(join(tmpdir(), 'accounting-e-bilanz-lifecycle-migration-')); temporaryDirectories.push(directory)
     const database = new DatabaseSync(join(directory, 'migration.db')); const root = resolve(process.cwd(), 'prisma', 'migrations')
     for (const name of readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name).sort()) database.exec(readFileSync(join(root, name, 'migration.sql'), 'utf8'))
@@ -84,5 +84,5 @@ describe('compliance foundations migration', () => {
     expect(() => database.exec("INSERT INTO EBalanceReconciliationRecord (id, ownerId, fiscalYearId, kind, payload, checksum, evidenceIds, approvedBy, approvedAt) VALUES ('r-duplicate', 'tenant', 'fy', 'ADJUSTMENT', '{}', 'hash', '[\"e\"]', 'actor', '2026-12-31')")).toThrow(/UNIQUE constraint/)
     expect(() => database.exec("DELETE FROM EBalanceReconciliationRecord WHERE id = 'r'")).toThrow(/immutable/)
     database.close()
-  })
+  }, 30_000)
 })

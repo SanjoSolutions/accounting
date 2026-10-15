@@ -14,6 +14,8 @@ node_modules
 /playwright.db-wal
 /roles-playwright.db*
 /credit-retry-playwright.db*
+/external-playwright.db*
+/annual-documents-playwright.db*
 /database
 /accounting.db
 /accounting.db-journal

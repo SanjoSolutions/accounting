@@ -1,8 +1,6 @@
 import 'server-only'
 
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
 import { prisma } from './persistence/client'
 import {
   AccountingValidationError,
@@ -17,8 +15,9 @@ import {
   type AccountCategory,
   type LedgerBalance,
 } from '@/core/doubleEntry'
-import { createEBalanceXbrl, getEBalanceTaxonomy, type EBalanceMasterData } from '@/core/eBilanz'
-import { createEBalancePackage, validateEBalanceConcepts } from '@/core/eBilanzPackage'
+import { type EBalanceMasterData } from '@/core/eBilanz'
+import { createEBalancePackage } from '@/core/eBilanzPackage'
+import { assertCurrentEBalanceExport, prepareAuthoritativeEBalanceExport, serializePreparedEBalanceEvidence } from './compliance/eBilanzExportRepository'
 import { createElsterEBalanceEnvelope } from '@/core/elsterEnvelope'
 import type { Prisma } from '@/generated/prisma/client'
 import { createEricTicket, EricProcessingError, getEricConfiguration, hashEricRequest, runEric } from './eric'
@@ -773,8 +772,12 @@ export function validateDocumentNamespace(source: string, documentNumber: string
 export async function exportEBalance(ownerId: string, year: number, masterData: EBalanceMasterData) {
   const fiscalYear = await prisma.fiscalYear.findUniqueOrThrow({ where: { ownerId_year: { ownerId, year } } })
   const closeGeneration = await requireCurrentFiscalCloseGeneration(prisma, ownerId, fiscalYear)
-  const { xml, officialArchive } = await prepareEBalance(ownerId, year, masterData, false)
-  const archive = createEBalancePackage(xml, year, officialArchive)
+  const prepared = await prepareEBalance(ownerId, year, false)
+  const { xml, officialArchive, dataset, diagnostics } = prepared
+  const archive = createEBalancePackage(xml, year, officialArchive, {
+    'export-data.json': JSON.stringify(dataset), 'local-validation.json': JSON.stringify(diagnostics),
+    'manifest.json': JSON.stringify({ format: 'EBILANZ_EXPORT_V1', closeGenerationId: dataset.closeGenerationId, datasetChecksum: prepared.datasetChecksum, reportChecksum: prepared.reportChecksum, reconciliationChecksum: dataset.reconciliation.checksum, taxonomyArchiveSha256: dataset.taxonomy.archiveSha256, officialAcceptance: 'NOT_VALIDATED' }),
+  })
   const exportId = randomUUID()
   const storage = getDocumentStorage()
   const storageKey = await persistComplianceObject({ ownerId, category: 'tax-exports', objectId: exportId, extension: 'zip', content: archive, contentType: 'application/zip', fileName: `e-bilanz-${year}-${exportId}.zip` })
@@ -784,6 +787,7 @@ export async function exportEBalance(ownerId: string, year: number, masterData: 
       if (!currentFiscalYear) throw new AccountingValidationError(['Das Geschäftsjahr wurde während des E-Bilanz-Exports entfernt.'])
       const currentCloseGeneration = await requireCurrentFiscalCloseGeneration(transaction, ownerId, currentFiscalYear)
       if (currentCloseGeneration.id !== closeGeneration.id) throw new AccountingValidationError(['Die Abschlussgeneration hat sich während des E-Bilanz-Exports geändert.'])
+      await assertCurrentEBalanceExport(transaction, ownerId, prepared)
       const deadline = retentionDeadline('TAX_RECORD', fiscalYear.endsAt.toISOString().slice(0, 10))
       const objectId = `E-BILANZ:${fiscalYear.id}`
       const latest = await transaction.retainedArtifact.findFirst({ where: { ownerId, objectType: 'TaxExport', objectId }, orderBy: { version: 'desc' } })
@@ -792,7 +796,7 @@ export async function exportEBalance(ownerId: string, year: number, masterData: 
       let report = await transaction.eBalanceLifecycleReport.findFirst({ where: { ownerId, fiscalYearId: fiscalYear.id, closeGenerationId: currentCloseGeneration.id, reportChecksum } })
       if (!report) {
         const latestReport = await transaction.eBalanceLifecycleReport.findFirst({ where: { ownerId, fiscalYearId: fiscalYear.id }, orderBy: { version: 'desc' } })
-        report = await transaction.eBalanceLifecycleReport.create({ data: { id: exportId, ownerId, fiscalYearId: fiscalYear.id, closeGenerationId: currentCloseGeneration.id, version: (latestReport?.version ?? 0) + 1, status: 'EXPORTED', taxonomyVersion: '6.9', profileSnapshot: JSON.stringify(masterData), reportPayload: JSON.stringify({ source: 'VISIBLE_E_BILANZ_EXPORT', closeGenerationId: currentCloseGeneration.id, archiveHash: artifact.contentHash }), reportXml: xml, reportChecksum, storageKey, supersedesId: latestReport?.id ?? null, createdBy: ownerId } })
+        report = await transaction.eBalanceLifecycleReport.create({ data: { id: exportId, ownerId, fiscalYearId: fiscalYear.id, closeGenerationId: currentCloseGeneration.id, version: (latestReport?.version ?? 0) + 1, status: 'EXPORTED', taxonomyVersion: dataset.taxonomy.version, profileSnapshot: JSON.stringify(dataset.company), reportPayload: serializePreparedEBalanceEvidence(prepared), reportXml: xml, reportChecksum, storageKey, supersedesId: latestReport?.id ?? null, createdBy: ownerId } })
       }
       await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'E_BILANZ_EXPORTED', reason: 'Authenticated report export', objectType: 'TaxExport', objectId, after: { artifactId: artifact.id, contentHash: artifact.contentHash, storageKey, lifecycleReportId: report.id, reportChecksum, closeGenerationId: currentCloseGeneration.id } })
     })
@@ -846,8 +850,9 @@ export async function processEBalanceWithEric(
     throw new AccountingValidationError(['Für die sichere Übermittlung fehlt ein gültiger Idempotenzschlüssel.'])
   }
   const idempotencyKey = options.idempotencyKey ?? `validation-${createEricTicket()}`
-  const generationDate = fiscalYear.lockedAt?.toISOString().slice(0, 10) ?? new Date().toISOString().slice(0, 10)
-  const { xml } = await prepareEBalance(ownerId, year, masterData, true, generationDate)
+  const prepared = await prepareEBalance(ownerId, year, true)
+  const { xml } = prepared
+  masterData = prepared.dataset.company
   const payloadHash = hashEricRequest(xml)
   const existingAttempt = await prisma.eBalanceSubmission.findUnique({ where: { ownerId_idempotencyKey: { ownerId, idempotencyKey } } })
   if (existingAttempt) {
@@ -876,6 +881,7 @@ export async function processEBalanceWithEric(
       if (!currentFiscalYear) throw new AccountingValidationError(['Das Geschäftsjahr wurde während der E-Bilanz-Verarbeitung entfernt.'])
       const currentCloseGeneration = await requireCurrentFiscalCloseGeneration(transaction, ownerId, currentFiscalYear)
       if (currentCloseGeneration.id !== closeGeneration.id) throw new AccountingValidationError(['Die Abschlussgeneration hat sich während der E-Bilanz-Verarbeitung geändert.'])
+      await assertCurrentEBalanceExport(transaction, ownerId, prepared)
       return transaction.eBalanceSubmission.create({ data: {
         ownerId, year, fiscalYearId: fiscalYear.id, closeGenerationId: currentCloseGeneration.id, kind, status: 'PENDING', idempotencyKey, payloadHash, requestHash, requestXml: envelope,
       } })
@@ -943,33 +949,10 @@ export function mergeSubmissionHistory<T extends { id: string; createdAt: Date }
   return [...merged.values()].sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
 }
 
-async function prepareEBalance(ownerId: string, year: number, masterData: EBalanceMasterData, remoteSchemaReferences: boolean, generationDate = new Date().toISOString().slice(0, 10)) {
-  const workspace = await getLedgerWorkspace(ownerId, year)
-  const reportDate = new Date(`${workspace.fiscalYear.endsAt}T23:59:59.999Z`)
-  const [settings, profileVersion, profileVersionCount] = await Promise.all([
-    prisma.accountRecord.findUnique({ where: { ownerId }, select: { payload: true } }),
-    prisma.companyProfileVersion.findFirst({ where: { ownerId, effectiveFrom: { lte: reportDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: reportDate } }] }, orderBy: { effectiveFrom: 'desc' }, select: { id: true, payload: true } }),
-    prisma.companyProfileVersion.count({ where: { ownerId } }),
-  ])
-  const addressConfirmation = profileVersion ? await prisma.companyProfileAddressConfirmation.findUnique({ where: { profileVersionId: profileVersion.id }, select: { payload: true } }) : null
-  const effectiveProfilePayload = profileVersion ? profilePayloadWithConfirmedAddress(profileVersion.payload, addressConfirmation?.payload) : undefined
-  masterData = authoritativeEBalanceMasterDataFromSettings(reportingSettingsPayload(settings?.payload, effectiveProfilePayload, profileVersionCount > 0), masterData)
-  const issues = getEBalanceBlockingIssues(workspace.fiscalYear.status, workspace.closingIssues)
-  if (issues.length) throw new AccountingValidationError(issues)
-  if (!masterData.companyName.trim() || !masterData.street.trim() || !masterData.postalCode.trim() || !masterData.city.trim() || !masterData.taxNumber.trim()) throw new AccountingValidationError(['Firmenname, Straße, PLZ, Ort und Steuernummer sind für den Export erforderlich.'])
-  const taxonomy = getEBalanceTaxonomy(year)
-  const xml = createEBalanceXbrl({
-    name: masterData.companyName, street: masterData.street, postalCode: masterData.postalCode, city: masterData.city,
-    taxNumber: masterData.taxNumber, legalForm: masterData.legalForm, fiscalYear: year,
-    fiscalYearStart: workspace.fiscalYear.startsAt, fiscalYearEnd: workspace.fiscalYear.endsAt, taxonomyVersion: taxonomy.version,
-    gaapNamespace: taxonomy.gaapNamespace, gcdNamespace: taxonomy.gcdNamespace,
-    entryPoint: remoteSchemaReferences ? `${taxonomy.gaapNamespace}/${taxonomy.entryPoint.split('/').at(-1)}` : taxonomy.entryPoint,
-    gcdEntryPoint: remoteSchemaReferences ? `${taxonomy.gcdNamespace}/${taxonomy.gcdEntryPoint.split('/').at(-1)}` : taxonomy.gcdEntryPoint,
-    generationDate,
-  }, workspace.statements)
-  const officialArchive = await readFile(path.join(process.cwd(), 'public', 'taxonomies', 'german-gaap-taxonomy-v6.9-2025-04-01-xbrl.zip'))
-  validateEBalanceConcepts(xml, officialArchive)
-  return { xml, officialArchive }
+async function prepareEBalance(ownerId: string, year: number, remoteSchemaReferences: boolean) {
+  const fiscalYear = await prisma.fiscalYear.findUniqueOrThrow({ where: { ownerId_year: { ownerId, year } }, select: { id: true } })
+  try { return await prepareAuthoritativeEBalanceExport(ownerId, fiscalYear.id, { remoteSchemaReferences }) }
+  catch (error) { throw new AccountingValidationError([error instanceof Error ? error.message : 'E-Bilanz preparation failed.']) }
 }
 
 export function getEBalanceBlockingIssues(fiscalYearStatus: string, closingIssues: string[]) {
