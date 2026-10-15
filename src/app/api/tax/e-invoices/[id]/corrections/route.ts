@@ -2,6 +2,7 @@ import 'server-only'
 import { EInvoiceValidationError, type InvoiceDocumentKind } from '@/core/eInvoice'
 import { getCurrentUser } from '@/server/authentication'
 import { forbiddenUnless } from '@/server/authorization'
+import { retireRejectedInvoiceRequest } from '@/server/tax/invoiceIssuanceRejection'
 import { correctStructuredInvoice, getOutgoingStructuredCorrectionTemplate, requireInvoiceIssuanceBody, type StructuredInvoiceInput } from '@/server/tax/structuredInvoices'
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -13,12 +14,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const user = await getCurrentUser(request.headers)
   if (!user) return Response.json({ success: false }, { status: 401 })
   const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
+  let submittedKey: unknown
   try {
     const body = requireInvoiceIssuanceBody(await request.json()) as Omit<StructuredInvoiceInput, 'kind' | 'correctedInvoiceNumber'> & { kind: Exclude<InvoiceDocumentKind, 'invoice'>; requestKey?: string }
     const { requestKey = '', ...correction } = body
+    submittedKey = requestKey
     return Response.json({ success: true, data: await correctStructuredInvoice(user.id, (await params).id, correction, requestKey) }, { status: 201 })
   } catch (error) {
-    if (error instanceof EInvoiceValidationError || error instanceof SyntaxError) return Response.json({ success: false, issues: error instanceof EInvoiceValidationError ? error.issues : ['Invalid JSON body.'] }, { status: 400 })
+    if (error instanceof EInvoiceValidationError || error instanceof SyntaxError) return Response.json({ success: false, issues: error instanceof EInvoiceValidationError ? error.issues : ['Invalid JSON body.'], requestRejected: await retireRejectedInvoiceRequest(user.id, submittedKey) }, { status: 400 })
     throw error
   }
 }

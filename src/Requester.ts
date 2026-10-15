@@ -13,7 +13,7 @@ export class Requester {
     })
   }
 
-  async post(path: string, data: any) {
+  async post(path: string, data: any, signal?: AbortSignal) {
     return await fetch(this._constructURL(path), {
       method: 'POST',
       headers: {
@@ -21,6 +21,7 @@ export class Requester {
         'Accept': 'application/json',
       },
       body: JSON.stringify(data),
+      ...(signal ? { signal } : {}),
     })
   }
 

@@ -44,8 +44,13 @@ export class StructuredInvoicesPage {
     await expect(this.page.getByRole('status')).toContainText('authoritative profile was saved')
   }
 
+  private async openOtherDestination(name: string) {
+    await this.page.getByRole('button', { name: 'Other', exact: true }).click()
+    await this.page.getByRole('menuitem', { name, exact: true }).click()
+  }
+
   async initializeNumbering(year: number) {
-    await this.page.getByRole('link', { name: 'Invoices', exact: true }).click()
+    await this.openOtherDestination('Invoices')
     await expect(this.page.getByRole('heading', { name: 'XRechnung 3.0 invoices' })).toBeVisible()
     await this.page.getByLabel('Invoice year').fill(String(year))
     await this.page.getByLabel('First unused invoice number', { exact: true }).fill('1')
@@ -75,7 +80,7 @@ export class StructuredInvoicesPage {
     const path = await download.path(); expect(path).toBeTruthy(); const xml = await readFile(path!, 'utf8'); expect(xml).toContain(`${year}-000001`); expect(xml).toContain('Kunde GmbH')
     expect(xml).toContain('urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0'); expect(xml).toContain('<cbc:BuyerReference>04011000-12345-03</cbc:BuyerReference>'); expect(xml.match(/<cbc:EndpointID schemeID="9930">/g)).toHaveLength(1); expect(xml).toContain('<cbc:EndpointID schemeID="0204">04011000-12345-03</cbc:EndpointID>'); expect(xml).toContain('<cbc:ElectronicMail>billing@example.test</cbc:ElectronicMail>')
     await this.page.reload(); await expect(this.page.getByRole('row', { name: new RegExp(`${year}-000001`) })).toBeVisible()
-    await this.page.getByRole('link', { name: 'Customers & open items' }).click()
+    await this.openOtherDestination('Customers & open items')
     await expect(this.page.getByRole('row', { name: new RegExp(`${year}-000001.*Kunde GmbH.*€119.00.*€119.00.*OPEN`) })).toBeVisible()
     await this.page.getByRole('link', { name: 'Journal', exact: true }).click()
     const journal = this.page.locator('article').filter({ hasText: `Outgoing invoice ${year}-000001` })
@@ -85,12 +90,12 @@ export class StructuredInvoicesPage {
   }
 
   async issuePartialCreditAndProveAccounting(year: number) {
-    await this.page.getByRole('link', { name: 'Invoices', exact: true }).click(); const original = this.page.getByRole('row', { name: new RegExp(`${year}-000001`) })
+    await this.openOtherDestination('Invoices'); const original = this.page.getByRole('row', { name: new RegExp(`${year}-000001`) })
     await original.getByRole('button', { name: 'Issue credit note' }).click(); await expect(this.page.getByRole('heading', { name: `Credit note for ${year}-000001` })).toBeVisible()
     await this.page.getByLabel('Issue date').last().fill(`${year}-08-05`); await this.page.getByLabel('Credit reason').fill('Partial service reduction'); await this.page.getByLabel('Credit net amount (EUR)').fill('50.00')
     await this.page.getByRole('button', { name: 'Issue and post credit note' }).click(); await expect(this.page.getByRole('status')).toContainText(`${year}-000002`)
     await expect(this.page.getByRole('row', { name: new RegExp(`${year}-000002.*credit-note`) })).toBeVisible(); await this.page.reload(); await expect(this.page.getByRole('row', { name: new RegExp(`${year}-000002`) })).toBeVisible()
-    await this.page.getByRole('link', { name: 'Customers & open items' }).click()
+    await this.openOtherDestination('Customers & open items')
     await expect(this.page.getByRole('row', { name: new RegExp(`${year}-000001.*€119.00.*€59.50.*PARTIAL`) })).toBeVisible()
     await expect(this.page.getByRole('row', { name: new RegExp(`${year}-000002.*€59.50.*€0.00.*SETTLED`) })).toBeVisible()
     await this.page.getByRole('link', { name: 'Journal', exact: true }).click(); const credit = this.page.locator('article').filter({ hasText: `Credit note ${year}-000002` })

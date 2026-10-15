@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, test, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({
+const mocks = vi.hoisted(() => ({ retire: vi.fn(),
   auth: vi.fn(),
   reconcile: vi.fn(),
   register: vi.fn(),
@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('server-only', () => ({}))
+vi.mock('@/server/tax/invoiceIssuanceRejection', () => ({ retireRejectedInvoiceRequest: mocks.retire }))
+import { EInvoiceValidationError } from '@/core/eInvoice'
 vi.mock('@/server/authentication', () => ({ getCurrentUser: mocks.auth }))
 vi.mock('@/server/commercialAccountingRepository', () => ({
   reconcilePendingOutgoingInvoiceAccounting: mocks.reconcile,
@@ -58,4 +60,16 @@ describe('structured-invoice API accounting recovery boundary', () => {
     expect(mocks.reconcile).not.toHaveBeenCalled()
     expect(mocks.list).not.toHaveBeenCalled()
   })
+})
+
+
+test.each([true, false])('Given a validation failure, when server retirement is %s, then the client receives the authoritative revision decision', async retired => {
+  mocks.auth.mockResolvedValue({ id: 'tenant-a', actorId: 'user-a', role: 'ADMIN' })
+  mocks.issue.mockRejectedValueOnce(new EInvoiceValidationError(['Rejected facts']))
+  mocks.retire.mockResolvedValueOnce(retired)
+  const request = new Request('http://localhost/api/tax/e-invoices', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'invoice', requestKey: 'rejection-route-key-01' }) })
+  const response = await POST(request)
+  expect(response.status).toBe(400)
+  expect(await response.json()).toMatchObject({ success: false, requestRejected: retired, issues: ['Rejected facts'] })
+  expect(mocks.retire).toHaveBeenCalledWith('tenant-a', 'rejection-route-key-01')
 })

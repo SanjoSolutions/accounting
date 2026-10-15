@@ -62,3 +62,26 @@ export function buildStructuredInvoiceRequest(values: StructuredInvoiceFormValue
     lines, ...totals, currency: 'EUR', paymentTerms: required(values.paymentTerms ?? '', 'Payment terms'), paymentIban,
   }
 }
+
+export interface CreditNoteTemplate {
+  data: { buyer: { name: string; [key: string]: unknown }; currency: string; lines: Array<{ taxRateBasisPoints: number; unitCode: string }> }
+  buyerReference: string
+  buyerElectronicAddress: { schemeId: '0204' | '9930' | 'EM'; value: string }
+  paymentTerms: string
+  paymentIban: string
+}
+
+export function buildCreditNoteRequest(values: { template: CreditNoteTemplate; issueDate: string; description: string; net: string; rate: string }, requestKey: string) {
+  if (values.rate !== '19' && values.rate !== '7') throw new Error('Select a supported credit VAT rate.')
+  const totals = calculateInvoiceTotals([{ netAmount: values.net, taxRate: values.rate }])
+  const { netAmountCents } = totals
+  if (!netAmountCents) throw new Error('The credit amount must be positive.')
+  const taxRateBasisPoints = Number(values.rate) * 100
+  const { data, ...terms } = values.template
+  return {
+    kind: 'credit-note' as const, requestKey, issueDate: isoDate(values.issueDate, 'Issue date'), supplyDate: values.issueDate,
+    buyer: data.buyer, currency: data.currency,
+    lines: [{ description: required(values.description, 'Credit reason'), quantity: 1, unitCode: data.lines[0]?.unitCode ?? 'C62', netAmountCents, taxRateBasisPoints, taxCategoryCode: 'S' }],
+    ...totals, ...terms,
+  }
+}
