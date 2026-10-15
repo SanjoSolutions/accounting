@@ -26,7 +26,11 @@ export class InvoiceIssuanceIntentStore {
 
   read(): InvoiceIssuanceIntent | null {
     if (!this.serialized) return null
-    const value = JSON.parse(this.serialized) as InvoiceIssuanceIntent
+    return this.parse(this.serialized)
+  }
+
+  private parse(serialized: string): InvoiceIssuanceIntent {
+    const value = JSON.parse(serialized) as InvoiceIssuanceIntent
     const validPath = value.payload?.kind === 'invoice'
       ? value.path === '/api/tax/e-invoices'
       : value.payload?.kind === 'credit-note' && /^\/api\/tax\/e-invoices\/[^/]+\/corrections$/.test(value.path)
@@ -40,6 +44,7 @@ export class InvoiceIssuanceIntentStore {
   capture(intent: InvoiceIssuanceIntent) {
     if (this.serialized) throw new Error('Recover the pending invoice request before starting another.')
     const serialized = JSON.stringify(intent)
+    this.parse(serialized)
     // Persist before sending; storage failures must prevent an unprotected POST.
     this.storage.setItem(this.storageKey, serialized)
     this.serialized = serialized

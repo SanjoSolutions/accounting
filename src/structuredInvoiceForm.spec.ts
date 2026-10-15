@@ -43,4 +43,7 @@ describe('credit-note request capture', () => {
   test.each([{ net: '0' }, { net: 'NaN' }, { net: '1.001' }, { rate: '20' }, { issueDate: '2026-02-30' }, { description: '  ' }])('Given invalid credit facts %j, when preparing an intent, then no request is captured', invalid => {
     expect(() => buildCreditNoteRequest({ ...values, ...invalid }, 'credit-ui-request-01')).toThrow()
   })
+  test('Given a credit whose VAT pushes its gross amount beyond safe cent precision, when preparing an intent, then no request is captured', () => {
+    expect(() => buildCreditNoteRequest({ ...values, net: '80000000000000.00' }, 'credit-ui-request-01')).toThrow(/safe cent precision/)
+  })
 })

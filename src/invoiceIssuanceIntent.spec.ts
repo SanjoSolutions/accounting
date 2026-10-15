@@ -89,6 +89,15 @@ describe('immutable invoice issuance intents', () => {
     expect(store.read()).toEqual(credit())
   })
 
+  test('Given an invalid request summary, when capture fails, then corrected facts can still be submitted', () => {
+    const storage = memoryStorage(); const store = new InvoiceIssuanceIntentStore(storage, 'intent')
+    const invalid = credit(); invalid.payload.grossAmountCents = Number.MAX_SAFE_INTEGER + 1
+    expect(() => store.capture(invalid)).toThrow(/could not be recovered/)
+    expect(store.read()).toBeNull(); expect(storage.getItem('intent')).toBeNull()
+    store.capture(credit())
+    expect(store.read()).toEqual(credit())
+  })
+
   test('Given a confirmed intent, when a new operation starts, then its facts and key may change', async () => {
     const store = new InvoiceIssuanceIntentStore(memoryStorage(), 'intent'); store.capture(credit())
     await store.replay(async () => success(), 'Unconfirmed')

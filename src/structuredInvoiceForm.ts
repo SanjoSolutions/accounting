@@ -72,16 +72,16 @@ export interface CreditNoteTemplate {
 }
 
 export function buildCreditNoteRequest(values: { template: CreditNoteTemplate; issueDate: string; description: string; net: string; rate: string }, requestKey: string) {
-  const netAmountCents = euroToCents(values.net)
+  if (values.rate !== '19' && values.rate !== '7') throw new Error('Select a supported credit VAT rate.')
+  const totals = calculateInvoiceTotals([{ netAmount: values.net, taxRate: values.rate }])
+  const { netAmountCents } = totals
   if (!netAmountCents) throw new Error('The credit amount must be positive.')
-  if (!['19', '7'].includes(values.rate)) throw new Error('Select a supported credit VAT rate.')
   const taxRateBasisPoints = Number(values.rate) * 100
-  const taxAmountCents = Math.round(netAmountCents * taxRateBasisPoints / 10_000)
   const { data, ...terms } = values.template
   return {
     kind: 'credit-note' as const, requestKey, issueDate: isoDate(values.issueDate, 'Issue date'), supplyDate: values.issueDate,
     buyer: data.buyer, currency: data.currency,
     lines: [{ description: required(values.description, 'Credit reason'), quantity: 1, unitCode: data.lines[0]?.unitCode ?? 'C62', netAmountCents, taxRateBasisPoints, taxCategoryCode: 'S' }],
-    netAmountCents, taxAmountCents, grossAmountCents: netAmountCents + taxAmountCents, ...terms,
+    ...totals, ...terms,
   }
 }
