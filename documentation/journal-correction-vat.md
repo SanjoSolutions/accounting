@@ -1,0 +1,13 @@
+# VAT evidence for journal corrections
+
+`correctPostedEntry` delegates to `postJournalCorrection` without changing its public signature. The correction transaction writes the reversal and replacement journals, their VAT line attributes and posting records, canonical source/reversal markers, document attachments and retention extensions, and the correction audit event together.
+
+The reversal exactly inverts the original lines. Its VAT evidence is restored through the trusted rule book and durable original binding, retains the original rule version and tax point, and names the original VAT source in `reversalOf` and `originalTaxPoint`. Original journal and VAT records remain immutable. Original document attachments and each VAT posting's document link are retained. The replacement calculates fresh VAT at its booking date and uses its selected document attachments. Moving a replacement across periods therefore cancels the original period's VAT and records the replacement period's VAT.
+
+Retries keep the existing `CORRECTION:<original-id>:REVERSAL` and `:REPLACEMENT` identities. The fingerprint includes VAT rule, input mode and direction, in addition to dates, amounts, accounts and documents. An identical retry returns the existing entries before reserving another reversal. Changed VAT semantics are a conflict even when the journal amounts are unchanged.
+
+Corrections fail without committing if original VAT evidence cannot be restored and reconciled, if a tax code or control amount lacks calculated evidence, or if direction, net base or tax controls do not agree. This includes legacy taxable entries without linked canonical VAT records and gross-mode inputs whose journal base does not equal the calculated net amount. Cases requiring external VAT evidence that cannot be restored by this boundary also fail closed. The change does not backfill historical missing evidence.
+
+`ledgerCorrectionVat.persistence.spec.ts` exercises the public correction workflow with real migrations and synthetic records in a private temporary SQLite database. It covers amounts, rates, monthly and fiscal-period changes, input VAT, concurrent and conflicting retries, unsupported evidence, and rollback including a database-injected audit failure. Application writes use normal SQLite durability; only initial empty-schema setup disables fsync on its separate connection.
+
+The change is independent of #44's carry-forward implementation and #49's actor contracts. When integrating #49, its required actor parameter must also be supplied by this regression suite's `postJournalEntry` fixture calls.
