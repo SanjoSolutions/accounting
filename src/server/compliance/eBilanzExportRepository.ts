@@ -12,6 +12,7 @@ import { selectOfficialEBalanceTaxonomy } from '@/core/eBilanzTaxonomy'
 import { readEBalanceTaxonomy } from '@/core/eBilanzTaxonomyModel'
 import type { LedgerBalance } from '@/core/doubleEntry'
 import type { EBalanceMasterData } from '@/core/eBilanz'
+import { deriveEBalanceReportScope } from '@/core/eBilanzReportScope'
 import { prisma } from '@/server/persistence/client'
 import { requireCurrentFiscalCloseGeneration } from '@/server/fiscalCloseGeneration'
 import { profilePayloadWithConfirmedAddress, validateCompanyProfile, type CompanyProfile } from './companyProfile'
@@ -30,18 +31,30 @@ async function loadSource(client: Client, ownerId: string, fiscalYearId: string)
   const confirmation = await client.companyProfileAddressConfirmation.findUnique({ where: { profileVersionId: profile.id } })
   const profilePayload = profilePayloadWithConfirmedAddress(profile.payload, confirmation?.payload)
   const parsedProfile = JSON.parse(profilePayload) as CompanyProfile
-  if (validateCompanyProfile(parsedProfile).length || !parsedProfile.registeredAddress || !['UG', 'GMBH'].includes(parsedProfile.legalForm)) throw new Error('A complete domestic UG/GmbH company profile is required.')
+  if (validateCompanyProfile(parsedProfile).length || !parsedProfile.registeredAddress || !['UG', 'GMBH', 'AG'].includes(parsedProfile.legalForm)) throw new Error('A complete domestic UG/GmbH/AG company profile is required.')
   const reporting = parsedProfile.eBilanz
-  if (parsedProfile.registeredAddress.country !== 'DE' || (reporting && (reporting.accountingStandard !== 'HGB' || reporting.incomeStatementMethod !== 'GKV' || reporting.consolidationRange !== 'EA' || reporting.statementType !== 'E' || reporting.reportStatus !== 'E' || reporting.specialBalanceRequired || reporting.supplementaryBalanceRequired || reporting.incomeClassification !== 'trade'))) throw new Error('The configured reporting scope requires an unsupported E-Bilanz variant.')
+  if (parsedProfile.registeredAddress.country !== 'DE') throw new Error('The configured reporting scope requires an unsupported E-Bilanz variant.')
+  deriveEBalanceReportScope(parsedProfile.legalForm as EBalanceMasterData['legalForm'], reporting)
   const [assets, events] = await Promise.all([
     client.fixedAssetRecord.findMany({ where: { ownerId }, orderBy: { id: 'asc' } }),
     client.assetEventRecord.findMany({ where: { ownerId }, orderBy: [{ assetId: 'asc' }, { sequence: 'asc' }] }),
   ])
   const sourceChecksum = eBalanceChecksum(canonicalJson({ ownerId, fiscalYearId, closeGenerationId: generation.id, snapshotHash: generation.snapshotHash,
     profileVersionId: profile.id, profilePayload, assets: assets.map(row => ({ id: row.id, payload: row.payload })), events: events.map(row => ({ id: row.id, payload: row.payload })) }))
-  const company: EBalanceMasterData = { companyName: parsedProfile.companyName, taxNumber: parsedProfile.taxNumber, legalForm: parsedProfile.legalForm as 'UG' | 'GMBH',
+  const company: EBalanceMasterData = { companyName: parsedProfile.companyName, taxNumber: parsedProfile.taxNumber, legalForm: parsedProfile.legalForm as 'UG' | 'GMBH' | 'AG',
     street: parsedProfile.registeredAddress.streetAndHouseNumber, postalCode: parsedProfile.registeredAddress.zipCode, city: parsedProfile.registeredAddress.city }
-  return { period, generation, profilePayload, company, assets, events, sourceChecksum, activity: parsedProfile.activity }
+  return { period, generation, profilePayload, company, reporting, assets, events, sourceChecksum, activity: parsedProfile.activity }
+}
+
+function reconciliationEvidenceIds(payload: EBalanceTaxBalanceEvidence) {
+  return [...payload.adjustments.flatMap(row => row.evidenceIds), ...(payload.attachments ?? []).flatMap(row => row.status === 'PRESENT' ? row.evidenceIds : [])]
+}
+
+async function requireRevisionPredecessor(client: Client, ownerId: string, fiscalYearId: string, payload: EBalanceTaxBalanceEvidence) {
+  const previous = payload.revision?.supersedes
+  if (!previous) return
+  const report = await client.eBalanceLifecycleReport.findFirst({ where: { id: previous.reportId, ownerId, fiscalYearId }, select: { reportChecksum: true, reportXml: true } })
+  if (!report || report.reportChecksum !== previous.reportChecksum || eBalanceChecksum(report.reportXml) !== previous.reportChecksum) throw new Error('Revision predecessor is missing, changed or belongs to another tenant or fiscal period.')
 }
 
 async function requireEvidence(client: Client, ownerId: string, ids: string[]) {
@@ -67,9 +80,10 @@ export async function recordTaxBalanceReconciliation(ownerId: string, actorId: s
     const evidenceIds = input.evidenceIds as string[]
     if (!Array.isArray(evidenceIds) || !evidenceIds.length || evidenceIds.some(id => typeof id !== 'string' || !id.trim())) throw new Error('Approval evidence is required.')
     if (!Array.isArray(supplied.adjustments)) throw new Error('Tax adjustments must be explicit, including an empty list when none apply.')
-    const references = [...evidenceIds, ...supplied.adjustments.flatMap(row => row.evidenceIds)]
+    const references = [...evidenceIds, ...reconciliationEvidenceIds(supplied)]
     const evidence = await requireEvidence(transaction, ownerId, references)
     const payload = validateTaxBalanceEvidence({ ...supplied, sourceChecksum: source.sourceChecksum, evidenceChecksum: eBalanceChecksum(canonicalJson(evidence)) })
+    await requireRevisionPredecessor(transaction, ownerId, fiscalYearId, payload)
     if (payload.gcd.business !== source.activity) throw new Error('Reconciliation business activity must match the effective company profile.')
     const checksum = reconciliationChecksum(ownerId, fiscalYearId, payload, evidenceIds)
     const latest = await transaction.eBalanceReconciliationRecord.findFirst({ where: { ownerId, fiscalYearId, kind: 'TAX_BALANCE' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
@@ -83,7 +97,7 @@ export async function recordTaxBalanceReconciliation(ownerId: string, actorId: s
   })
 }
 
-export async function prepareAuthoritativeEBalanceExport(ownerId: string, fiscalYearId: string, options: { taxonomyVersion?: string; remoteSchemaReferences?: boolean; asOf?: string } = {}) {
+export async function prepareAuthoritativeEBalanceExport(ownerId: string, fiscalYearId: string, options: { taxonomyVersion?: string; taxonomyPreparation?: 'LOCAL'; remoteSchemaReferences?: boolean; asOf?: string } = {}) {
   // Capture all authoritative inputs through one transaction. The public caller
   // rechecks the captured fingerprint in its own final publication transaction.
   const captured = await prisma.$transaction(async transaction => {
@@ -91,14 +105,15 @@ export async function prepareAuthoritativeEBalanceExport(ownerId: string, fiscal
     const reconciliation = await transaction.eBalanceReconciliationRecord.findFirst({ where: { ownerId, fiscalYearId, kind: 'TAX_BALANCE' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
     if (!reconciliation) throw new Error('An approved complete tax-balance reconciliation for this close generation is required.')
     const payload = validateTaxBalanceEvidence(JSON.parse(reconciliation.payload))
+    await requireRevisionPredecessor(transaction, ownerId, fiscalYearId, payload)
     if (payload.gcd.business !== source.activity) throw new Error('Reconciliation business activity differs from the authoritative profile.')
     const evidenceIds = JSON.parse(reconciliation.evidenceIds) as string[]
-    const evidence = await requireEvidence(transaction, ownerId, [...evidenceIds, ...payload.adjustments.flatMap(row => row.evidenceIds)])
+    const evidence = await requireEvidence(transaction, ownerId, [...evidenceIds, ...reconciliationEvidenceIds(payload)])
     if (eBalanceChecksum(canonicalJson(evidence)) !== payload.evidenceChecksum) throw new Error('Approved reconciliation evidence has changed.')
     return { ...source, reconciliation, payload, evidenceIds, evidence }
   })
   const { period, generation } = captured
-  const taxonomy = selectOfficialEBalanceTaxonomy(date(period.startsAt), { asOf: options.asOf ?? date(new Date()), requestedVersion: options.taxonomyVersion })
+  const taxonomy = selectOfficialEBalanceTaxonomy(date(period.startsAt), { asOf: options.asOf ?? date(new Date()), requestedVersion: options.taxonomyVersion, receiver: options.taxonomyPreparation })
   const officialArchive = await readFile(path.join(process.cwd(), 'public/taxonomies', taxonomy.archiveFile))
   const model = readEBalanceTaxonomy(taxonomy, officialArchive)
   const periodDates = { start: date(period.startsAt), end: date(period.endsAt) }
@@ -111,7 +126,7 @@ export async function prepareAuthoritativeEBalanceExport(ownerId: string, fiscal
   const dataset = createAuthoritativeEBalanceDataset({ ownerId, sourceChecksum: captured.sourceChecksum,
     fiscalYear: { id: period.id, year: period.year, startsAt: date(period.startsAt), endsAt: date(period.endsAt) },
     closeGeneration: { id: generation.id, snapshotHash: generation.snapshotHash, hgbCloseRunChecksum: generation.hgbCloseRunChecksum, lockedAt: generation.lockedAt.toISOString() },
-    company: captured.company, balances: snapshot.balances,
+    company: captured.company, reportProfile: captured.reporting, balances: snapshot.balances,
     reconciliation: { id: captured.reconciliation.id, ownerId, fiscalYearId, checksum: captured.reconciliation.checksum, approvedBy: captured.reconciliation.approvedBy,
       approvedAt: captured.reconciliation.approvedAt.toISOString(), evidenceIds: captured.evidenceIds, payload: captured.payload },
     assets: book.eBalanceAttachments.assetSchedule.rows.map(row => ({ book: row, tax: tax.eBalanceAttachments.assetSchedule.rows.find(item => item.assetId === row.assetId)!, acquisitionDate: masters.find(asset => asset.id === row.assetId)!.acquisitionDate })),
@@ -127,7 +142,8 @@ export async function assertCurrentEBalanceExport(client: Client, ownerId: strin
   const latest = await client.eBalanceReconciliationRecord.findFirst({ where: { ownerId, fiscalYearId: source.period.id, kind: 'TAX_BALANCE' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
   if (source.generation.id !== prepared.dataset.closeGenerationId || source.sourceChecksum !== prepared.dataset.sourceChecksum || latest?.id !== prepared.dataset.reconciliation.id || latest.checksum !== prepared.dataset.reconciliation.checksum) throw new Error('The close generation or reconciliation changed during E-Bilanz preparation.')
   const reconciliation = prepared.dataset.reconciliation
-  const evidence = await requireEvidence(client, ownerId, [...reconciliation.evidenceIds, ...reconciliation.payload.adjustments.flatMap(row => row.evidenceIds)])
+  await requireRevisionPredecessor(client, ownerId, source.period.id, reconciliation.payload)
+  const evidence = await requireEvidence(client, ownerId, [...reconciliation.evidenceIds, ...reconciliationEvidenceIds(reconciliation.payload)])
   if (eBalanceChecksum(canonicalJson(evidence)) !== prepared.evidenceChecksum) throw new Error('E-Bilanz reconciliation evidence changed during preparation.')
   return source.generation
 }

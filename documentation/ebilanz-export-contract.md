@@ -4,6 +4,12 @@ Implementation contract for #37's receiver adapters. This PR owns the dataset,
 taxonomy selection, filing XML and reconciliation gates. Receiver adapters,
 download UI and imported external evidence belong to #37.
 
+The [#15 extension](./ebilanz-taxonomy-report-scope.md) adds pinned local 6.10
+preparation, upgrade review, V2 classified reconciliation and attachment
+declarations, AG scope and official revision metadata. V1 behavior documented
+below remains compatible; V2 emits the asset register as an official `AV`
+footnote in addition to the `BAL` schedule. Receiver qualification stays separate.
+
 The shared server entry point is
 `prepareAuthoritativeEBalanceExport(ownerId, fiscalYearId, options?)` in
 `src/server/compliance/eBilanzExportRepository.ts`. It returns:
