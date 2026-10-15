@@ -2,14 +2,14 @@ import 'server-only'
 
 import { randomUUID } from 'node:crypto'
 import { canonicalJson } from '@/core/compliance/auditExport'
-import { createAssetSchedules, type AssetEvent, type FixedAsset } from '@/core/compliance/assetsInventory'
-import { createEBalanceReport, selectTaxonomy, type EBalanceSupportingBalance, type TaxAdjustment, type TaxonomyRelease } from '@/core/compliance/eBilanzLifecycle'
+import { selectTaxonomy, type TaxonomyRelease } from '@/core/compliance/eBilanzLifecycle'
 import { prisma } from '@/server/persistence/client'
 import { getDocumentStorage } from '@/server/storage'
 import { appendAuditEvent } from './auditPersistence'
 import { ComplianceRuntimeError } from './runtime'
-import { allowUnqualifiedEBalanceDrafts, assertEBalanceDraftReadiness, canonicalXbrlSerializer, createEBalanceLedgerFacts, createEBalanceReconciliationChecksum, deriveAuthoritativeEBalanceProfile, eBalanceLifecycleReadiness, taxonomyArchiveStorageKey, verifyTaxonomyArchive } from './eBilanzIntegration'
+import { createEBalanceReconciliationChecksum, taxonomyArchiveStorageKey, verifyTaxonomyArchive } from './eBilanzIntegration'
 import { requireCurrentFiscalCloseGeneration } from '@/server/fiscalCloseGeneration'
+import { assertCurrentEBalanceExport, assertCurrentEBalanceReport, prepareAuthoritativeEBalanceExport, recordTaxBalanceReconciliation, serializePreparedEBalanceEvidence } from './eBilanzExportRepository'
 
 function required(value: unknown, label: string) { if (typeof value !== 'string' || !value.trim()) throw new ComplianceRuntimeError(`${label} is required`); return value.trim() }
 function dateOnly(value: Date) { return value.toISOString().slice(0, 10) }
@@ -47,6 +47,10 @@ export async function registerEBalanceTaxonomy(actorId: string, input: Record<st
 
 export async function recordEBalanceReconciliation(ownerId: string, actorId: string, input: Record<string, unknown>) {
   const fiscalYearId = required(input.fiscalYearId, 'fiscalYearId'); const kind = required(input.kind, 'kind')
+  if (kind === 'TAX_BALANCE') {
+    try { return await recordTaxBalanceReconciliation(ownerId, actorId, input) }
+    catch (error) { throw new ComplianceRuntimeError(error instanceof Error ? error.message : 'Invalid tax-balance approval', 409) }
+  }
   if (!['ADJUSTMENT', 'SPECIAL_BALANCE', 'SUPPLEMENTARY_BALANCE'].includes(kind)) throw new ComplianceRuntimeError('Unsupported E-Bilanz reconciliation kind')
   const period = await prisma.fiscalYear.findFirst({ where: { id: fiscalYearId, ownerId }, select: { id: true } }); if (!period) throw new ComplianceRuntimeError('Fiscal period not found', 404)
   if (!Array.isArray(input.evidenceIds) || !input.evidenceIds.length || input.evidenceIds.some(value => typeof value !== 'string' || !value.trim())) throw new ComplianceRuntimeError('Reconciliation evidenceIds must contain nonblank IDs')
@@ -76,9 +80,12 @@ export async function getEBalanceLifecycleOverview(ownerId: string, fiscalYearId
       currentCloseGenerationId = generation.id; sourceStatus = 'CURRENT'; issue = null
     } catch (error) { issue = error instanceof Error ? error.message : issue }
   }
-  const currentReportId = sourceStatus === 'CURRENT'
-    ? reports.find(report => report.closeGenerationId === currentCloseGenerationId)?.id ?? null
-    : null
+  let currentReportId: string | null = null
+  const candidate = sourceStatus === 'CURRENT' ? reports.find(report => report.closeGenerationId === currentCloseGenerationId) : undefined
+  if (candidate) {
+    try { await assertCurrentEBalanceReport(prisma, ownerId, candidate); currentReportId = candidate.id }
+    catch { /* Prior approvals and internal evidence remain visible as stale. */ }
+  }
   return {
     taxonomies: taxonomies.map(taxonomyFromRecord),
     // A report version is current only while it is both bound to the exact
@@ -98,28 +105,11 @@ export async function prepareEBalanceLifecycleReport(ownerId: string, actorId: s
   let closeGeneration
   try { closeGeneration = await requireCurrentFiscalCloseGeneration(prisma, ownerId, period) }
   catch (error) { throw new ComplianceRuntimeError(error instanceof Error ? error.message : 'A current exact fiscal close generation is required', 409) }
-  const profileVersion = await prisma.companyProfileVersion.findFirst({ where: { ownerId, effectiveFrom: { lte: period.endsAt }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: period.endsAt } }] }, orderBy: { effectiveFrom: 'desc' } })
-  if (!profileVersion) throw new ComplianceRuntimeError('No effective authoritative company profile covers the fiscal period')
-  const profile = deriveAuthoritativeEBalanceProfile(ownerId, period, JSON.parse(profileVersion.payload))
-  const taxonomyRows = await prisma.eBalanceTaxonomyRelease.findMany({ orderBy: { validFrom: 'asc' } }); const registry = taxonomyRows.map(taxonomyFromRecord)
-  const taxonomy = selectTaxonomy(registry, dateOnly(period.startsAt), typeof input.taxonomyVersion === 'string' ? input.taxonomyVersion : undefined)
-  const [accounts, assets, events, reconciliationRows] = await Promise.all([
-    prisma.ledgerAccount.findMany({ where: { ownerId }, include: { journalLines: { where: { journalEntry: { fiscalYearId, state: 'POSTED' } } } }, orderBy: { number: 'asc' } }),
-    prisma.fixedAssetRecord.findMany({ where: { ownerId }, orderBy: { createdAt: 'asc' } }), prisma.assetEventRecord.findMany({ where: { ownerId }, orderBy: [{ assetId: 'asc' }, { sequence: 'asc' }] }),
-    prisma.eBalanceReconciliationRecord.findMany({ where: { ownerId, fiscalYearId }, orderBy: { createdAt: 'asc' } }),
-  ])
-  let facts: ReturnType<typeof createEBalanceLedgerFacts>
-  try { facts = createEBalanceLedgerFacts(accounts) }
-  catch (error) { throw new ComplianceRuntimeError(error instanceof Error ? error.message : 'E-Bilanz ledger facts are invalid') }
-  const adjustments = reconciliationRows.filter(row => row.kind === 'ADJUSTMENT').map(row => JSON.parse(row.payload) as TaxAdjustment)
-  const supporting = (kind: string) => reconciliationRows.find(row => row.kind === kind)
-  const schedules = createAssetSchedules(ownerId, assets.map(row => JSON.parse(row.payload) as FixedAsset), events.map(row => JSON.parse(row.payload) as AssetEvent), { start: dateOnly(period.startsAt), end: dateOnly(period.endsAt) })
-  const readiness = eBalanceLifecycleReadiness({ profile, taxonomy, fiscalYearStatus: period.status, facts, reconciliationKinds: reconciliationRows.map(row => row.kind), assetScheduleReady: true, ericQualified: process.env.ERIC_QUALIFIED === 'true' })
-  try { assertEBalanceDraftReadiness(readiness, allowUnqualifiedEBalanceDrafts()) }
-  catch (error) { throw new ComplianceRuntimeError(error instanceof Error ? error.message : 'E-Bilanz lifecycle is not ready') }
-  const attachments = { ...schedules.eBalanceAttachments, ...(supporting('SPECIAL_BALANCE') ? { specialBalance: JSON.parse(supporting('SPECIAL_BALANCE')!.payload) as EBalanceSupportingBalance } : {}), ...(supporting('SUPPLEMENTARY_BALANCE') ? { supplementaryBalance: JSON.parse(supporting('SUPPLEMENTARY_BALANCE')!.payload) as EBalanceSupportingBalance } : {}) }
-  const report = createEBalanceReport(profile, taxonomy, facts, adjustments, attachments, canonicalXbrlSerializer())
-  const id = randomUUID(); const storageKey = `tax-exports/${encodeURIComponent(ownerId)}/e-bilanz-lifecycle-${id}.xml`; await getDocumentStorage().write(storageKey, Buffer.from(report.transmittedBytes), { contentType: 'application/xml', fileName: `e-bilanz-${dateOnly(period.endsAt)}-${id}.xml` })
+  let prepared: Awaited<ReturnType<typeof prepareAuthoritativeEBalanceExport>>
+  try { prepared = await prepareAuthoritativeEBalanceExport(ownerId, fiscalYearId, { taxonomyVersion: typeof input.taxonomyVersion === 'string' ? input.taxonomyVersion : undefined }) }
+  catch (error) { throw new ComplianceRuntimeError(error instanceof Error ? error.message : 'Invalid E-Bilanz preparation', 409) }
+  const { dataset, xml, reportChecksum } = prepared
+  const id = randomUUID(); const storageKey = `tax-exports/${encodeURIComponent(ownerId)}/e-bilanz-lifecycle-${id}.xbrl`; await getDocumentStorage().write(storageKey, Buffer.from(xml, 'utf8'), { contentType: 'application/xml', fileName: `e-bilanz-${dateOnly(period.endsAt)}-${id}.xml` })
   try {
     return await prisma.$transaction(async transaction => {
       const currentPeriod = await transaction.fiscalYear.findFirst({ where: { id: fiscalYearId, ownerId }, select: { id: true, year: true, status: true, lockedAt: true, closingSnapshot: true } })
@@ -128,11 +118,14 @@ export async function prepareEBalanceLifecycleReport(ownerId: string, actorId: s
       try { currentCloseGeneration = await requireCurrentFiscalCloseGeneration(transaction, ownerId, currentPeriod) }
       catch (error) { throw new ComplianceRuntimeError(error instanceof Error ? error.message : 'The fiscal close generation became stale', 409) }
       if (currentCloseGeneration.id !== closeGeneration.id) throw new ComplianceRuntimeError('The fiscal close generation changed during E-Bilanz preparation', 409)
+      await assertCurrentEBalanceExport(transaction, ownerId, prepared)
+      const existing = await transaction.eBalanceLifecycleReport.findFirst({ where: { ownerId, fiscalYearId, closeGenerationId: currentCloseGeneration.id, reportChecksum } })
+      if (existing) { await getDocumentStorage().delete(storageKey); return existing }
       const latest = await transaction.eBalanceLifecycleReport.findFirst({ where: { ownerId, fiscalYearId }, orderBy: { version: 'desc' } }); const version = (latest?.version ?? 0) + 1
-      const record = await transaction.eBalanceLifecycleReport.create({ data: { id, ownerId, fiscalYearId, closeGenerationId: currentCloseGeneration.id, version, status: 'PREPARED', taxonomyVersion: taxonomy.version, profileSnapshot: canonicalJson(profile), reportPayload: canonicalJson(report.payload), reportXml: report.content, reportChecksum: report.checksum, storageKey, supersedesId: latest?.id ?? null, createdBy: actorId } })
+      const record = await transaction.eBalanceLifecycleReport.create({ data: { id, ownerId, fiscalYearId, closeGenerationId: currentCloseGeneration.id, version, status: 'PREPARED', taxonomyVersion: dataset.taxonomy.version, profileSnapshot: canonicalJson(dataset.company), reportPayload: serializePreparedEBalanceEvidence(prepared), reportXml: xml, reportChecksum, storageKey, supersedesId: latest?.id ?? null, createdBy: actorId } })
       const retainUntil = new Date(period.endsAt); retainUntil.setUTCFullYear(retainUntil.getUTCFullYear() + 10)
-      await transaction.retainedArtifact.create({ data: { ownerId, objectType: 'EBalanceLifecycleReport', objectId: id, version, retentionClass: 'TAX_RECORD', contentHash: report.checksum, provenance: `taxonomy:${taxonomy.version}`, storageKey, periodEndsAt: period.endsAt, retainUntil } })
-      await appendAuditEvent(transaction, { ownerId, actorId, action: 'E_BILANZ_REPORT_PREPARED', reason: required(input.reason, 'reason'), objectType: 'EBalanceLifecycleReport', objectId: id, after: { fiscalYearId, closeGenerationId: currentCloseGeneration.id, hgbCloseRunId: currentCloseGeneration.hgbCloseRunId, version, taxonomyVersion: taxonomy.version, reportChecksum: report.checksum, readiness } })
+      await transaction.retainedArtifact.create({ data: { ownerId, objectType: 'EBalanceLifecycleReport', objectId: id, version, retentionClass: 'TAX_RECORD', contentHash: reportChecksum, provenance: `taxonomy:${dataset.taxonomy.version}`, storageKey, periodEndsAt: period.endsAt, retainUntil } })
+      await appendAuditEvent(transaction, { ownerId, actorId, action: 'E_BILANZ_REPORT_PREPARED', reason: required(input.reason, 'reason'), objectType: 'EBalanceLifecycleReport', objectId: id, after: { fiscalYearId, closeGenerationId: currentCloseGeneration.id, hgbCloseRunId: currentCloseGeneration.hgbCloseRunId, version, taxonomyVersion: dataset.taxonomy.version, reportChecksum, validationLevel: prepared.diagnostics.level } })
       return record
     })
   } catch (error) { await getDocumentStorage().delete(storageKey).catch(() => undefined); throw error }

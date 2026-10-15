@@ -122,6 +122,7 @@ test.describe('tax and statutory reporting', () => {
     }))
 
     await app.open(`/e-bilanz/${currentYear}`)
+    if (currentYear === 2026) await page.locator('#ebilanz-filing-mode').selectOption('direct')
     await page.getByLabel('Company name').fill('Example GmbH')
     await page.getByLabel('Street and house number').fill('Example Street 1')
     await page.getByLabel('Postal code').fill('10115')

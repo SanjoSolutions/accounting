@@ -42,6 +42,7 @@ export function deriveAuthoritativeEBalanceProfile(ownerId: string, period: Fisc
   }
 }
 
+/** @deprecated Internal evidence format only, never official filing XBRL. */
 export function canonicalXbrlSerializer() {
   return {
     serialize(payload: Readonly<Record<string, unknown>>) { return `<?xml version="1.0" encoding="UTF-8"?><xbrl xmlns="http://www.xbrl.org/2003/instance">${createEBalanceSemanticFacts(payload)}${createEBalancePayloadEvidence(payload)}</xbrl>` },

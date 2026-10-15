@@ -27,14 +27,15 @@ export class ComplianceSetupPage {
     await this.fillSettled(section, 'Business activity', 'Software')
     await this.fillSettled(section, 'Authoritative chart', 'CUSTOM:HGB-MICRO')
     await this.fillSettled(section, 'Profile effective from', `${input.year - 1}-01-01`)
-    await this.fillSettled(section, 'Amtlicher Gemeindeschlüssel (8 Stellen)', '11000000')
-    await this.fillSettled(section, 'Gewerbesteuer-Hebesatz (%)', '410')
+    await this.fillSettled(section, 'Official municipality code (8 digits)', '11000000')
+    await this.fillSettled(section, 'Trade-tax multiplier (%)', '410')
     await this.fillSettled(section, 'Change reason', 'Verified company register and master data')
   }
 
   async createPeriod(year: number) {
     const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Fiscal periods' }) })
-    if (await section.locator('.history-list li').filter({ hasText: `${year}-01-01–${year}-12-31` }).count()) return
+    const periodRow = section.locator('.history-list li').filter({ has: this.page.locator('strong', { hasText: new RegExp(`(?:^| )${year}$`) }) })
+    if (await periodRow.count()) return
     await section.getByLabel('Reference year').fill(String(year))
     await section.getByLabel('Label').fill(`HGB ${year}`)
     await section.getByLabel('Starts').fill(`${year}-01-01`)
@@ -45,7 +46,7 @@ export class ComplianceSetupPage {
     await refreshed
     await this.waitReady()
     await expect(this.page.getByRole('status')).toContainText('fiscal period was created')
-    await expect(section.locator('.history-list')).toContainText(`${year}-01-01–${year}-12-31`)
+    await expect(periodRow).toBeVisible()
   }
 
   async onboardHistoricalHgb(years: number[], evidenceId: string) {
@@ -72,12 +73,18 @@ export class ComplianceSetupPage {
     const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Chart and mapping lifecycle' }) })
     const details = section.locator('details')
     await details.locator('summary').click()
-    const mappings = JSON.parse((await details.locator('pre').textContent()) || '[]') as Array<{ id: string }>
-    return mappings.filter(item => String((item as { effectiveFrom?: string }).effectiveFrom ?? '').startsWith(String(year))).map(item => item.id)
+    const response = await this.page.request.get('/api/compliance')
+    expect(response.ok()).toBe(true)
+    const body = await response.json()
+    const mappings = (body.data ?? body).chart.mappings as Array<{ id: string; effectiveFrom: string }>
+    const ids = mappings.filter(item => item.effectiveFrom.startsWith(String(year))).map(item => item.id)
+    expect(ids.length).toBeGreaterThan(0)
+    for (const id of ids) await expect(details.locator('pre')).toContainText(id)
+    return ids
   }
 
   async configureReviewPolicy(ownerId: string, reviewerId: string) {
-    const section = this.page.locator('fieldset').filter({ hasText: 'Jurisdiction, reviewers and recovery policy' })
+    const section = this.page.locator('fieldset').filter({ hasText: 'Storage jurisdiction and recovery policy' })
     await section.getByLabel('Operator user IDs').fill(`${ownerId}, ${reviewerId}`)
     await section.getByLabel('Allowed storage regions').fill('DE')
     await section.getByLabel('Recovery point objective (minutes)').fill('60')
@@ -145,7 +152,8 @@ export class ComplianceSetupPage {
   private async waitReady() { const workspace = this.page.locator('.compliance-workspace'); await expect(workspace).toHaveAttribute('aria-busy', 'false'); await expect(workspace).toHaveAttribute('data-compliance-ready', 'true') }
 
   async visiblePeriodId(year: number) {
-    const item = this.page.locator('.history-list li').filter({ hasText: `${year}-01-01–${year}-12-31` })
+    const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Fiscal periods' }) })
+    const item = section.locator('.history-list li').filter({ has: this.page.locator('strong', { hasText: new RegExp(`(?:^| )${year}$`) }) })
     return (await item.locator('code').textContent())!.trim()
   }
 
