@@ -17,6 +17,13 @@ vi.mock('next-intl', () => ({
 }))
 
 describe('guided HGB close workbench', () => {
+  test('Given workpapers are still loading, when the initial editor is rendered, then workpaper selection is disabled until the retained records are available', () => {
+    const markup = renderToStaticMarkup(createElement(HgbCloseWorkbench, { year: 2026, api: {} as HgbCloseApi }))
+    const selector = markup.match(/Workpaper type<select\b[^>]*>/)?.[0]
+    expect(selector).toBeDefined()
+    expect(selector).toContain('disabled=""')
+    expect(markup).toContain('aria-busy="true"')
+  })
   test('Given selected equity work, when a mutation refreshes the collection, then the editor retains that kind and hydrates its own saved content', () => {
     const current = newHgbWorkpaper('GMBH_EQUITY_AND_RESULT', 2026)
     const equity = { ...current, title: 'Reviewed UG equity' }
