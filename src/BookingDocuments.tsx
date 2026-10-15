@@ -5,6 +5,8 @@ import { useTranslations } from 'next-intl'
 import { api, getJSON } from './Requester'
 import { DocumentExtractionPanel } from './DocumentExtractionPanel'
 import { LocalCount } from './LocalNumber'
+import { DocumentSearch, DocumentSearchDetails } from './DocumentSearch'
+import type { DocumentSearchResult } from './core/documentSearch'
 
 export type BookingDocument = {
   id: string
@@ -103,6 +105,10 @@ export function BookingDocuments({
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
+  const [searchRevision, setSearchRevision] = useState(0)
+  const rememberSearchDocuments = useCallback((results: DocumentSearchResult[]) => {
+    setDocuments(current => mergeDocumentLists(current, results))
+  }, [])
   const [documentColumnPercent, setDocumentColumnPercent] = useState(60)
   const [addFlowOpen, setAddFlowOpen] = useState(!compactByDefault)
   const pickerOpen = documentPickerIsOpen(compactByDefault, addFlowOpen)
@@ -159,6 +165,7 @@ export function BookingDocuments({
       onUploadingChange(false)
       if (inputRef.current) inputRef.current.value = ''
       if (compactByDefault && uploadedAny) setAddFlowOpen(documentPickerOpenAfterAddition(compactByDefault))
+      if (uploadedAny) setSearchRevision(value => value + 1)
     }
   }, [addFlowOpen, compactByDefault, onSelectionChange, onUploadingChange, t])
 
@@ -213,11 +220,6 @@ export function BookingDocuments({
     [attachedDocuments, compactByDefault, documents, selectedDocumentIds],
   )
   const unavailableDocumentIdSet = useMemo(() => new Set(unavailableDocumentIds), [unavailableDocumentIds])
-  const availableDocuments = useMemo(
-    () => availableBookingDocuments(documents, unavailableDocumentIdSet)
-      .filter(document => !compactByDefault || !selectedDocumentIds.includes(document.id)),
-    [compactByDefault, documents, selectedDocumentIds, unavailableDocumentIdSet],
-  )
   const activeDocument = selectedDocuments.find(document => document.id === activeDocumentId) ?? selectedDocuments[0]
   const activeDocumentName = activeDocument
     ? documentDisplayName(activeDocument.fileName || t('unnamedDocument'), t('unnamedDocument'))
@@ -268,18 +270,21 @@ export function BookingDocuments({
         </div>
       </div>
       {error && <div className="alert alert-danger" role="alert">{error}</div>}
-      {availableDocuments.length === 0 && !uploading
-        ? <div className="document-empty" onClick={() => inputRef.current?.click()}><i className="bi bi-file-earmark-arrow-up" aria-hidden="true" /><strong>{t('noDocuments')}</strong><span>{t('noDocumentsHelp')}</span></div>
-        : <div className="document-strip" aria-label={t('availableDocuments')}>{availableDocuments.map(document => {
+      <DocumentSearch revision={searchRevision} onDocuments={rememberSearchDocuments}>{(results, searching) => {
+        const visibleDocuments = availableBookingDocuments(results, unavailableDocumentIdSet)
+          .filter(document => !compactByDefault || !selectedDocumentIds.includes(document.id))
+        return visibleDocuments.length === 0 && !uploading
+        ? searching ? <p className="text-muted">{t('noSearchDocuments')}</p> : <div className="document-empty" onClick={() => inputRef.current?.click()}><i className="bi bi-file-earmark-arrow-up" aria-hidden="true" /><strong>{t('noDocuments')}</strong><span>{t('noDocumentsHelp')}</span></div>
+        : <div className="document-strip" aria-label={t('availableDocuments')}>{visibleDocuments.map(document => {
           const selected = selectedDocumentIds.includes(document.id)
-          return <DocumentCard
-            key={document.id}
+          return <div key={document.id} className="flex-shrink-0" style={{ width: 160 }}><DocumentCard
             document={document}
             selected={selected}
             fallbackName={t('unnamedDocument')}
             onSelect={extendSelection => select(document.id, extendSelection)}
-          />
-        })}</div>}
+          /><DocumentSearchDetails document={results.find(result => result.id === document.id)!} /></div>
+        })}</div>
+      }}</DocumentSearch>
     </section>
 
   const attachedDocumentsRegion = <section className="attached-documents-region border-top mt-4 pt-4" aria-label={t('attachedDocuments')}>

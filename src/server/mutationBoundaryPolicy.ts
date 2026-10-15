@@ -34,6 +34,7 @@ export const apiMutationBoundaryPolicy = {
   '/api/datev-import#POST': 'write',
   '/api/documents/[id]/parsing-requests#PATCH': 'write',
   '/api/documents/[id]/parsing-requests#POST': 'write',
+  '/api/documents/[id]/search-index#POST': 'write',
   '/api/documents/[id]/payable-credit-note#POST': 'write',
   '/api/documents/[id]/payable-posting#POST': 'write',
   '/api/documents#POST': 'write',

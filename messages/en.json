@@ -1085,6 +1085,7 @@
     "status": { "DRAFT": "Draft" }
   },
   "Workspaces": {
+    "noSearchDocuments": "No matching documents.",
     "eBalanceExternalSubtitle": "Export versions for external validation and transmission.",
     "eBalanceFilingMode": "Filing method",
     "eBalanceExternalMode": "External: myebilanz BASIS / CSV",
@@ -1335,5 +1336,26 @@
     "previewTitle": "Preview: {name}",
     "recordEvidence": "Record external evidence for version {version}",
     "loadingPreview": "Loading preview: {name}"
+  },
+  "DocumentSearch": {
+    "label": "Search documents",
+    "placeholder": "Filename or content",
+    "help": "Search all words in the filename and indexed content.",
+    "clear": "Clear",
+    "loading": "Searching…",
+    "count": "{count, plural, one {# document} other {# documents}}",
+    "pending": "{count, plural, one {# content index incomplete} other {# content indexes incomplete}}",
+    "index": "Update content search",
+    "indexing": "Indexing content…",
+    "retry": "Retry",
+    "more": "Show more",
+    "loadFailed": "Documents could not be searched.",
+    "indexFailed": "Content indexing could not be started.",
+    "PENDING": "Content not yet indexed",
+    "PROCESSING": "Indexing content…",
+    "READY": "Content searchable",
+    "PARTIAL": "Some pages need OCR",
+    "NEEDS_OCR": "Scan needs OCR setup",
+    "FAILED": "Content indexing failed; retry available"
   }
 }

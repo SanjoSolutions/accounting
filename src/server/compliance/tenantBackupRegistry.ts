@@ -62,6 +62,7 @@ export const tenantBackupRegistry = [
   collection('AuditHead', 'auditHead', 'auditHead', 21, { shape: 'singleton' }),
   collection('BackupManifest', 'backupManifest', 'backupManifests', 20, { mode: 'backupManifests' }),
   collection('DocumentExtraction', 'documentExtraction', 'documentExtractions', 20),
+  collection('DocumentSearchIndex', 'documentSearchIndex', 'documentSearchIndexes', 20),
   collection('BankAccount', 'bankAccount', 'bankAccounts', 20),
   collection('HgbCloseRun', 'hgbCloseRun', 'hgbCloseRuns', 20),
   collection('StructuredInvoice', 'structuredInvoice', 'structuredInvoices', 20, { binaryFields: ['structuredOriginal', 'visualOriginal'] }),
