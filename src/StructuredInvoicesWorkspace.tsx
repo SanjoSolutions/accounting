@@ -8,9 +8,9 @@ import { localizeErrorDates } from './errorFormatting'
 import { useRegionalFormat } from './RegionalFormatProvider'
 import { LocalCurrency, formatPercentUnits } from './LocalNumber'
 import { buildStructuredInvoiceRequest, calculateInvoiceTotals, type InvoiceFormLine } from './structuredInvoiceForm'
+import { InvoiceNumberingSetup, type InvoiceNumberSequence } from './InvoiceNumberingSetup'
 
 interface IssuedInvoice { id: string; documentId: string; syntax: string; kind: string; invoiceNumber: string; issueDate: string }
-interface NumberSequence { year: number; nextValue: number }
 type CorrectionTemplate = { data: { buyer: Record<string, unknown>; currency: string; lines: Array<{ taxRateBasisPoints: number; unitCode: string }>; grossAmountCents: number }; buyerReference: string; buyerElectronicAddress: { schemeId: '0204' | '9930' | 'EM'; value: string }; paymentTerms: string; paymentIban: string }
 const newLine = (id = crypto.randomUUID()): InvoiceFormLine => ({ id, description: '', quantity: '1', unitCode: 'C62', netAmount: '', taxRate: '19' })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -21,13 +21,12 @@ async function readList<T>(response: Response) {
   return body.data as T[]
 }
 
-export function StructuredInvoicesWorkspace() {
+export function StructuredInvoicesWorkspace({ canManageNumbering = false }: { canManageNumbering?: boolean }) {
   const t = useTranslations('StructuredInvoices')
   const { locale: regionalLocale } = useRegionalFormat()
   const [invoices, setInvoices] = useState<IssuedInvoice[]>([])
-  const [sequences, setSequences] = useState<NumberSequence[]>([])
+  const [sequences, setSequences] = useState<InvoiceNumberSequence[]>([])
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [status, setStatus] = useState('')
-  const [year, setYear] = useState(String(new Date().getFullYear())); const [firstNumber, setFirstNumber] = useState('1'); const [confirmed, setConfirmed] = useState(false)
   const [issueDate, setIssueDate] = useState(today()); const [supplyDate, setSupplyDate] = useState(today())
   const [buyerReference, setBuyerReference] = useState('')
   const [buyerElectronicAddressScheme, setBuyerElectronicAddressScheme] = useState<'0204' | '9930' | 'EM'>('0204'); const [buyerElectronicAddress, setBuyerElectronicAddress] = useState('')
@@ -38,22 +37,12 @@ export function StructuredInvoicesWorkspace() {
 
   const load = useCallback(async () => {
     try {
-      const [issued, configured] = await Promise.all([readList<IssuedInvoice>(await api.get('/api/tax/e-invoices')), readList<NumberSequence>(await api.get('/api/tax/e-invoices/number-sequences'))])
+      const [issued, configured] = await Promise.all([readList<IssuedInvoice>(await api.get('/api/tax/e-invoices')), readList<InvoiceNumberSequence>(await api.get('/api/tax/e-invoices/number-sequences'))])
       setInvoices(issued); setSequences(configured)
     } catch (loadError) { setError(loadError instanceof Error ? loadError.message : t('loadFailed')) }
     finally { setLoading(false) }
   }, [t])
   useEffect(() => { setRequestKey(current => current || `invoice-ui-${crypto.randomUUID()}`); void load() }, [load])
-
-  async function initializeSequence(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError(''); setStatus('')
-    try {
-      const response = await api.post('/api/tax/e-invoices', { action: 'configure-number-sequence', year: Number(year), firstUnusedNumber: Number(firstNumber), confirmedExistingSeries: confirmed })
-      const body = await getJSON(response); if (!response.ok || body?.success !== true) throw new Error(body?.issues?.join(' ') || t('setupFailed'))
-      setStatus(t('sequenceReady')); await load()
-    } catch (setupError) { setError(setupError instanceof Error ? setupError.message : t('setupFailed')) }
-    finally { setBusy(false) }
-  }
 
   async function issue(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError(''); setStatus('')
@@ -73,7 +62,7 @@ export function StructuredInvoicesWorkspace() {
   if (loading) return <p>{t('loading')}</p>
   return <div className="container-fluid px-0"><header className="mb-4"><h1>{t('title')}</h1><p className="text-muted">{t('subtitle')}</p></header>
     {error && <div className="alert alert-danger" role="alert">{localizeErrorDates(error, regionalLocale)}</div>}{status && <div className="alert alert-success" role="status">{status}</div>}
-    <section className="card mb-4"><div className="card-body"><h2 className="h4">{t('numbering')}</h2><p>{sequences.length ? t('configured', { values: sequences.map(item => `${item.year}: ${item.nextValue}`).join(', ') }) : t('notConfigured')}</p><form className="row g-3 align-items-end" onSubmit={initializeSequence}><div className="col-sm-3"><label className="form-label" htmlFor="invoice-year">{t('invoiceYear')}</label><input className="form-control" id="invoice-year" type="number" min="2000" max="9999" value={year} onChange={event => setYear(event.target.value)} /></div><div className="col-sm-3"><label className="form-label" htmlFor="first-number">{t('firstNumber')}</label><input className="form-control" id="first-number" type="number" min="1" max="999999" value={firstNumber} onChange={event => setFirstNumber(event.target.value)} /></div><div className="col-sm-4"><div className="form-check"><input className="form-check-input" id="confirm-number" type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><label className="form-check-label" htmlFor="confirm-number">{t('confirmNumber')}</label></div></div><div className="col-sm-2"><button disabled={busy || !confirmed} className="btn btn-outline-primary" type="submit">{t('initialize')}</button></div></form></div></section>
+    <InvoiceNumberingSetup sequences={sequences} canManage={canManageNumbering} onSaved={load} />
     <section className="card mb-4"><div className="card-body"><h2 className="h4">{t('newInvoice')}</h2><form onSubmit={issue}>
       <div className="row g-3"><div className="col-sm-3"><label className="form-label" htmlFor="issue-date">{t('issueDate')}</label><input required className="form-control" id="issue-date" type="date" value={issueDate} onChange={event => setIssueDate(event.target.value)} /></div><div className="col-sm-3"><label className="form-label" htmlFor="supply-date">{t('supplyDate')}</label><input required className="form-control" id="supply-date" type="date" value={supplyDate} onChange={event => setSupplyDate(event.target.value)} /></div></div>
       <fieldset className="mt-3"><legend className="h5">{t('buyer')}</legend><div className="row g-3"><div className="col-md-6"><label className="form-label" htmlFor="buyer-reference">{t('buyerReference')}</label><input required className="form-control" id="buyer-reference" value={buyerReference} onChange={event => setBuyerReference(event.target.value)} /></div><div className="col-md-3"><label className="form-label" htmlFor="buyer-endpoint-scheme">{t('buyerEndpointScheme')}</label><select className="form-select" id="buyer-endpoint-scheme" value={buyerElectronicAddressScheme} onChange={event => setBuyerElectronicAddressScheme(event.target.value as '0204' | '9930' | 'EM')}><option value="0204">0204 – Leitweg-ID</option><option value="9930">9930 – German VAT ID</option><option value="EM">EM – Email</option></select></div><div className="col-md-3"><label className="form-label" htmlFor="buyer-endpoint">{t('buyerEndpoint')}</label><input required className="form-control" id="buyer-endpoint" value={buyerElectronicAddress} onChange={event => setBuyerElectronicAddress(event.target.value)} /></div><div className="col-md-6"><label className="form-label" htmlFor="buyer-name">{t('buyerName')}</label><input required className="form-control" id="buyer-name" value={buyerName} onChange={event => setBuyerName(event.target.value)} /></div><div className="col-md-6"><label className="form-label" htmlFor="buyer-street">{t('buyerStreet')}</label><input required className="form-control" id="buyer-street" value={buyerStreet} onChange={event => setBuyerStreet(event.target.value)} /></div><div className="col-sm-3"><label className="form-label" htmlFor="buyer-postal">{t('buyerPostal')}</label><input required className="form-control" id="buyer-postal" value={buyerPostalCode} onChange={event => setBuyerPostalCode(event.target.value)} /></div><div className="col-sm-3"><label className="form-label" htmlFor="buyer-city">{t('buyerCity')}</label><input required className="form-control" id="buyer-city" value={buyerCity} onChange={event => setBuyerCity(event.target.value)} /></div><div className="col-sm-3"><label className="form-label" htmlFor="buyer-country">{t('buyerCountry')}</label><input required className="form-control" id="buyer-country" maxLength={2} value={buyerCountry} onChange={event => setBuyerCountry(event.target.value)} /></div><div className="col-sm-3"><label className="form-label" htmlFor="buyer-vat">{t('buyerVat')}</label><input className="form-control" id="buyer-vat" value={buyerVatId} onChange={event => setBuyerVatId(event.target.value)} /></div></div></fieldset>

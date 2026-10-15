@@ -1,6 +1,6 @@
 import type { CurrentUser } from '@/authenticationPolicy'
 
-export type AccountingPermission = 'read' | 'write' | 'manage_access'
+export type AccountingPermission = 'read' | 'write' | 'manage_access' | 'manage_numbering'
 
 export function hasAccountingPermission(user: CurrentUser, permission: AccountingPermission) {
   if (permission === 'read') return true

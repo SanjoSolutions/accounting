@@ -18,6 +18,9 @@ export async function POST(request: Request) {
   const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   try {
     const body = requireInvoiceIssuanceBody(await request.json()) as StructuredInvoiceInput & { action?: string; requestKey?: string; year?: number; firstUnusedNumber?: number; confirmedExistingSeries?: boolean; importedInvoiceNumbers?: string[] }
+    if (body.action === 'configure-number-sequence' || body.action === 'reconcile-number-sequence') {
+      const forbidden = forbiddenUnless(user, 'manage_numbering'); if (forbidden) return forbidden
+    }
     if (body.action === 'configure-number-sequence') return Response.json({ success: true, data: await configureInvoiceNumberSequence(user.id, body.year!, body.firstUnusedNumber!, body.confirmedExistingSeries === true) }, { status: 201 })
     if (body.action === 'reconcile-number-sequence') return Response.json({ success: true, data: await reconcileInvoiceNumberSequence(user.id, user.actorId ?? user.id, body.year!, body.firstUnusedNumber!, body.importedInvoiceNumbers ?? [], body.confirmedExistingSeries === true) }, { status: 201 })
     const { requestKey = '', ...invoice } = body

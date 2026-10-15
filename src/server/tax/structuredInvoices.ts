@@ -186,14 +186,20 @@ export async function reconcileInvoiceNumberSequence(ownerId: string, actorId: s
   if (confirmedExistingSeries !== true || !actorId.trim()) throw new EInvoiceValidationError(['An authenticated administrator must explicitly confirm the reconciled first unused invoice number.'])
   const imported = parseImportedInvoiceSequence(year, importedInvoiceNumbers, firstUnusedNumber)
   return prisma.$transaction(async transaction => {
+    const onboarding = await transaction.invoiceNumberSequenceOnboarding.findUnique({ where: { ownerId_year: { ownerId, year } } })
+    const existing = await transaction.invoiceNumberSequence.findUnique({ where: { ownerId_year: { ownerId, year } } })
+    if (onboarding) {
+      if (onboarding.firstUnusedNumber !== firstUnusedNumber || onboarding.importedCount !== importedInvoiceNumbers.length || onboarding.importedNumbersHash !== imported.hash) throw new EInvoiceValidationError(['The invoice-number onboarding reconciliation evidence is immutable after setup.'])
+      if (!existing || existing.nextValue < firstUnusedNumber) throw new EInvoiceValidationError(['The invoice-number sequence contradicts its immutable onboarding reconciliation evidence.'])
+      // A lost response can be retried even after issuance advanced the sequence.
+      // Keep the original confirmer and timestamp; never reset the next number.
+      return { ownerId, year, nextValue: existing.nextValue, importedHighestNumber: onboarding.importedHighestNumber, importedCount: onboarding.importedCount, importedNumbersHash: onboarding.importedNumbersHash }
+    }
     const localNumbers = await transaction.structuredInvoice.findMany({ where: { ownerId, direction: 'OUTGOING', issueDate: { gte: new Date(`${year}-01-01T00:00:00.000Z`), lte: new Date(`${year}-12-31T23:59:59.999Z`) } }, select: { invoiceNumber: true } })
     const localReservations = await transaction.invoiceNumberReservation.findMany({ where: { ownerId, year }, select: { sequenceValue: true } })
     const localValues = [...localNumbers.map(({ invoiceNumber }) => new RegExp(`^${year}-(\\d{6})$`).exec(invoiceNumber)).filter((match): match is RegExpExecArray => Boolean(match)).map(match => Number(match[1])), ...localReservations.map(({ sequenceValue }) => sequenceValue)]
     const localHighest = localValues.length ? Math.max(...localValues) : undefined
     if (localHighest !== undefined && firstUnusedNumber <= localHighest) throw new EInvoiceValidationError(['The confirmed first unused number conflicts with an issued, reserved or voided local invoice number.'])
-    const onboarding = await transaction.invoiceNumberSequenceOnboarding.findUnique({ where: { ownerId_year: { ownerId, year } } })
-    if (onboarding) throw new EInvoiceValidationError(['The invoice-number onboarding reconciliation evidence is immutable after setup.'])
-    const existing = await transaction.invoiceNumberSequence.findUnique({ where: { ownerId_year: { ownerId, year } } })
     if (existing && firstUnusedNumber < existing.nextValue) throw new EInvoiceValidationError(['Invoice sequence reconciliation cannot move the next number backwards.'])
     const sequence = existing ? await transaction.invoiceNumberSequence.update({ where: { ownerId_year: { ownerId, year } }, data: { nextValue: firstUnusedNumber } }) : await transaction.invoiceNumberSequence.create({ data: { ownerId, year, nextValue: firstUnusedNumber } })
     await transaction.invoiceNumberSequenceOnboarding.create({ data: { ownerId, year, firstUnusedNumber, importedHighestNumber: imported.highest, importedCount: importedInvoiceNumbers.length, importedNumbersHash: imported.hash, confirmedBy: actorId } })
@@ -336,7 +342,12 @@ export async function getOutgoingStructuredCorrectionTemplate(ownerId: string, i
 function decodeXml(value: string) { return value.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&') }
 
 export async function listInvoiceNumberSequences(ownerId: string) {
-  return prisma.invoiceNumberSequence.findMany({ where: { ownerId }, select: { year: true, nextValue: true }, orderBy: { year: 'desc' } })
+  const [sequences, onboarding] = await Promise.all([
+    prisma.invoiceNumberSequence.findMany({ where: { ownerId }, select: { year: true, nextValue: true }, orderBy: { year: 'desc' } }),
+    prisma.invoiceNumberSequenceOnboarding.findMany({ where: { ownerId }, select: { year: true } }),
+  ])
+  const reconciledYears = new Set(onboarding.map(item => item.year))
+  return sequences.map(sequence => ({ ...sequence, reconciled: reconciledYears.has(sequence.year) }))
 }
 
 export async function getStructuredInvoiceRendering(ownerId: string, id: string) {

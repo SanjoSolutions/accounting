@@ -43,8 +43,11 @@ export function productionGatewayIssues(environment: TaxGatewayEnvironment, form
   }
   if (environment.TAX_PRODUCTION_FILING_ENABLED !== 'true') issues.push('TAX_PRODUCTION_FILING_ENABLED must be exactly true.')
   if (!environment.TAX_GATEWAY_QUALIFICATION_ID?.trim()) issues.push('Record the official gateway qualification identifier in TAX_GATEWAY_QUALIFICATION_ID.')
+  if (!environment.TAX_PROFESSIONAL_REVIEW_ID?.trim()) issues.push('Record professional German tax sign-off in TAX_PROFESSIONAL_REVIEW_ID.')
   const qualifiedVersions = new Set((environment.TAX_GATEWAY_QUALIFIED_FORM_VERSIONS ?? '').split(',').map(value => value.trim()).filter(Boolean))
   if (formVersion && !qualifiedVersions.has(formVersion)) issues.push(`Form version ${formVersion} has not been qualified against the official gateway.`)
+  const reviewedVersions = new Set((environment.TAX_PROFESSIONALLY_REVIEWED_FORM_VERSIONS ?? '').split(',').map(value => value.trim()).filter(Boolean))
+  if (formVersion && !reviewedVersions.has(formVersion)) issues.push(`Form version ${formVersion} has no recorded professional German tax sign-off.`)
   return issues
 }
 
@@ -96,6 +99,12 @@ const outputVatPosition = 'bs.eqLiab.liab.other.theroffTax.vat'
 export async function getTaxReadiness(ownerId: string, kind: DeclarationKind, period: string): Promise<TaxReadinessReport> {
   const year = Number(period.slice(0, 4))
   const fiscalYear = Number.isInteger(year) ? await prisma.fiscalYear.findFirst({ where: { ownerId, year } }) : null
+  const monthly = kind === 'USTVA' ? /^\d{4}-(0[1-9]|1[0-2])$/.exec(period) : null
+  const quarterly = kind === 'USTVA' ? /^\d{4}-Q([1-4])$/.exec(period) : null
+  const startMonth = monthly ? Number(monthly[1]) - 1 : quarterly ? (Number(quarterly[1]) - 1) * 3 : undefined
+  const periodStart = startMonth === undefined ? fiscalYear?.startsAt : new Date(Date.UTC(year, startMonth, 1))
+  const periodEndExclusive = startMonth === undefined ? undefined : new Date(Date.UTC(year, startMonth + (monthly ? 1 : 3), 1))
+  const periodEnd = periodEndExclusive ? new Date(periodEndExclusive.getTime() - 86_400_000) : fiscalYear?.endsAt
   let formVersion: string | undefined
   const formIssues: string[] = []
   try { formVersion = taxFormRegistry.resolve(kind, period).version } catch (error) { formIssues.push(error instanceof Error ? error.message : 'The filing form is unsupported.') }
@@ -104,7 +113,7 @@ export async function getTaxReadiness(ownerId: string, kind: DeclarationKind, pe
   let profile: Awaited<ReturnType<typeof companyProfileForPeriod>> | undefined
   if (!fiscalYear) profileIssues.push('Configure the tenant fiscal year for the requested filing period.')
   else {
-    try { profile = await companyProfileForPeriod(ownerId, fiscalYear.startsAt, fiscalYear.endsAt) }
+    try { profile = await companyProfileForPeriod(ownerId, periodStart!, periodEnd!) }
     catch (error) { profileIssues.push(error instanceof Error ? error.message : 'The effective company profile is unavailable.') }
   }
   if (kind === 'USTVA' && profile) {
@@ -115,8 +124,8 @@ export async function getTaxReadiness(ownerId: string, kind: DeclarationKind, pe
 
   const mappingIssues: string[] = []
   if (vatKinds.has(kind) && profile && fiscalYear) {
-    const mappings = await prisma.accountMappingVersion.findMany({ where: { ownerId, chartId: profile.chart, effectiveFrom: { lte: fiscalYear.endsAt } } })
-    const effective = mappings.filter(row => row.effectiveFrom <= fiscalYear.startsAt && (!row.effectiveTo || row.effectiveTo >= fiscalYear.endsAt) && row.active)
+    const mappings = await prisma.accountMappingVersion.findMany({ where: { ownerId, chartId: profile.chart, effectiveFrom: { lte: periodEnd! } } })
+    const effective = mappings.filter(row => row.effectiveFrom <= periodStart! && (!row.effectiveTo || row.effectiveTo >= periodEnd!) && row.active)
     if (!effective.some(row => row.eBilanzPosition === inputVatPosition) || !effective.some(row => row.eBilanzPosition === outputVatPosition)) mappingIssues.push('The effective chart must contain active canonical input-VAT and output-VAT control-account mappings for the complete period.')
   }
 
@@ -126,10 +135,7 @@ export async function getTaxReadiness(ownerId: string, kind: DeclarationKind, pe
   const ledgerIssues: string[] = []
   if (!fiscalYear) ledgerIssues.push('The requested fiscal year does not exist.')
   else {
-    const monthly = kind === 'USTVA' ? /^\d{4}-(0[1-9]|1[0-2])$/.exec(period) : null
-    const quarterly = kind === 'USTVA' ? /^\d{4}-Q([1-4])$/.exec(period) : null
-    const startMonth = monthly ? Number(monthly[1]) - 1 : quarterly ? (Number(quarterly[1]) - 1) * 3 : undefined
-    const ledgerPeriod = startMonth === undefined ? {} : { bookingDate: { gte: new Date(Date.UTC(year, startMonth, 1)), lt: new Date(Date.UTC(year, startMonth + (monthly ? 1 : 3), 1)) } }
+    const ledgerPeriod = periodEndExclusive ? { bookingDate: { gte: periodStart, lt: periodEndExclusive } } : {}
     if (await prisma.journalEntry.count({ where: { fiscalYearId: fiscalYear.id, state: { not: 'POSTED' }, ...ledgerPeriod } })) ledgerIssues.push(kind === 'USTVA' ? 'Every ledger entry in the filing period must be posted and immutable.' : 'Every ledger entry in the filing year must be posted and immutable.')
   }
 

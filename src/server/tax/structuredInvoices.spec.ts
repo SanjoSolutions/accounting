@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, test, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ write: vi.fn(), delete: vi.fn(), transaction: vi.fn(), rendering: vi.fn(), list: vi.fn(), sequences: vi.fn(), void: vi.fn(), account: vi.fn(), issuanceFind: vi.fn(), issuanceCreate: vi.fn(), issuanceUpdate: vi.fn(), fiscalYears: vi.fn(), ledgerProfile: vi.fn(), ledgerAccounts: vi.fn() }))
+const mocks = vi.hoisted(() => ({ write: vi.fn(), delete: vi.fn(), transaction: vi.fn(), rendering: vi.fn(), list: vi.fn(), sequences: vi.fn(), onboardingList: vi.fn(), void: vi.fn(), account: vi.fn(), issuanceFind: vi.fn(), issuanceCreate: vi.fn(), issuanceUpdate: vi.fn(), fiscalYears: vi.fn(), ledgerProfile: vi.fn(), ledgerAccounts: vi.fn() }))
 vi.mock('server-only', () => ({}))
 vi.mock('@/server/storage', () => ({ getDocumentStorage: () => ({ write: mocks.write, delete: mocks.delete }) }))
-vi.mock('@/server/persistence/client', () => ({ prisma: { $transaction: mocks.transaction, structuredInvoice: { findFirst: mocks.rendering, findMany: mocks.list }, invoiceNumberSequence: { findMany: mocks.sequences }, invoiceNumberReservation: { updateMany: mocks.void }, invoiceIssuanceRequest: { findUnique: mocks.issuanceFind, create: mocks.issuanceCreate, updateMany: mocks.issuanceUpdate }, accountRecord: { findFirst: mocks.account }, fiscalYear: { findMany: mocks.fiscalYears }, ledgerProfile: { findUnique: mocks.ledgerProfile }, ledgerAccount: { findMany: mocks.ledgerAccounts } } }))
+vi.mock('@/server/persistence/client', () => ({ prisma: { $transaction: mocks.transaction, structuredInvoice: { findFirst: mocks.rendering, findMany: mocks.list }, invoiceNumberSequence: { findMany: mocks.sequences }, invoiceNumberSequenceOnboarding: { findMany: mocks.onboardingList }, invoiceNumberReservation: { updateMany: mocks.void }, invoiceIssuanceRequest: { findUnique: mocks.issuanceFind, create: mocks.issuanceCreate, updateMany: mocks.issuanceUpdate }, accountRecord: { findFirst: mocks.account }, fiscalYear: { findMany: mocks.fiscalYears }, ledgerProfile: { findUnique: mocks.ledgerProfile }, ledgerAccount: { findMany: mocks.ledgerAccounts } } }))
 
 import { configureInvoiceNumberSequence, correctStructuredInvoice, getStructuredInvoiceRendering, invoiceIssuerKey, issueStructuredInvoice, listInvoiceNumberSequences, listStructuredInvoices, looksLikeHybridInvoice, parseImportedInvoiceSequence, parseStructuredUpload, reconcileInvoiceNumberSequence, requireAllocatableInvoiceSequence, requireInvoiceIssuanceBody, storeStructuredInvoice, StructuredInvoiceConflictError } from './structuredInvoices'
 
@@ -198,9 +198,10 @@ describe('structured invoice persistence boundary', () => {
     expect(await listStructuredInvoices('tenant-a')).toEqual([expect.not.objectContaining({ structuredOriginal: expect.anything(), data: expect.anything(), ownerId: expect.anything() })])
     expect(mocks.list).toHaveBeenCalledWith(expect.objectContaining({ where: { ownerId: 'tenant-a' }, select: expect.not.objectContaining({ structuredOriginal: true, visualOriginal: true, data: true, renderedHtml: true }) }))
   })
-  it('lists only the authenticated tenant invoice-number sequence status needed by the UI', async () => {
-    mocks.sequences.mockResolvedValueOnce([{ year: 2026, nextValue: 2 }])
-    await expect(listInvoiceNumberSequences('tenant-a')).resolves.toEqual([{ year: 2026, nextValue: 2 }])
+  test('Given tenant-owned sequences and reconciliation evidence, when numbering is listed, then only that tenant status is exposed', async () => {
+    mocks.sequences.mockResolvedValueOnce([{ year: 2026, nextValue: 2 }, { year: 2025, nextValue: 9 }]); mocks.onboardingList.mockResolvedValueOnce([{ year: 2026 }])
+    await expect(listInvoiceNumberSequences('tenant-a')).resolves.toEqual([{ year: 2026, nextValue: 2, reconciled: true }, { year: 2025, nextValue: 9, reconciled: false }])
     expect(mocks.sequences).toHaveBeenCalledWith({ where: { ownerId: 'tenant-a' }, select: { year: true, nextValue: true }, orderBy: { year: 'desc' } })
+    expect(mocks.onboardingList).toHaveBeenCalledWith({ where: { ownerId: 'tenant-a' }, select: { year: true } })
   })
 })
