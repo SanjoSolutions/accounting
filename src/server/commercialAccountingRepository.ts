@@ -387,8 +387,15 @@ export async function allocateSettlement(ownerId: string, actorId: string, reque
       if (existing.requestHash !== hash) throw new CommercialAccountingError('The settlement request key was already used with different facts.')
       return existing
     }
-    const settlement = await transaction.paymentSettlement.findFirst({ where: { ownerId, id: input.settlementId } })
+    // Acquire SQLite's write lock before checking availability. Replays above
+    // remain historical reads, including after the payment has been reversed.
+    await transaction.paymentSettlement.updateMany({ where: { ownerId, id: input.settlementId }, data: { updatedAt: new Date() } })
+    const settlement = await transaction.paymentSettlement.findFirst({ where: { ownerId, id: input.settlementId }, include: { bankTransactionMatches: { where: { kind: 'REVERSAL' }, select: { id: true } } } })
     if (!settlement) throw new CommercialAccountingError('The payment settlement does not belong to this tenant.')
+    if (!input.reversesAllocationId) {
+      const journalReversal = await transaction.journalEntry.findFirst({ where: { ownerId, reversalOfId: settlement.journalEntryId, state: 'POSTED' }, select: { id: true } })
+      if (journalReversal || settlement.bankTransactionMatches.length) throw new CommercialAccountingError('The payment has been reversed and cannot be allocated.')
+    }
     const journalEntryId = input.reversesAllocationId ? required(input.journalEntryId ?? '', 'reversal journal entry') : settlement.journalEntryId
     const created = await transaction.settlementAllocation.create({ data: { ownerId, openItemId: input.openItemId, settlementId: settlement.id, journalEntryId, kind: input.reversesAllocationId ? 'REVERSAL' : 'APPLY', amountCents: input.amountCents, requestKey, requestHash: hash, reversesAllocationId: input.reversesAllocationId ?? null, effectiveDate, createdBy: actorId } })
     await appendAuditEvent(transaction, { ownerId, actorId, action: input.reversesAllocationId ? 'SETTLEMENT_REVERSED' : 'SETTLEMENT_ALLOCATED', reason: input.reason, objectType: 'SettlementAllocation', objectId: created.id, after: created })

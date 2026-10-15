@@ -139,15 +139,18 @@ export async function reverseBankTransactionMatch(ownerId: string, actorId: stri
   return prisma.$transaction(async transaction => {
     const existing = await transaction.bankTransactionMatch.findUnique({ where: { ownerId_requestKey: { ownerId, requestKey } }, include: matchInclude })
     if (existing) { if (existing.requestHash !== requestHash) throw new BankingError('The bank reversal request key was already used with different facts.'); return existing }
-    const original = await transaction.bankTransactionMatch.findFirst({ where: { ownerId, id: matchId, kind: 'APPLY' }, include: { reversedBy: true, bankTransaction: { include: { bankAccount: true } }, journalEntry: { include: { lines: true } }, settlement: { include: { allocations: { where: { kind: 'APPLY' }, include: { reversedBy: true } } } }, allocation: true } })
+    const original = await transaction.bankTransactionMatch.findFirst({ where: { ownerId, id: matchId, kind: 'APPLY' }, include: { reversedBy: true, bankTransaction: { include: { bankAccount: true } }, journalEntry: { include: { lines: true } }, allocation: true } })
     if (!original) throw new BankingError('The bank match does not belong to this tenant.')
     await transaction.bankAccount.updateMany({ where: { ownerId, id: original.bankTransaction.bankAccountId }, data: { updatedAt: new Date() } })
     if (original.reversedBy.length) throw new BankingError('The bank match has already been reversed.')
+    // Read the allocation history only after acquiring SQLite's write lock, so
+    // any credit committed before this reversal is included in the same undo.
+    const activeAllocations = (await transaction.settlementAllocation.findMany({ where: { ownerId, settlementId: original.settlementId, kind: 'APPLY', reversedBy: { none: {} } } }))
+      .sort((left, right) => left.id === original.allocationId ? -1 : right.id === original.allocationId ? 1 : left.id.localeCompare(right.id))
+    if (!activeAllocations.length || activeAllocations[0].id !== original.allocationId) throw new BankingError('The bank reconciliation allocation history is incomplete.')
     const period = await uniqueOpenPeriod(transaction, ownerId, effectiveDate); const last = await transaction.journalEntry.findFirst({ where: { fiscalYearId: period.id }, orderBy: { sequenceNumber: 'desc' }, select: { sequenceNumber: true } })
     const journalId = randomUUID(); const externalKey = `BANKREV:${createHash('sha256').update(`${ownerId}:${requestKey}`).digest('hex')}`; const documentNumber = `BREV-${input.effectiveDate.replaceAll('-', '')}-${externalKey.slice(-8)}`
     const journal = await transaction.journalEntry.create({ data: { id: journalId, ownerId, fiscalYearId: period.id, sequenceNumber: (last?.sequenceNumber ?? 0) + 1, bookingDate: effectiveDate, documentNumber, description: `Reversal of ${original.journalEntry.documentNumber}`, source: 'BANK_REVERSAL', externalKey, reversalOfId: original.journalEntryId, lines: { create: original.journalEntry.lines.map(line => ({ accountId: line.accountId, debitCents: line.creditCents, creditCents: line.debitCents })) } } })
-    const activeAllocations = original.settlement.allocations.filter(allocation => allocation.reversedBy.length === 0).sort((left, right) => left.id === original.allocationId ? -1 : right.id === original.allocationId ? 1 : left.id.localeCompare(right.id))
-    if (!activeAllocations.length || activeAllocations[0].id !== original.allocationId) throw new BankingError('The bank reconciliation allocation history is incomplete.')
     const reversalAllocations = []
     for (const [index, prior] of activeAllocations.entries()) reversalAllocations.push(await transaction.settlementAllocation.create({ data: { ownerId, openItemId: prior.openItemId, settlementId: original.settlementId, journalEntryId: journal.id, kind: 'REVERSAL', amountCents: -prior.amountCents, requestKey: childRequestKey(requestKey, 'reversal', index), requestHash, reversesAllocationId: prior.id, effectiveDate, createdBy: actorId } }))
     for (const allocation of reversalAllocations) await synchronizeDerivedSettlementBalances(transaction, ownerId, allocation.openItemId, original.settlementId)
