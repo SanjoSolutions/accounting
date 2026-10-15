@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 import { eBilanz2026Fixture } from '@/core/fixtures/eBilanz2026'
 import { eBalanceChecksum } from '@/core/eBilanzExport'
+import { E_BALANCE_ATTACHMENT_KINDS } from '@/core/eBilanzReportScope'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/server/fiscalCloseGeneration', () => ({ requireCurrentFiscalCloseGeneration: vi.fn(async () => generation) }))
@@ -72,6 +73,46 @@ describe('persisted authoritative E-Bilanz snapshots', () => {
     await expect(api.assertCurrentEBalanceReport(prisma, fixture.ownerId, report)).rejects.toThrow('changed')
     expect((await prisma.eBalanceReconciliationRecord.findUniqueOrThrow({ where: { id: first.id } })).payload).toBe(first.payload)
   }, 15000)
+
+  test('given a V2 revision, checks its predecessor and retains attachment evidence through the real preparation path', async () => {
+    const first = await api.prepareAuthoritativeEBalanceExport(fixture.ownerId, fixture.fiscalYear.id)
+    await prisma.eBalanceLifecycleReport.create({ data: { id: 'report-before-revision', ownerId: fixture.ownerId, fiscalYearId: fixture.fiscalYear.id, version: 1,
+      status: 'ACCEPTED', taxonomyVersion: '6.9', profileSnapshot: '{}', reportPayload: api.serializePreparedEBalanceEvidence(first), reportXml: first.xml,
+      reportChecksum: first.reportChecksum, storageKey: 'synthetic-previous-report', createdBy: 'owner' } })
+    await prisma.documentRecord.create({ data: { id: 'attachment-evidence', ownerId: fixture.ownerId, payload: '{"text":"Synthetic notes"}' } })
+    const payload = structuredClone(fixture.reconciliation.payload)
+    payload.schemaVersion = 'EBILANZ_TAX_BALANCE_V2'
+    payload.adjustments[0].classification = { kind: 'TEMPORARY', reversalExpectedThrough: '2030-03-31' }
+    payload.revision = { status: 'B', reason: 'Corrected synthetic notes', supersedes: { reportId: 'report-before-revision', reportChecksum: first.reportChecksum } }
+    payload.attachments = E_BALANCE_ATTACHMENT_KINDS.map(kind => kind === 'NOTES'
+      ? { kind, status: 'PRESENT', text: 'Synthetic notes', evidenceIds: ['attachment-evidence'] }
+      : { kind, status: 'NOT_APPLICABLE', reason: 'Not applicable to this fixture.' })
+    const record = () => api.recordTaxBalanceReconciliation(fixture.ownerId, 'owner', { fiscalYearId: fixture.fiscalYear.id, reason: 'Approve scoped revision', payload, evidenceIds: fixture.reconciliation.evidenceIds })
+    const predecessor = await prisma.eBalanceLifecycleReport.findUniqueOrThrow({ where: { id: 'report-before-revision' } })
+    for (const scope of [{ id: 'foreign-predecessor', ownerId: 'foreign-owner' }, { id: 'wrong-period-predecessor', fiscalYearId: 'different-period' }]) {
+      await prisma.eBalanceLifecycleReport.create({ data: { ...predecessor, ...scope } })
+      payload.revision.supersedes!.reportId = scope.id
+      await expect(record()).rejects.toThrow('predecessor')
+    }
+    payload.revision.supersedes!.reportId = 'report-before-revision'
+    payload.revision.supersedes!.reportChecksum = '0'.repeat(64)
+    await expect(record()).rejects.toThrow('predecessor')
+    payload.revision.supersedes!.reportChecksum = first.reportChecksum
+    await record()
+    const prepared = await api.prepareAuthoritativeEBalanceExport(fixture.ownerId, fixture.fiscalYear.id)
+    expect(prepared.xml).toContain('revisionStatus.B contextRef')
+    expect(prepared.xml).toContain('Synthetic notes')
+    expect(prepared.xml).toContain('reportElements.AV')
+    await expect(api.assertCurrentEBalanceExport(prisma, fixture.ownerId, prepared)).resolves.toMatchObject({ id: generation.id })
+    const upgraded = await api.prepareAuthoritativeEBalanceExport(fixture.ownerId, fixture.fiscalYear.id, { taxonomyVersion: '6.10', taxonomyPreparation: 'LOCAL' })
+    expect(upgraded.dataset.taxonomy.version).toBe('6.10')
+    expect(upgraded.diagnostics.officialAcceptance).toBe('NOT_VALIDATED')
+    await prisma.documentRecord.update({ where: { id: 'attachment-evidence' }, data: { payload: '{"text":"Changed notes"}' } })
+    await expect(api.assertCurrentEBalanceExport(prisma, fixture.ownerId, prepared)).rejects.toThrow('evidence changed')
+    expect((await prisma.eBalanceLifecycleReport.findUniqueOrThrow({ where: { id: 'report-before-revision' } })).reportXml).toBe(first.xml)
+    // Restore the evidence for the independent source-tampering cases below.
+    await prisma.documentRecord.update({ where: { id: 'attachment-evidence' }, data: { payload: '{"text":"Synthetic notes"}' } })
+  }, 60000)
 
   test('given modified evidence or asset sources, refuses previously approved data', async () => {
     await prisma.documentRecord.update({ where: { id: 'evidence-tax-depreciation' }, data: { payload: '{"changed":true}' } })

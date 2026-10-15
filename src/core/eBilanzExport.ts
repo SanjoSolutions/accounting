@@ -4,15 +4,21 @@ import type { EBalanceAssetScheduleRow } from './compliance/eBilanzLifecycle'
 import { createFinancialStatements, type LedgerBalance } from './doubleEntry'
 import { normalizeElsterTaxNumber, type EBalanceMasterData } from './eBilanz'
 import { monetaryConcept, rollUpEBalanceFacts, type EBalanceTaxonomyModel } from './eBilanzTaxonomyModel'
+import { deriveEBalanceReportScope, E_BALANCE_ATTACHMENT_CONCEPTS, requireEBalanceAttachmentConcept, validateEBalanceAttachmentDeclarations, validateEBalanceRevision, type EBalanceAttachmentDeclaration, type EBalanceReportProfile, type EBalanceRevision } from './eBilanzReportScope'
+
+export type EBalanceAdjustmentClassification = { kind: 'PERMANENT' } | { kind: 'TEMPORARY'; reversalExpectedThrough: string }
 
 export interface EBalanceTaxBalanceEvidence {
-  schemaVersion: 'EBILANZ_TAX_BALANCE_V1'
+  schemaVersion: 'EBILANZ_TAX_BALANCE_V1' | 'EBILANZ_TAX_BALANCE_V2'
   closeGenerationId: string
   sourceChecksum: string
   evidenceChecksum: string
   complete: true
   /** Balanced tax-only journal entries. These never mutate the commercial ledger. */
-  adjustments: Array<{ id: string; description: string; evidenceIds: string[]; lines: Array<{ accountId: string; debitCents: number; creditCents: number }> }>
+  adjustments: Array<{ id: string; description: string; evidenceIds: string[]; classification?: EBalanceAdjustmentClassification; lines: Array<{ accountId: string; debitCents: number; creditCents: number }> }>
+  /** V2 requires a classified reconciliation and explicit report/attachment scope. */
+  revision?: EBalanceRevision
+  attachments?: EBalanceAttachmentDeclaration[]
   assetMappings: Array<{ assetId: string; accountId: string }>
   bvv: { openingEquityCents: number; capitalAdjustmentsCents: number; contributionsCents: number; distributionsCents: number }
   gcd: {
@@ -21,7 +27,7 @@ export interface EBalanceTaxBalanceEvidence {
     houseNumber: string
     previousPeriod: { start: string; end: string } | null
     domesticOrdinaryCompany: true
-    shareholders: Array<{ id: string; name: string; legalStatus: 'NPP' | 'NPB' | 'PG' | 'KOER'; shareNumerator: number; shareDenominator: number; taxNumber: string | null; taxId: string | null; businessId: string | null }>
+    shareholders: Array<{ id: string; name: string; legalStatus: 'NPP' | 'NPB' | 'PG' | 'KOER'; shareNumerator: number; shareDenominator: number; taxNumber: string | null; taxId: string | null; businessId: string | null; identifiersNotAssigned?: true }>
     businessId: string | null
   }
   /** Explicit reasons for unavailable GCD identifiers, rather than fabricated identifiers. */
@@ -39,6 +45,7 @@ export interface EBalanceExportInput {
   fiscalYear: { id: string; year: number; startsAt: string; endsAt: string }
   closeGeneration: { id: string; snapshotHash: string; hgbCloseRunChecksum: string; lockedAt: string }
   company: EBalanceMasterData
+  reportProfile?: EBalanceReportProfile
   balances: LedgerBalance[]
   reconciliation: ApprovedEBalanceReconciliation
   assets: Array<{ book: EBalanceAssetScheduleRow; tax: EBalanceAssetScheduleRow; acquisitionDate: string }>
@@ -61,7 +68,9 @@ function evidenceIds(ids: string[]) {
 }
 
 export function validateTaxBalanceEvidence(value: EBalanceTaxBalanceEvidence) {
-  if (!value || value.schemaVersion !== 'EBILANZ_TAX_BALANCE_V1' || value.complete !== true) throw new Error('An explicit complete tax-balance reconciliation is required.')
+  if (!value || !['EBILANZ_TAX_BALANCE_V1', 'EBILANZ_TAX_BALANCE_V2'].includes(value.schemaVersion) || value.complete !== true) throw new Error('An explicit complete tax-balance reconciliation is required.')
+  if (value.schemaVersion === 'EBILANZ_TAX_BALANCE_V2' || value.revision !== undefined) validateEBalanceRevision(value.revision!)
+  if (value.schemaVersion === 'EBILANZ_TAX_BALANCE_V2' || value.attachments !== undefined) validateEBalanceAttachmentDeclarations(value.attachments!)
   requireText(value.closeGenerationId, 'Close generation')
   if (!/^[0-9a-f]{64}$/.test(value.sourceChecksum) || !/^[0-9a-f]{64}$/.test(value.evidenceChecksum)) throw new Error('Reconciliation source and evidence checksums are required.')
   if (!Array.isArray(value.adjustments) || !Array.isArray(value.assetMappings) || !value.bvv || !value.gcd || !value.nilReasons || typeof value.nilReasons !== 'object') throw new Error('Tax-balance reconciliation is incomplete.')
@@ -74,10 +83,16 @@ export function validateTaxBalanceEvidence(value: EBalanceTaxBalanceEvidence) {
       if (cents(line.debitCents) < 0 || cents(line.creditCents) < 0 || (line.debitCents > 0) === (line.creditCents > 0)) throw new Error('Tax adjustment lines require one positive debit or credit.')
     }
     if (sum(adjustment.lines.map(line => line.debitCents - line.creditCents)) !== 0) throw new Error('Tax adjustment journal is not balanced.')
+    const classification = adjustment.classification
+    if (classification !== undefined || value.schemaVersion === 'EBILANZ_TAX_BALANCE_V2') {
+      if (!classification || !['PERMANENT', 'TEMPORARY'].includes(classification.kind)) throw new Error('Classify every tax-balance adjustment as permanent or temporary.')
+      if (classification.kind === 'TEMPORARY') dateOnly(classification.reversalExpectedThrough)
+      else if ('reversalExpectedThrough' in classification) throw new Error('Permanent differences cannot have an expected reversal date.')
+    }
   }
   for (const name of ['openingEquityCents', 'capitalAdjustmentsCents', 'contributionsCents', 'distributionsCents'] as const) cents(value.bvv[name])
   if (value.bvv.contributionsCents < 0 || value.bvv.distributionsCents < 0) throw new Error('BVV contributions/distributions cannot be negative.')
-  if (value.gcd.country !== 'DE' || value.gcd.domesticOrdinaryCompany !== true) throw new Error('Only ordinary domestic UG/GmbH tax balances are supported.')
+  if (value.gcd.country !== 'DE' || value.gcd.domesticOrdinaryCompany !== true) throw new Error('Only ordinary domestic corporate tax balances are supported.')
   requireText(value.gcd.business, 'Business activity'); requireText(value.gcd.houseNumber, 'House number')
   if (value.gcd.previousPeriod) {
     if (dateOnly(value.gcd.previousPeriod.start) > dateOnly(value.gcd.previousPeriod.end)) throw new Error('Previous fiscal period is reversed.')
@@ -109,11 +124,18 @@ export function createAuthoritativeEBalanceDataset(source: EBalanceExportInput, 
   if (fiscalYear.startsAt > dateOnly(fiscalYear.endsAt) || Date.parse(fiscalYear.endsAt) >= anniversary.getTime()) throw new Error('Fiscal period is reversed or exceeds twelve months.')
   for (const checksum of [input.sourceChecksum, closeGeneration.snapshotHash, closeGeneration.hgbCloseRunChecksum]) if (!/^[0-9a-f]{64}$/.test(checksum)) throw new Error('Immutable close source checksums are required.')
   if (!Number.isFinite(Date.parse(closeGeneration.lockedAt))) throw new Error('A valid close lock timestamp is required.')
-  if (!['UG', 'GMBH'].includes(company.legalForm)) throw new Error('This tax-balance export supports domestic UG and GmbH only.')
+  const reportScope = deriveEBalanceReportScope(company.legalForm, input.reportProfile, model.release.version)
   for (const [name, value] of Object.entries(company)) requireText(value, name)
   company.taxNumber = normalizeElsterTaxNumber(company.taxNumber)
   if (fiscalYear.startsAt < model.release.validFrom || fiscalYear.startsAt > model.release.validThrough) throw new Error('Taxonomy is not applicable to the exact fiscal period.')
   const reconciliation = validateTaxBalanceEvidence(approval?.payload)
+  if (model.release.version === '6.10') for (const shareholder of reconciliation.gcd.shareholders) {
+    const hasIdentifier = [shareholder.taxNumber, shareholder.taxId, shareholder.businessId].some(value => value !== null)
+    if (!hasIdentifier && (shareholder.identifiersNotAssigned !== true || !reconciliation.nilReasons[`shareholder.${shareholder.id}.identifiersNotAssigned`])) throw new Error('Taxonomy 6.10 requires a shareholder identifier or explicit evidence that none has been assigned.')
+    if (hasIdentifier && shareholder.identifiersNotAssigned !== undefined) throw new Error('An assigned shareholder identifier contradicts the not-assigned declaration.')
+  }
+  for (const attachment of reconciliation.attachments ?? []) if (attachment.status === 'PRESENT') requireEBalanceAttachmentConcept(model, E_BALANCE_ATTACHMENT_CONCEPTS[attachment.kind].concept)
+  for (const adjustment of reconciliation.adjustments) if (adjustment.classification?.kind === 'TEMPORARY' && adjustment.classification.reversalExpectedThrough <= fiscalYear.endsAt) throw new Error('A temporary closing difference must reverse after the reported fiscal period.')
   if (approval.ownerId !== input.ownerId || approval.fiscalYearId !== fiscalYear.id || reconciliation.closeGenerationId !== closeGeneration.id) throw new Error('Reconciliation belongs to another tenant, fiscal year or close generation.')
   if (reconciliation.sourceChecksum !== input.sourceChecksum) throw new Error('Reconciliation is stale for the current close sources.')
   requireText(approval.id, 'Reconciliation ID'); requireText(approval.approvedBy, 'Approver')
@@ -140,6 +162,14 @@ export function createAuthoritativeEBalanceDataset(source: EBalanceExportInput, 
   const commercial = createFinancialStatements(balances)
   sum([...taxBalances.values()].map(balance => balance.debitCents)); sum([...taxBalances.values()].map(balance => balance.creditCents))
   const tax = createFinancialStatements([...taxBalances.values()])
+  const adjustmentDetails = reconciliation.adjustments.map(adjustment => ({
+    id: adjustment.id, classification: adjustment.classification ?? null,
+    profitEffectCents: sum(adjustment.lines.map(line => {
+      const category = taxBalances.get(line.accountId)!.category
+      return ['REVENUE', 'EXPENSE'].includes(category) ? line.creditCents - line.debitCents : 0
+    })),
+  }))
+  if (sum(adjustmentDetails.map(row => row.profitEffectCents)) !== cents(tax.netIncomeCents - commercial.netIncomeCents)) throw new Error('Classified tax adjustment effects do not reconcile to the tax result.')
   if (commercial.balanceDifferenceCents !== 0 || tax.balanceDifferenceCents !== 0) throw new Error('Commercial and tax trial balances must balance.')
   const direct = new Map<string, number>()
   const accounts = balances.filter(b => b.debitCents !== 0 || b.creditCents !== 0 || taxBalances.get(b.accountId)!.balanceCents !== 0).map(balance => {
@@ -175,6 +205,11 @@ export function createAuthoritativeEBalanceDataset(source: EBalanceExportInput, 
     'BVV.profitLoss.withdrawalDistrib': bvv.distributionsCents, 'BVV.profitLoss.contribution': bvv.contributionsCents,
   })) rolled.set(concept, amount)
   const assets = input.assets.map(asset => {
+    if (reconciliation.schemaVersion === 'EBILANZ_TAX_BALANCE_V2') {
+      if (dateOnly(asset.acquisitionDate) > fiscalYear.endsAt) throw new Error('Asset register acquisition date is after the fiscal period.')
+      requireText(asset.book.description, 'Asset register description')
+      requireText(asset.book.location, 'Asset register location')
+    }
     const mapping = reconciliation.assetMappings.find(row => row.assetId === asset.book.assetId)
     const account = accounts.find(row => row.accountId === mapping?.accountId)
     if (!account || !account.concept.startsWith('bs.ass.fixAss.') || asset.tax.assetId !== asset.book.assetId) throw new Error(`Asset ${asset.book.assetId} requires an explicit fixed-asset taxonomy assignment.`)
@@ -200,6 +235,9 @@ export function createAuthoritativeEBalanceDataset(source: EBalanceExportInput, 
   facts.sort((a, b) => a.concept.localeCompare(b.concept))
   return deepFreeze({ schemaVersion: 'EBILANZ_EXPORT_V1' as const, ownerId: input.ownerId, sourceChecksum: input.sourceChecksum, fiscalYear, closeGenerationId: closeGeneration.id,
     closeGeneration, company, taxonomy: { ...model.release }, generationDate: approval.approvedAt.slice(0, 10), accounts, facts, assets, reconciliation: approval,
+    // Old retained V1 datasets keep their exact byte representation. New V2
+    // evidence explicitly opts in to report scope, AV and attachment serialization.
+    ...(reconciliation.schemaVersion === 'EBILANZ_TAX_BALANCE_V2' ? { reportScope, adjustmentDetails } : {}),
     totals: { commercialNetIncomeCents: commercial.netIncomeCents, taxNetIncomeCents: income, taxAdjustmentCents: cents(income - commercial.netIncomeCents), assetsCents: tax.assetsCents, liabilitiesCents: tax.liabilitiesCents, equityCents: tax.equityCents },
     validationLevel: 'LOCAL_STRUCTURAL' as const, officialAcceptance: 'NOT_VALIDATED' as const })
 }

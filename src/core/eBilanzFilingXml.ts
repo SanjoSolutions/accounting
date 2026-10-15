@@ -1,10 +1,13 @@
 import { eBalanceChecksum, type EBalanceExportDataset } from './eBilanzExport'
 import { canonicalJson } from './compliance/auditExport'
 import { centsText, xmlEscape as esc, XMLNS } from './eBilanzXml'
+import { eBalanceFilingAttachments, serializeEBalanceAttachments } from './eBilanzAttachments'
 
 export function serializeEBalanceFilingXml(dataset: EBalanceExportDataset, remoteSchemas = false) {
   const { company, fiscalYear, taxonomy, reconciliation } = dataset
   const gcd = reconciliation.payload.gcd
+  const scope = dataset.reportScope
+  const attachments = eBalanceFilingAttachments(dataset)
   const street = company.street.endsWith(` ${gcd.houseNumber}`) ? company.street.slice(0, -(gcd.houseNumber.length + 1)) : company.street
   const item = (prefix: string, name: string, value: string | null, context = 'duration', monetary = false) => `<${prefix}:${name} contextRef="${context}"${monetary ? ' unitRef="EUR" decimals="2"' : ''}${value === null ? ' xsi:nil="true"/>' : `>${esc(value)}</${prefix}:${name}>`}`
   const g = (name: string, value: string | null) => item('de-gcd', `genInfo.${name}`, value)
@@ -38,16 +41,18 @@ export function serializeEBalanceFilingXml(dataset: EBalanceExportDataset, remot
     }
     for (const [name, amount] of Object.entries(facts)) assetFacts.push(item('de-gaap-ci', name, centsText(amount), context, true))
   }
-  const reportElements = ['B', 'BVV', 'EB', 'GuV', 'BAL', 'EV', 'STU', 'KS']
-    .map(name => g(`report.id.reportElement.reportElements.${name}`, ['B', 'BVV', 'GuV', 'KS', ...(dataset.assets.length ? ['BAL'] : [])].includes(name) ? '' : null)).join('')
+  const extraElements = [...new Set(attachments.map(row => row.reportElement))]
+  const reportElements = ['B', 'BVV', 'EB', 'GuV', 'BAL', 'EV', 'STU', 'KS', ...extraElements]
+    .map(name => g(`report.id.reportElement.reportElements.${name}`, ['B', 'BVV', 'GuV', 'KS', ...(dataset.assets.length ? ['BAL'] : []), ...extraElements].includes(name) ? '' : null)).join('')
   const gcdFacts = [
     g('doc.id.generationDate', dataset.generationDate),
-    choice('report.id.reportStatus', 'reportStatus.E'), choice('report.id.revisionStatus', 'revisionStatus.E'),
-    tuple('report.id.reportElement', reportElements), choice('report.id.statementType', 'statementType.E'),
-    g('report.id.reportElement.reportElements.transmissionNotYetPossible', null),
+    choice('report.id.reportStatus', `reportStatus.${scope?.reportStatus ?? 'E'}`), choice('report.id.revisionStatus', `revisionStatus.${reconciliation.payload.revision?.status ?? 'E'}`),
+    tuple('report.id.reportElement', reportElements), choice('report.id.statementType', `statementType.${scope?.statementType ?? 'E'}`),
+    ...(extraElements.includes('S') ? [g('report.id.reportElement.reportElements.SERL', attachments.filter(row => row.reportElement === 'S').map(row => row.concept).join(', '))] : []),
+    ...(taxonomy.version === '6.9' ? [g('report.id.reportElement.reportElements.transmissionNotYetPossible', null)] : []),
     g('report.id.incomeStatementendswithBalProfit', 'false'), choice('report.id.accountingStandard', 'accountingStandard.S'),
-    choice('report.id.specialAccountingStandard', 'K'), choice('report.id.incomeStatementFormat', 'incomeStatementFormat.GKV'),
-    choice('report.id.consolidationRange', 'consolidationRange.EA'),
+    choice('report.id.specialAccountingStandard', 'K'), choice('report.id.incomeStatementFormat', `incomeStatementFormat.${scope?.incomeStatementMethod ?? 'GKV'}`),
+    choice('report.id.consolidationRange', `consolidationRange.${scope?.consolidationRange ?? 'EA'}`),
     g('report.period.fiscalYearBegin', fiscalYear.startsAt), g('report.period.fiscalYearEnd', fiscalYear.endsAt), g('report.period.balSheetClosingDate', fiscalYear.endsAt),
     g('report.period.fiscalPreviousYearBegin', gcd.previousPeriod?.start ?? null), g('report.period.fiscalPreviousYearEnd', gcd.previousPeriod?.end ?? null), g('report.period.balSheetClosingDatePreviousYear', gcd.previousPeriod?.end ?? null),
     g('company.id.name', company.companyName), g('company.id.location.street', street), g('company.id.location.houseNo', gcd.houseNumber),
@@ -57,7 +62,7 @@ export function serializeEBalanceFilingXml(dataset: EBalanceExportDataset, remot
       + g('company.id.idNo.type.companyId.STID', null)
       + nilWithReason('company.id.idNo.type.companyId.STWID', gcd.businessId, 'company.businessId')
       + g('company.id.idNo.type.companyId.BF4', company.taxNumber.slice(0, 4))),
-    g('company.id.business', gcd.business), choice('company.id.incomeClassification', 'trade'),
+    g('company.id.business', gcd.business), choice('company.id.incomeClassification', scope?.incomeClassification ?? 'trade'),
     choice('company.id.entityWithTaxablePurposeBusiness', 'normal'),
     '<de-gcd:genInfo.company.id.domesticBranchOfForeignCompany xsi:nil="true"/>',
     ...gcd.shareholders.map(shareholder => tuple('company.id.shareholder',
@@ -65,6 +70,7 @@ export function serializeEBalanceFilingXml(dataset: EBalanceExportDataset, remot
       + nilWithReason('company.id.shareholder.taxnumber', shareholder.taxNumber, `shareholder.${shareholder.id}.taxNumber`)
       + nilWithReason('company.id.shareholder.taxid', shareholder.taxId, `shareholder.${shareholder.id}.taxId`)
       + nilWithReason('company.id.shareholder.WID', shareholder.businessId, `shareholder.${shareholder.id}.businessId`)
+      + (taxonomy.version === '6.10' ? g('company.id.shareholder.idNotAssigned', shareholder.identifiersNotAssigned ? '' : null) : '')
       + choice('company.id.shareholder.legalStatus', `legalStatus.${shareholder.legalStatus}`)
       + tuple('company.id.shareholder.ShareDivideKey', g('company.id.shareholder.ShareDivideKey.numerator', String(shareholder.shareNumerator)) + g('company.id.shareholder.ShareDivideKey.denominator', String(shareholder.shareDenominator))))),
   ]
@@ -74,6 +80,7 @@ export function serializeEBalanceFilingXml(dataset: EBalanceExportDataset, remot
     + item('de-gaap-ci', 'detailedInformation.accountbalances.accountNumber', String(account.number))
     + item('de-gaap-ci', 'detailedInformation.accountbalances.accountDescription', account.name)
     + item('de-gaap-ci', 'detailedInformation.accountbalances.amount', centsText(account.amountCents), 'duration', true)
+    + (taxonomy.version === '6.10' ? item('de-gaap-ci', 'detailedInformation.accountbalances.notPossible', null) : '')
   }</de-gaap-ci:detailedInformation.accountBalances>`)
   const schema = (entry: string, namespace: string) => remoteSchemas ? `${namespace}/${entry.split('/').at(-1)}` : entry
   return `<?xml version="1.0" encoding="UTF-8"?>\n<xbrli:xbrl xmlns:xbrli="${XMLNS.xbrli}" xmlns:link="${XMLNS.link}" xmlns:xlink="${XMLNS.xlink}" xmlns:xsi="${XMLNS.xsi}" xmlns:xbrldi="${XMLNS.xbrldi}" xmlns:iso4217="http://www.xbrl.org/2003/iso4217" xmlns:de-gaap-ci="${taxonomy.gaapNamespace}" xmlns:de-gcd="${taxonomy.gcdNamespace}">\n${[
@@ -83,5 +90,6 @@ export function serializeEBalanceFilingXml(dataset: EBalanceExportDataset, remot
     `<link:schemaRef xlink:type="simple" xlink:href="${schema(taxonomy.gcdEntryPoint, taxonomy.gcdNamespace)}"/>`,
     `<link:schemaRef xlink:type="simple" xlink:href="${schema(taxonomy.entryPoint, taxonomy.gaapNamespace)}"/>`,
     ...contexts, '<xbrli:unit id="EUR"><xbrli:measure>iso4217:EUR</xbrli:measure></xbrli:unit>', ...gcdFacts, ...facts, ...assetFacts, ...details,
+    ...(attachments.length ? [serializeEBalanceAttachments(attachments)] : []),
   ].join('\n')}\n</xbrli:xbrl>`
 }
