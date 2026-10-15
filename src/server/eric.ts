@@ -99,12 +99,17 @@ export async function runEric(
     let parsed: { statusCode?: unknown; statusText?: unknown; sent?: unknown }
     try { parsed = JSON.parse(processResult.stdout) as typeof parsed }
     catch { throw new Error('Die ERiC-Bridge lieferte keine gültige Antwort.') }
+    if (!parsed || typeof parsed !== 'object' || !Number.isSafeInteger(parsed.statusCode)
+      || typeof parsed.statusText !== 'string' || typeof parsed.sent !== 'boolean') {
+      throw new Error('Die ERiC-Bridge lieferte keine vollständige Statusantwort.')
+    }
     const statusCode = typeof parsed.statusCode === 'number' ? parsed.statusCode : -1
     const statusText = typeof parsed.statusText === 'string' ? parsed.statusText : 'Unbekannte ERiC-Antwort.'
     const resultXml = await readOptional(resultPath)
     const serverResponseXml = await readOptional(serverResponsePath)
     if (processResult.exitCode !== 0 || statusCode !== 0) {
-      throw new EricProcessingError(statusCode, statusText, resultXml, serverResponseXml)
+      throw new EricProcessingError(statusCode, statusText, resultXml, serverResponseXml, parsed.sent === true,
+        processResult.exitCode === (statusCode === 0 ? 0 : 2))
     }
     return { statusCode, statusText, sent: parsed.sent === true, resultXml, serverResponseXml }
   } finally {
@@ -118,6 +123,8 @@ export class EricProcessingError extends Error {
     message: string,
     readonly resultXml: string,
     readonly serverResponseXml: string,
+    readonly sent: boolean = false,
+    readonly bridgeCompleted: boolean = true,
   ) { super(message); this.name = 'EricProcessingError' }
 }
 

@@ -2,6 +2,13 @@
 
 Prepared by Codex on **13 October 2026** for [#39](https://github.com/SanjoSolutions/accounting/issues/39). Companion: [2026 route/cost decision](./ebilanz-2026-filing-route-decision.md). This is a plan and source audit, not a qualification certificate. No developer registration, license acceptance, credential access or transmission occurred.
 
+Implementation update, 15 October 2026: the [retained app-output validation
+contract](./eric-retained-qualification.md) implements the local D2 input/evidence
+runner. `pnpm test:contract:eric` now requires that contract to be enabled;
+`pnpm test:contract:eric:sample` retains the separate sample smoke test. Official
+execution, submission and receipts remain outstanding. The audit below records
+the original state on 13 October.
+
 ## What is established, and what remains unknown
 
 | Question | Finding / evidence |
