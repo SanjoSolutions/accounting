@@ -751,6 +751,7 @@
     "Load failed": "Die Einstellungen konnten nicht geladen werden."
   },
   "Tax": {
+    "euerManual": "EÜR, Einkommensteuer und gegebenenfalls Gewerbesteuer separat vorbereiten. Die Abgabefrist hängt vom Einzelfall ab.",
     "title": "Steuermeldungen {year}",
     "subtitle": "Umsatzsteuer- und Jahressteuererklärungen vorbereiten, prüfen, freigeben und mit unveränderlicher Historie übermitteln.",
     "loadFailed": "Die Steuermeldungen konnten nicht geladen werden.",

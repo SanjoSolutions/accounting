@@ -4,8 +4,13 @@ export class EuerPage {
   constructor(readonly page: Page) {}
   async configure() {
     const profile = { companyName: 'EÜR Testbetrieb', legalForm: 'SOLE_TRADER', taxNumber: '123/456/78901', taxOffice: 'Berlin', activity: 'Beratung', vatRegime: 'STANDARD', vatFilingFrequency: 'MONTHLY', sizeClass: 'MICRO', chart: 'SKR03', elections: [], registeredAddress: { streetAndHouseNumber: 'Testweg 1', zipCode: '10115', city: 'Berlin', country: 'DE' }, soleTraderTaxProfile: { profitDetermination: 'EUER', incomeType: 'SELF_EMPLOYED', euerEligibilityConfirmed: true } }
-    const period = await this.page.request.post('/api/compliance', { data: { action: 'period.create', referenceYear: 2026, label: 'EÜR 2026', startsAt: '2026-01-01', endsAt: '2026-12-31', reason: 'Synthetic EÜR test year' } })
-    expect(period.ok(), await period.text()).toBeTruthy()
+    const overview = await this.page.request.get('/api/compliance')
+    expect(overview.ok(), await overview.text()).toBeTruthy()
+    const periods = (await overview.json()).data.periods as Array<{ referenceYear: number }>
+    if (!periods.some(period => period.referenceYear === 2026)) {
+      const period = await this.page.request.post('/api/compliance', { data: { action: 'period.create', referenceYear: 2026, label: 'EÜR 2026', startsAt: '2026-01-01', endsAt: '2026-12-31', reason: 'Synthetic EÜR test year' } })
+      expect(period.ok(), await period.text()).toBeTruthy()
+    }
     const response = await this.page.request.put('/api/settings', { data: { companyProfile: profile, companyProfileEffectiveFrom: '2026-01-01', confirmProfilePreviouslyValid: true, changeReason: 'Synthetic sole trader EÜR facts' } })
     expect(response.ok(), await response.text()).toBeTruthy()
   }

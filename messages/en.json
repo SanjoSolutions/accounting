@@ -751,6 +751,7 @@
     "Load failed": "Settings could not be loaded."
   },
   "Tax": {
+    "euerManual": "Prepare EÜR, income tax and any required trade tax separately. Filing deadlines depend on your circumstances.",
     "title": "Tax filings {year}",
     "subtitle": "Prepare, validate, approve and transmit VAT and annual tax declarations with immutable history.",
     "loadFailed": "Tax filing data could not be loaded.",

@@ -1,4 +1,5 @@
 import 'server-only'
+import { usesEuer } from '@/core/companyTaxProfile'
 
 import {
   annualReturnDeadline,
@@ -33,6 +34,13 @@ export async function annualTaxApplicability(ownerId: string, year: number) {
   const fiscalYear = await prisma.fiscalYear.findFirst({ where: { ownerId, year }, select: { startsAt: true, endsAt: true } })
   if (!fiscalYear) throw new TaxDeclarationError(['Configure the tenant fiscal year before annual tax preparation.'])
   const stored = await companyProfileForPeriod(ownerId, fiscalYear.startsAt, fiscalYear.endsAt)
+  if (usesEuer(stored)) return {
+    profile: undefined,
+    kinds: stored.vatRegime !== 'EXEMPT' ? ['UST_ANNUAL' as const] : [],
+    deadline: `${year + 1}-07-31`,
+    professionalValidationRequired: true,
+    euer: { incomeType: stored.soleTraderTaxProfile!.incomeType, manualPreparation: true },
+  }
   const facts = stored.annualTaxProfile
   const hasCanonicalAnnualFacts = Boolean(facts && typeof facts.tradeBusiness === 'boolean' && Number.isSafeInteger(facts.establishments) && facts.establishments >= 1 && typeof facts.adviserExtension === 'boolean')
   const profile: AnnualTaxProfile | undefined = hasCanonicalAnnualFacts ? {

@@ -12,7 +12,7 @@ import { ustvaPeriodOptions } from './core/ustvaCopy'
 import Link from 'next/link'
 
 type Workflow = { submissionId: string; kind: string; period: string; state: string; receipt?: string | null; correctsId?: string | null; updatedAt: string }
-type Applicability = { kinds: string[]; deadline: string; professionalValidationRequired: boolean }
+type Applicability = { kinds: string[]; deadline: string; professionalValidationRequired: boolean; euer?: { manualPreparation: boolean } }
 type PreparedDataset = { kind: string; period: string; fields: Record<string, number | string | boolean>; drilldown: Record<string, readonly string[]> }
 type GatewayStatus = { mode: 'LOCAL_LIFECYCLE_EMULATOR' | 'CONFIGURED_EXTERNAL_GATEWAY' | 'NOT_CONFIGURED' }
 type Assessment = { id: string; kind: string; period: string; authority: string; noticeId?: string | null; assessedAmountCents: number; differenceCents: number; needsReview: boolean; receivedAt: string }
@@ -249,7 +249,7 @@ export function TaxWorkspace({ year }: { year: number }) {
     {gatewayStatus?.mode === 'NOT_CONFIGURED' && <p className="alert alert-danger" role="status">{t('gatewayNotConfigured')}</p>}
     {gatewayStatus?.mode === 'CONFIGURED_EXTERNAL_GATEWAY' && <p className="alert alert-info" role="status">{t('gatewayConfigured')}</p>}
     <div className="close-grid">
-      <section className="card panel"><h2>{t('applicability')}</h2>{applicability ? <><p>{t('deadline', { date: formatDisplayDateForLocale(applicability.deadline, locale) })}</p><ul>{applicability.kinds.map(item => <li key={item}>{taxWorkflowKindLabel(item, workflowKindLabels)}</li>)}</ul><p>{t('professionalReview')}</p></> : applicabilityUnavailable ? <p className="alert alert-danger">{t('annualProfileRequired')}</p> : <p>{t('loading')}</p>}</section>
+      <section className="card panel"><h2>{t('applicability')}</h2>{applicability ? <>{applicability.euer ? <p>{t('euerManual')}</p> : <p>{t('deadline', { date: formatDisplayDateForLocale(applicability.deadline, locale) })}</p>}<ul>{applicability.kinds.map(item => <li key={item}>{taxWorkflowKindLabel(item, workflowKindLabels)}</li>)}</ul><p>{t('professionalReview')}</p></> : applicabilityUnavailable ? <p className="alert alert-danger">{t('annualProfileRequired')}</p> : <p>{t('loading')}</p>}</section>
       <section className="card panel"><h2>{t('prepare')}</h2><label>{t('kind')}<select className="form-select" value={kind} onChange={event => selectKind(event.target.value)}><option value="USTVA">{taxWorkflowKindLabel('USTVA', workflowKindLabels)}</option>{applicability?.kinds.map(item => <option key={item} value={item}>{taxWorkflowKindLabel(item, workflowKindLabels)}</option>)}</select></label><label>{t('period')}{kind === 'USTVA' ? <select className="form-select" value={period} onChange={event => datasetChanged(() => setPeriod(event.target.value))}>{ustvaPeriodOptions(year, vatFilingFrequency).map(option => <option key={option} value={option}>{option}</option>)}</select> : <input className="form-control" value={period} readOnly />}</label>{[2025, 2026].includes(year) && ['KST', 'GEWST'].includes(kind) ? <>
         <p className="alert alert-warning">{t('annualPreviewNotice')}</p>
         {annualPreview && <div className="legal-note"><strong>{annualPreview.ruleVersion}</strong><p>{annualPreview.notice}</p><dl>{Object.entries(annualPreview.preview).filter((entry): entry is [string, number] => typeof entry[1] === 'number').map(([name, value]) => <div key={name}><dt>{name}</dt><dd><LocalCurrency cents={value} currency="EUR" /></dd></div>)}</dl></div>}
