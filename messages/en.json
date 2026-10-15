@@ -849,6 +849,24 @@
       "corrected": "Corrected",
       "cancelled": "Cancelled",
       "unknown": "Unknown status"
+    },
+    "review": {
+      "prepare": "Prepare for review",
+      "prepared": "Prepared locally for review. Nothing was transmitted.",
+      "title": "Review before ELSTER",
+      "localOnly": "Local preparation only. No draft was created in Mein ELSTER and no tax return was sent.",
+      "check": "Review the prepared values and their supporting records.",
+      "transfer": "Open the matching form and year in Mein ELSTER and transfer the reviewed values manually.",
+      "save": "Save the form as a draft in Mein ELSTER. Do not submit it during this review.",
+      "limitation": "Automatic draft creation in Mein ELSTER is not available here. The download is a review file, not an ELSTER import file.",
+      "download": "Download review file",
+      "openElster": "Open Mein ELSTER forms",
+      "snapshot": "The file contains the current preparation and source references. Prepare again after changing records. It does not replace official validation or tax review.",
+      "values": "Prepared values",
+      "valuesHint": "Internal calculation fields for review. Use the UStVA copy view below for its form values; other forms require manual mapping and completion.",
+      "field": "Calculation field",
+      "value": "Value",
+      "unsupported": "Local review preparation supports UStVA, annual VAT and eligible KSt/GewSt cases for 2025/2026."
     }
   },
   "AccountingReports": {
