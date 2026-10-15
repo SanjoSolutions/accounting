@@ -193,6 +193,7 @@
     "saving": "Speichern …"
   },
   "Compliance": {
+    "smallBusinessRules": "Ab 2025: Vorjahresumsatz höchstens {previous, number} €, laufendes Jahr höchstens {current, number} €; im Gründungsjahr {first, number} €. Maßgeblich sind vereinnahmte Entgelte nach § 19 UStG. Keine automatische Umsatzüberwachung. Prüfen Sie Grenzübertritt und einen bindenden Verzicht, bevor Sie dieses Profil verwenden. Sonderpflichten (z. B. § 13b) bleiben bestehen.",
     "title": "Compliance-Leitstand",
     "subtitle": "Mandantenbezogene Stammdaten, Geschäftsjahre, nachvollziehbare Korrekturen, Aufbewahrung und Notfallvorsorge.",
     "refresh": "Aktualisieren",
@@ -912,6 +913,8 @@
     "value": "Wert"
   },
   "StructuredInvoices": {
+    "smallBusiness": "§ 19 UStG",
+    "smallBusinessHint": "Kleinunternehmer: § 19 UStG wählen. Das Unternehmensprofil muss zum Leistungsdatum gültig sein.",
     "creditNote": "Gutschrift erstellen",
     "newCredit": "Gutschrift zu {number}",
     "creditReason": "Gutschriftsgrund",

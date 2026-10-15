@@ -193,6 +193,7 @@
     "saving": "Saving …"
   },
   "Compliance": {
+    "smallBusinessRules": "From 2025: prior-year turnover at most €{previous, number}, current year €{current, number}; first year €{first, number}. Use receipts as defined by §19 UStG. Turnover is not monitored automatically. Check a threshold crossing and any binding waiver before using this profile. Special obligations (such as reverse charge) remain.",
     "title": "Compliance control center",
     "subtitle": "Tenant-scoped master data, fiscal periods, traceable corrections, retention, and disaster recovery.",
     "refresh": "Refresh",
@@ -912,6 +913,8 @@
     "value": "Value"
   },
   "StructuredInvoices": {
+    "smallBusiness": "§19 exempt",
+    "smallBusinessHint": "Small businesses: choose §19 exempt. The company profile must be effective on the supply date.",
     "creditNote": "Issue credit note",
     "newCredit": "Credit note for {number}",
     "creditReason": "Credit reason",

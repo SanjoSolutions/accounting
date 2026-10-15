@@ -42,7 +42,7 @@ export async function annualTaxApplicability(ownerId: string, year: number) {
     tradeTaxMultiplierBasisPoints: facts!.tradeTaxMultiplierBasisPoints,
     establishmentAllocations: facts!.establishmentAllocations,
   } : undefined
-  const kinds = [...(stored.vatRegime !== 'EXEMPT' ? ['UST_ANNUAL' as const] : []), ...(profile ? applicableAnnualReturns(profile) : [])]
+  const kinds = [...(stored.vatRegime === 'STANDARD' || stored.applicabilityOverrides?.VAT_ANNUAL === true ? ['UST_ANNUAL' as const] : []), ...(profile ? applicableAnnualReturns(profile) : [])]
   return { profile, kinds, deadline: profile ? annualReturnDeadline(year, profile) : `${year + 1}-07-31`, professionalValidationRequired: true }
 }
 

@@ -8,6 +8,7 @@ import { useRegionalFormat } from './RegionalFormatProvider'
 import { localizeErrorDates } from './errorFormatting'
 import { LocalCount } from './LocalNumber'
 import { localizeComplianceError } from './complianceErrorLocalization'
+import { SMALL_BUSINESS_LIMITS } from './core/smallBusinessVat'
 import { AnnualDocumentExports } from './AnnualDocumentExports'
 
 type Profile = {
@@ -213,6 +214,7 @@ export function ComplianceWorkspace() {
             <Text label={t('vatId')} value={profile.vatId ?? ''} onChange={vatId => setProfile({ ...profile, vatId: vatId || undefined })} />
             <Text label={t('taxOffice')} value={profile.taxOffice} onChange={taxOffice => setProfile(current => ({ ...current, taxOffice }))} />
             <Select label={t('vatRegime')} value={profile.vatRegime} values={['STANDARD', 'SMALL_BUSINESS', 'EXEMPT']} labels={optionLabels.vatRegimes} onChange={vatRegime => setProfile({ ...profile, vatRegime })} />
+            {profile.vatRegime === 'SMALL_BUSINESS' && <div className="col-12"><div className="alert alert-info mb-0">{t('smallBusinessRules', { previous: SMALL_BUSINESS_LIMITS.previousYearCents / 100, current: SMALL_BUSINESS_LIMITS.currentYearCents / 100, first: SMALL_BUSINESS_LIMITS.firstYearCents / 100 })}</div></div>}
             <Select label={t('filingFrequency')} value={profile.vatFilingFrequency} values={['MONTHLY', 'QUARTERLY', 'ANNUAL']} labels={optionLabels.filingFrequencies} onChange={vatFilingFrequency => setProfile({ ...profile, vatFilingFrequency })} />
           </fieldset>
           <fieldset className="compliance-profile-group"><legend>{t('groupBusiness')}</legend>

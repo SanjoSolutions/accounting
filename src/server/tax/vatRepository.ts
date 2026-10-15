@@ -16,6 +16,8 @@ import { parseIncomingEuAcquisitionAccounts, parseIncomingReverseChargeAccounts 
 import { datevRecipientAssessedProfile, type DatevChart } from '@/core/datev'
 import { companyProfileForPeriod } from './profileRepository'
 import { isPrismaInt } from './persistenceLimits'
+import { assertVatRegimeRule } from '@/core/smallBusinessVat'
+import { companyVatRegimeAt } from './companyVatProfile'
 import { germanVatRuleBook, journalLineVatData, vatPostingCreateData, vatReversalContext, withVatOwnerLock, type VatReversalContext } from './vatPostingCalculation'
 
 export interface PersistentVatInput extends Omit<VatSourceSplit, 'ownerId'> { journalLineId?: string; documentId?: string }
@@ -83,6 +85,7 @@ export async function persistVatPosting(ownerId: string, value: unknown) {
       const split: VatSourceSplit = { ...input, ownerId }
       delete (split as PersistentVatInput).journalLineId
       delete (split as PersistentVatInput).documentId
+      if (!split.reversalOf) assertVatRegimeRule(await companyVatRegimeAt(ownerId, split.taxPoint), split)
       const calculated = calculateVat(split, germanVatRuleBook, original, context.registry)
       const persistedAmounts = [calculated.netBaseCents, calculated.rateBasisPoints, calculated.taxCents, calculated.deductibleTaxCents, calculated.grossCents, calculated.outputTaxCents, calculated.inputTaxCents]
       if (persistedAmounts.some(amount => !isPrismaInt(amount))) throw new VatValidationError(['Calculated VAT facts exceed signed 32-bit integer storage. Split the source into smaller traceable postings.'])
@@ -379,6 +382,7 @@ async function reconciledAnnualVatDataset(ownerId: string, year: number, persist
     if (!fiscalYear) throw new VatValidationError(['Configure the tenant fiscal year before annual VAT preparation.'])
     const profile = await companyProfileForPeriod(ownerId, new Date(`${from}T00:00:00.000Z`), new Date(`${to}T23:59:59.999Z`))
     if (profile.vatRegime === 'EXEMPT') throw new VatValidationError(['Annual VAT preparation is not available for tenants with the effective EXEMPT VAT regime.'])
+    if (profile.vatRegime === 'SMALL_BUSINESS') throw new VatValidationError(['Kleinunternehmer are normally exempt from annual VAT returns. Tax-office requests and §18(4a) special liabilities require a separately reviewed return; this standard annual VAT dataset does not support them.'])
     const { details, reconciliation } = await reconciledTenantVat(ownerId, from, to)
     if (!reconciliation.ok) throw new VatValidationError(['Binding annual VAT preparation requires VAT detail to reconcile exactly to the ledger control accounts.', ...reconciliation.discrepancies])
     const dataset = annualVatDataset(year, details, reconciliation, taxFormRegistry, ownerId)

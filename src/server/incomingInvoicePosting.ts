@@ -1,6 +1,8 @@
 import 'server-only'
 
 import { createHash, randomUUID } from 'node:crypto'
+import { purchaseVatRule } from '@/core/smallBusinessVat'
+import { companyVatRegimeAt } from '@/server/tax/companyVatProfile'
 import { calculateVat, originalVatPostingMarkers } from '@/core/vatEngine'
 import { incomingInvoicePostingLines, parseIsoDate } from '@/core/incomingInvoicePosting'
 import { validateReviewedInvoiceExtraction } from '@/core/documentExtraction'
@@ -80,6 +82,8 @@ export async function postConfirmedIncomingInvoice(ownerId: string, actorId: str
     const euCrossBorder = euService || euAcquisition
     const taxPointText = euService ? structuredData?.supplyDate : euAcquisition ? acquisitionVatTaxPoint(structuredData.supplyDate, invoice.issueDate) : invoice.issueDate
     const taxPoint = parseIsoDate(taxPointText, euService ? 'EU-service supply date' : euAcquisition ? 'intra-EU acquisition VAT date' : 'Issue date')
+    const vatRegime = await companyVatRegimeAt(ownerId, taxPointText, transaction)
+    const smallBusiness = vatRegime === 'SMALL_BUSINESS'
     const periods = await transaction.fiscalYear.findMany({ where: { ownerId, status: 'OPEN', startsAt: { lte: taxPoint }, endsAt: { gte: taxPoint } } })
     if (periods.length !== 1) throw new IncomingInvoicePostingError(`Exactly one open fiscal year must cover the ${euService ? 'EU-service supply' : euAcquisition ? 'intra-EU acquisition VAT' : 'invoice'} date.`, 409)
     const period = periods[0]
@@ -88,7 +92,7 @@ export async function postConfirmedIncomingInvoice(ownerId: string, actorId: str
     if (!profile || !['SKR03', 'SKR04'].includes(profile.chart)) throw new IncomingInvoicePostingError('An active SKR03 or SKR04 ledger profile is required.', 409)
     const scale = 10 ** ((profile.accountLength ?? 4) - 4)
     const payableNumber = (profile.chart === 'SKR04' ? 3300 : 1600) * scale
-    const standardInputVatNumbers = [...new Set(vatGroups.filter(group => group.taxAmountCents && !isRecipientAssessedVat(group.ruleId)).map(group => (profile.chart === 'SKR04' ? group.rateBasisPoints === 700 ? 1401 : 1406 : group.rateBasisPoints === 700 ? 1571 : 1576) * scale))]
+    const standardInputVatNumbers = [...new Set(vatGroups.filter(group => !smallBusiness && group.taxAmountCents && !isRecipientAssessedVat(group.ruleId)).map(group => (profile.chart === 'SKR04' ? group.rateBasisPoints === 700 ? 1401 : 1406 : group.rateBasisPoints === 700 ? 1571 : 1576) * scale))]
     const settings = structuredFacts?.recipientAssessedVat ? await transaction.accountRecord.findUnique({ where: { ownerId }, select: { payload: true } }) : null
     const settingsPayload = settings ? JSON.parse(settings.payload) as Record<string, unknown> : null
     const recipientAssessedAccounts = settingsPayload ? (euAcquisition ? parseIncomingEuAcquisitionAccounts(settingsPayload.incomingEuAcquisitionAccounts) : parseIncomingReverseChargeAccounts(settingsPayload.incomingReverseChargeAccounts)) : null
@@ -109,7 +113,7 @@ export async function postConfirmedIncomingInvoice(ownerId: string, actorId: str
     if (!payables || inputVatAccounts.length !== standardInputVatNumbers.length) throw new IncomingInvoicePostingError('The active trade-payables and rate-specific input-VAT control accounts must be configured.', 409)
     const recipientAssessedInput = recipientAssessedAccounts && reverseChargeControlAccounts.find(account => account.number === recipientAssessedAccounts.inputVatAccountNumber && account.category === 'ASSET')
     const recipientAssessedOutput = recipientAssessedAccounts && reverseChargeControlAccounts.find(account => account.number === recipientAssessedAccounts.outputVatAccountNumber && account.category === 'LIABILITY')
-    if (structuredFacts?.recipientAssessedVat && (!recipientAssessedInput || !recipientAssessedOutput)) throw new IncomingInvoicePostingError(`Configured ${euAcquisition ? 'intra-EU acquisition' : '§13b'} controls must be active input-VAT asset and output-VAT liability accounts.`, 409)
+    if (structuredFacts?.recipientAssessedVat && (!smallBusiness && !recipientAssessedInput || !recipientAssessedOutput)) throw new IncomingInvoicePostingError(`Configured ${euAcquisition ? 'intra-EU acquisition' : '§13b'} controls must be active input-VAT asset and output-VAT liability accounts.`, 409)
 
     const supplierVatId = euCrossBorder ? normalizeVatId(structuredData?.seller?.vatId) : ''
     const partnerKey = supplierVatId || invoice.supplierName.normalize('NFKC').trim().toLocaleUpperCase('de-DE')
@@ -130,17 +134,17 @@ export async function postConfirmedIncomingInvoice(ownerId: string, actorId: str
     }
     const last = await transaction.journalEntry.findFirst({ where: { fiscalYearId: period.id }, orderBy: { sequenceNumber: 'desc' }, select: { sequenceNumber: true } })
     const digest = createHash('sha256').update(`${ownerId}:${documentId}`).digest('hex').slice(0, 10).toUpperCase()
-    const vatDetails = vatGroups.map(group => ({ group, lineId: randomUUID(), detail: calculateVat({ ownerId, sourceId: `incoming-invoice:${documentId}:vat:${group.rateBasisPoints}`, amountCents: group.netAmountCents, mode: 'net', taxPoint: taxPointText, ruleId: group.ruleId, direction: 'purchase', ...(group.ruleId === 'EU_ACQUISITION' ? { supplyKind: 'goods' as const } : {}) }, germanVatRuleBook) }))
-    if (vatDetails.some(({ group, detail }) => detail.netBaseCents !== group.netAmountCents || detail.inputTaxCents !== group.taxAmountCents || isRecipientAssessedVat(group.ruleId) && detail.outputTaxCents !== group.taxAmountCents)) throw new IncomingInvoicePostingError('Structured VAT buckets do not match canonical German VAT calculation.', 409)
+    const vatDetails = vatGroups.map(group => ({ group, lineId: randomUUID(), detail: calculateVat({ ownerId, sourceId: `incoming-invoice:${documentId}:vat:${group.rateBasisPoints}`, amountCents: group.netAmountCents, mode: 'net', taxPoint: taxPointText, ruleId: purchaseVatRule(group.ruleId, vatRegime), direction: 'purchase', ...(group.ruleId === 'EU_ACQUISITION' ? { supplyKind: 'goods' as const } : {}) }, germanVatRuleBook) }))
+    if (vatDetails.some(({ group, detail }) => detail.netBaseCents !== group.netAmountCents || detail.taxCents !== group.taxAmountCents || isRecipientAssessedVat(group.ruleId) && detail.outputTaxCents !== group.taxAmountCents)) throw new IncomingInvoicePostingError('Structured VAT buckets do not match canonical German VAT calculation.', 409)
     const inputVatByNumber = new Map(inputVatAccounts.map(account => [account.number, account]))
     const journal = await transaction.journalEntry.create({ data: {
       ownerId, fiscalYearId: period.id, sequenceNumber: (last?.sequenceNumber ?? 0) + 1, bookingDate: taxPoint,
       documentNumber: `ER-${invoice.invoiceNumber.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 30)}-${digest}`, description: `${invoice.supplierName}: ${invoice.invoiceNumber}`,
       source: 'INCOMING_INVOICE', externalKey,
       lines: { create: [
-        ...vatDetails.map(({ group, lineId, detail }) => ({ id: lineId, accountId: expense.id, debitCents: group.netAmountCents, creditCents: 0, ...journalLineVatData(detail) })),
-        ...vatDetails.filter(({ group }) => group.taxAmountCents && !isRecipientAssessedVat(group.ruleId)).map(({ group }) => { const number = (profile.chart === 'SKR04' ? group.rateBasisPoints === 700 ? 1401 : 1406 : group.rateBasisPoints === 700 ? 1571 : 1576) * scale; return { accountId: inputVatByNumber.get(number)!.id, debitCents: group.taxAmountCents, creditCents: 0 } }),
-        ...vatDetails.filter(({ group }) => isRecipientAssessedVat(group.ruleId)).flatMap(({ detail }) => [{ accountId: recipientAssessedInput!.id, debitCents: detail.inputTaxCents, creditCents: 0 }, { accountId: recipientAssessedOutput!.id, debitCents: 0, creditCents: detail.outputTaxCents }]),
+        ...vatDetails.map(({ group, lineId, detail }) => ({ id: lineId, accountId: expense.id, debitCents: group.netAmountCents + (smallBusiness ? group.taxAmountCents : 0), creditCents: 0, ...journalLineVatData(detail) })),
+        ...vatDetails.filter(({ group }) => !smallBusiness && group.taxAmountCents && !isRecipientAssessedVat(group.ruleId)).map(({ group }) => { const number = (profile.chart === 'SKR04' ? group.rateBasisPoints === 700 ? 1401 : 1406 : group.rateBasisPoints === 700 ? 1571 : 1576) * scale; return { accountId: inputVatByNumber.get(number)!.id, debitCents: group.taxAmountCents, creditCents: 0 } }),
+        ...vatDetails.filter(({ group }) => isRecipientAssessedVat(group.ruleId)).flatMap(({ detail }) => [...(detail.inputTaxCents ? [{ accountId: recipientAssessedInput!.id, debitCents: detail.inputTaxCents, creditCents: 0 }] : []), { accountId: recipientAssessedOutput!.id, debitCents: 0, creditCents: detail.outputTaxCents }]),
         { accountId: payables.id, debitCents: 0, creditCents: invoice.grossAmountCents },
       ] },
       documents: { create: { documentId } },

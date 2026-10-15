@@ -12,6 +12,8 @@ import {
   type PartnerRole,
 } from '@/core/commercialAccounting'
 import type { StructuredInvoiceData } from '@/core/eInvoice'
+import { domesticSalesAccounts, domesticSalesRule, isSmallBusinessInvoice, SMALL_BUSINESS_VALID_FROM } from '@/core/smallBusinessVat'
+import { companyVatRegimeAt } from '@/server/tax/companyVatProfile'
 import { calculateVat, type VatPostingDetail } from '@/core/vatEngine'
 import { appendAuditEvent } from '@/server/compliance/auditPersistence'
 import { prisma } from '@/server/persistence/client'
@@ -19,27 +21,37 @@ import { germanVatRuleBook, journalLineVatData, vatPostingCreateData } from '@/s
 
 export class CommercialAccountingError extends Error {}
 
-type OutgoingAccountingPreflightInput = Pick<StructuredInvoiceData, 'kind' | 'issueDate' | 'buyer' | 'lines' | 'netAmountCents' | 'taxAmountCents' | 'grossAmountCents' | 'currency' | 'prepaidAmountCents' | 'payableRoundingAmountCents' | 'payableAmountCents' | 'exemptionReason' | 'reverseCharge'>
+type OutgoingAccountingPreflightInput = Pick<StructuredInvoiceData, 'kind' | 'issueDate' | 'buyer' | 'lines' | 'netAmountCents' | 'taxAmountCents' | 'grossAmountCents' | 'currency' | 'prepaidAmountCents' | 'payableRoundingAmountCents' | 'payableAmountCents' | 'exemptionReason' | 'reverseCharge'> & { supplyDate?: string }
+
+
+function outgoingTaxGroups(data: OutgoingAccountingPreflightInput, smallBusiness: boolean): Map<number, number> {
+  const payable = data.payableAmountCents ?? data.grossAmountCents - (data.prepaidAmountCents ?? 0) + (data.payableRoundingAmountCents ?? 0)
+  if (data.currency !== 'EUR' || data.buyer?.countryCode !== 'DE' || data.reverseCharge || payable !== data.grossAmountCents) throw new CommercialAccountingError('Automatic outgoing-invoice posting supports domestic EUR invoices without reverse charge, prepayments or rounding.')
+  if (smallBusiness && (data.supplyDate ?? data.issueDate) < SMALL_BUSINESS_VALID_FROM) throw new CommercialAccountingError('Kleinunternehmer invoices before 2025 require separate historical treatment.')
+  if (smallBusiness ? !isSmallBusinessInvoice(data.lines ?? [], data.exemptionReason) : Boolean(data.exemptionReason)) throw new CommercialAccountingError('The invoice VAT treatment must match the effective company profile. Kleinunternehmer invoices require zero tax and the §19 exemption notice.')
+  const groups = new Map<number, number>()
+  for (const line of data.lines ?? []) {
+    if ((!smallBusiness && (line.taxCategoryCode !== 'S' || ![700, 1900].includes(line.taxRateBasisPoints) || line.exemptionReason || line.reverseCharge)) || !Number.isSafeInteger(line.netAmountCents) || line.netAmountCents < 0) throw new CommercialAccountingError('Invoice lines must use standard German 7%/19% VAT or the effective Kleinunternehmer exemption.')
+    groups.set(line.taxRateBasisPoints, (groups.get(line.taxRateBasisPoints) ?? 0) + line.netAmountCents)
+  }
+  if (!groups.size || [...groups.values()].reduce((sum, amount) => sum + amount, 0) !== data.netAmountCents) throw new CommercialAccountingError('Outgoing invoice line bases do not reconcile to the invoice net amount.')
+  return groups
+}
 
 /**
  * Checks every currently supported automatic posting prerequisite before an
  * invoice number is reserved or an immutable invoice artifact is stored.
  */
-export async function preflightOutgoingStructuredInvoiceAccounting(ownerId: string, data: OutgoingAccountingPreflightInput) {
+export async function preflightOutgoingStructuredInvoiceAccounting(ownerId: string, data: OutgoingAccountingPreflightInput, original?: StructuredInvoiceData) {
   required(ownerId, 'ownerId')
   if (data?.kind !== 'invoice') throw new CommercialAccountingError('Automatic outgoing-invoice posting requires an invoice.')
   const issueDate = new Date(`${data.issueDate}T00:00:00.000Z`)
   if (typeof data.issueDate !== 'string' || Number.isNaN(issueDate.valueOf()) || issueDate.toISOString().slice(0, 10) !== data.issueDate) throw new CommercialAccountingError('The outgoing invoice requires a real issue date.')
   const payableAmountCents = data.payableAmountCents ?? data.grossAmountCents - (data.prepaidAmountCents ?? 0) + (data.payableRoundingAmountCents ?? 0)
   if (!Number.isSafeInteger(payableAmountCents) || payableAmountCents < 0) throw new CommercialAccountingError('The structured invoice payable amount is invalid.')
-  if (data.currency !== 'EUR' || data.buyer?.countryCode !== 'DE' || data.reverseCharge || data.exemptionReason || payableAmountCents !== data.grossAmountCents) throw new CommercialAccountingError('Automatic outgoing-invoice posting currently supports domestic EUR invoices without exemptions, reverse charge, prepayments or rounding.')
-  const taxGroups = new Map<number, number>()
-  for (const line of data.lines ?? []) {
-    if (line.taxCategoryCode !== 'S' || ![700, 1900].includes(line.taxRateBasisPoints) || !Number.isSafeInteger(line.netAmountCents) || line.netAmountCents < 0) throw new CommercialAccountingError('Automatic outgoing-invoice posting supports only standard German 7% and 19% lines.')
-    taxGroups.set(line.taxRateBasisPoints, (taxGroups.get(line.taxRateBasisPoints) ?? 0) + line.netAmountCents)
-  }
-  if (!taxGroups.size || [...taxGroups.values()].reduce((sum, amount) => sum + amount, 0) !== data.netAmountCents) throw new CommercialAccountingError('Outgoing invoice line bases do not reconcile to the invoice net amount.')
-  const taxDetails = [...taxGroups].map(([rate, amountCents]) => calculateVat({ ownerId, sourceId: `outgoing-invoice-preflight:${rate}`, amountCents, mode: 'net', taxPoint: data.issueDate, ruleId: rate === 1900 ? 'DE_STANDARD' : 'DE_REDUCED', direction: 'sale' }, germanVatRuleBook))
+  const smallBusiness = original ? isSmallBusinessInvoice(original.lines, original.exemptionReason) : await companyVatRegimeAt(ownerId, data.supplyDate ?? data.issueDate) === 'SMALL_BUSINESS'
+  const taxGroups = outgoingTaxGroups(data, smallBusiness)
+  const taxDetails = [...taxGroups].map(([rate, amountCents]) => calculateVat({ ownerId, sourceId: `outgoing-invoice-preflight:${rate}`, amountCents, mode: 'net', taxPoint: data.issueDate, ruleId: domesticSalesRule(rate), direction: 'sale' }, germanVatRuleBook))
   if (taxDetails.reduce((sum, detail) => sum + detail.taxCents, 0) !== data.taxAmountCents || data.netAmountCents + data.taxAmountCents !== data.grossAmountCents) throw new CommercialAccountingError('Outgoing invoice totals do not reconcile to the supported VAT groups.')
   const periods = await prisma.fiscalYear.findMany({ where: { ownerId, status: 'OPEN', startsAt: { lte: issueDate }, endsAt: { gte: issueDate } }, select: { id: true } })
   if (periods.length !== 1) throw new CommercialAccountingError('Exactly one open fiscal year must cover the outgoing invoice date.')
@@ -49,11 +61,8 @@ export async function preflightOutgoingStructuredInvoiceAccounting(ownerId: stri
   const requiredAccounts = [
     { number: (profile.chart === 'SKR04' ? 1200 : 1400) * scale, category: 'ASSET' },
     ...taxDetails.flatMap(detail => {
-      const reduced = detail.rateBasisPoints === 700
-      return [
-        { number: (profile.chart === 'SKR04' ? reduced ? 4300 : 4400 : reduced ? 8300 : 8400) * scale, category: 'REVENUE' },
-        { number: (profile.chart === 'SKR04' ? reduced ? 3801 : 3806 : reduced ? 1771 : 1776) * scale, category: 'LIABILITY' },
-      ]
+      const numbers = domesticSalesAccounts(profile.chart, detail.rateBasisPoints, scale)
+      return [{ number: numbers.revenue, category: 'REVENUE' }, ...(numbers.outputVat ? [{ number: numbers.outputVat, category: 'LIABILITY' }] : [])]
     }),
   ]
   const accounts = await prisma.ledgerAccount.findMany({ where: { ownerId, active: true, number: { in: requiredAccounts.map(account => account.number) } }, select: { number: true, category: true } })
@@ -66,8 +75,8 @@ export async function preflightOutgoingStructuredCorrectionAccounting(ownerId: s
   if (!['credit-note', 'cancellation'].includes(data?.kind)) throw new CommercialAccountingError('Only a credit note or full cancellation is supported; replacement correction semantics are not supported.')
   const target = await prisma.structuredInvoice.findFirst({ where: { ownerId, id: targetId, direction: 'OUTGOING', kind: 'invoice' }, include: { commercialDocument: { include: { openItem: true, correctedBy: { where: { status: 'POSTED' } } } } } })
   if (!target?.commercialDocument?.openItem || target.commercialDocument.status === 'CORRECTED') throw new CommercialAccountingError('The corrected posted outgoing invoice does not belong to this tenant or is unavailable.')
-  await preflightOutgoingStructuredInvoiceAccounting(ownerId, { ...data, kind: 'invoice' })
   const original = JSON.parse(target.data) as StructuredInvoiceData
+  await preflightOutgoingStructuredInvoiceAccounting(ownerId, { ...data, kind: 'invoice' }, original)
   if (data.currency !== original.currency || data.buyer.countryCode !== 'DE' || JSON.stringify(data.buyer) !== JSON.stringify(original.buyer)) throw new CommercialAccountingError('The correction must retain the original domestic customer and EUR currency facts.')
   const alreadyCredited = target.commercialDocument.correctedBy.reduce((sum, document) => sum + document.grossAmountCents, 0)
   if (data.grossAmountCents <= 0 || alreadyCredited + data.grossAmountCents > original.grossAmountCents) throw new CommercialAccountingError('The correction exceeds the immutable original invoice amount.')
@@ -207,14 +216,9 @@ export async function registerOutgoingStructuredInvoice(ownerId: string, actorId
     const dueDate = new Date(Math.max(serviceDate.valueOf(), issueDate.valueOf() + partner.paymentTermDays * 86_400_000))
     const payableAmountCents = data.payableAmountCents ?? data.grossAmountCents - (data.prepaidAmountCents ?? 0) + (data.payableRoundingAmountCents ?? 0)
     if (!Number.isSafeInteger(payableAmountCents) || payableAmountCents < 0) throw new CommercialAccountingError('The structured invoice payable amount is invalid.')
-    if (data.currency !== 'EUR' || data.buyer.countryCode !== 'DE' || data.reverseCharge || data.exemptionReason || payableAmountCents !== data.grossAmountCents) throw new CommercialAccountingError('Automatic outgoing-invoice posting currently supports domestic EUR invoices without exemptions, reverse charge, prepayments or rounding.')
-    const taxGroups = new Map<number, number>()
-    for (const line of data.lines) {
-      if (line.taxCategoryCode !== 'S' || ![700, 1900].includes(line.taxRateBasisPoints) || !Number.isSafeInteger(line.netAmountCents) || line.netAmountCents < 0) throw new CommercialAccountingError('Automatic outgoing-invoice posting supports only standard German 7% and 19% lines.')
-      taxGroups.set(line.taxRateBasisPoints, (taxGroups.get(line.taxRateBasisPoints) ?? 0) + line.netAmountCents)
-    }
-    if ([...taxGroups.values()].reduce((sum, amount) => sum + amount, 0) !== data.netAmountCents) throw new CommercialAccountingError('Outgoing invoice line bases do not reconcile to the invoice net amount.')
-    const taxDetails = [...taxGroups].sort(([left], [right]) => left - right).map(([rate, amountCents]) => calculateVat({ ownerId, sourceId: `outgoing-invoice:${structured.id}:vat:${rate}`, amountCents, mode: 'net', taxPoint: data.issueDate, ruleId: rate === 1900 ? 'DE_STANDARD' : 'DE_REDUCED', direction: 'sale' }, germanVatRuleBook))
+    const smallBusiness = await companyVatRegimeAt(ownerId, data.supplyDate, transaction) === 'SMALL_BUSINESS'
+    const taxGroups = outgoingTaxGroups(data, smallBusiness)
+    const taxDetails = [...taxGroups].sort(([left], [right]) => left - right).map(([rate, amountCents]) => calculateVat({ ownerId, sourceId: `outgoing-invoice:${structured.id}:vat:${rate}`, amountCents, mode: 'net', taxPoint: data.issueDate, ruleId: domesticSalesRule(rate), direction: 'sale' }, germanVatRuleBook))
     if (taxDetails.reduce((sum, detail) => sum + detail.taxCents, 0) !== data.taxAmountCents) throw new CommercialAccountingError('Outgoing invoice tax groups do not reconcile to the invoice VAT amount.')
     const periods = await transaction.fiscalYear.findMany({ where: { ownerId, status: 'OPEN', startsAt: { lte: issueDate }, endsAt: { gte: issueDate } } })
     if (periods.length !== 1) throw new CommercialAccountingError('Exactly one open fiscal year must cover the outgoing invoice date.')
@@ -224,19 +228,17 @@ export async function registerOutgoingStructuredInvoice(ownerId: string, actorId
     const scale = 10 ** ((profile.accountLength ?? 4) - 4)
     const receivableNumber = (profile.chart === 'SKR04' ? 1200 : 1400) * scale
     const accountNumbers = [receivableNumber, ...taxDetails.flatMap(detail => {
-      const reduced = detail.rateBasisPoints === 700
-      return [(profile.chart === 'SKR04' ? reduced ? 4300 : 4400 : reduced ? 8300 : 8400) * scale, (profile.chart === 'SKR04' ? reduced ? 3801 : 3806 : reduced ? 1771 : 1776) * scale]
+      const numbers = domesticSalesAccounts(profile.chart, detail.rateBasisPoints, scale)
+      return [numbers.revenue, ...(numbers.outputVat ? [numbers.outputVat] : [])]
     })]
     const accounts = await transaction.ledgerAccount.findMany({ where: { ownerId, active: true, number: { in: accountNumbers } } })
     const account = (number: number, category: string) => accounts.find(candidate => candidate.number === number && candidate.category === category)
     const receivable = account(receivableNumber, 'ASSET')
     if (!receivable) throw new CommercialAccountingError('The active trade-receivables control account is missing.')
     const postingGroups = taxDetails.map(detail => {
-      const reduced = detail.rateBasisPoints === 700
-      const revenueNumber = (profile.chart === 'SKR04' ? reduced ? 4300 : 4400 : reduced ? 8300 : 8400) * scale
-      const outputVatNumber = (profile.chart === 'SKR04' ? reduced ? 3801 : 3806 : reduced ? 1771 : 1776) * scale
-      const revenue = account(revenueNumber, 'REVENUE'); const outputVat = account(outputVatNumber, 'LIABILITY')
-      if (!revenue || !outputVat) throw new CommercialAccountingError(`The active ${detail.rateBasisPoints / 100}% revenue and output-VAT accounts are missing.`)
+      const numbers = domesticSalesAccounts(profile.chart, detail.rateBasisPoints, scale)
+      const revenue = account(numbers.revenue, 'REVENUE'); const outputVat = numbers.outputVat ? account(numbers.outputVat, 'LIABILITY') : undefined
+      if (!revenue || numbers.outputVat && !outputVat) throw new CommercialAccountingError(`The active ${detail.rateBasisPoints / 100}% revenue and output-VAT accounts are missing.`)
       return { detail, revenue, outputVat, revenueLineId: randomUUID() }
     })
     const last = await transaction.journalEntry.findFirst({ where: { fiscalYearId: periods[0].id }, orderBy: { sequenceNumber: 'desc' }, select: { sequenceNumber: true } })
@@ -248,7 +250,7 @@ export async function registerOutgoingStructuredInvoice(ownerId: string, actorId
         { accountId: receivable.id, debitCents: data.grossAmountCents, creditCents: 0 },
         ...postingGroups.flatMap(({ detail, revenue, outputVat, revenueLineId }) => [
           { id: revenueLineId, accountId: revenue.id, debitCents: 0, creditCents: detail.netBaseCents, ...journalLineVatData(detail) },
-          { accountId: outputVat.id, debitCents: 0, creditCents: detail.taxCents },
+          ...(outputVat ? [{ accountId: outputVat.id, debitCents: 0, creditCents: detail.taxCents }] : []),
         ]),
       ] }, documents: { create: { documentId: structured.documentId } },
     } })
@@ -286,25 +288,24 @@ export async function registerOutgoingStructuredCorrection(ownerId: string, acto
     const original = originalStructured?.commercialDocument
     if (!original?.openItem || !original.postingJournalEntryId) throw new CommercialAccountingError('The corrected posted outgoing invoice does not belong to this tenant or has no debit open item.')
     const originalData = JSON.parse(originalStructured!.data) as StructuredInvoiceData
-    if (!['credit-note', 'cancellation'].includes(data.kind) || data.currency !== 'EUR' || data.buyer.countryCode !== 'DE' || data.reverseCharge || data.exemptionReason || JSON.stringify(data.buyer) !== JSON.stringify(originalData.buyer)) throw new CommercialAccountingError('Only domestic EUR 7%/19% credit notes and cancellations for the original customer are supported.')
+    if (!['credit-note', 'cancellation'].includes(data.kind) || data.currency !== 'EUR' || data.buyer.countryCode !== 'DE' || data.reverseCharge || JSON.stringify(data.buyer) !== JSON.stringify(originalData.buyer)) throw new CommercialAccountingError('Only domestic EUR credit notes and cancellations for the original customer are supported.')
     const credited = original.correctedBy.reduce((sum, document) => sum + document.grossAmountCents, 0)
     if (data.grossAmountCents <= 0 || credited + data.grossAmountCents > original.grossAmountCents) throw new CommercialAccountingError('The correction exceeds the immutable original invoice amount.')
     if (data.kind === 'cancellation' && (credited !== 0 || data.netAmountCents !== original.netAmountCents || data.taxAmountCents !== original.taxAmountCents || data.grossAmountCents !== original.grossAmountCents)) throw new CommercialAccountingError('A cancellation must fully reverse the untouched original invoice.')
     const issueDate = new Date(`${data.issueDate}T00:00:00.000Z`); const serviceDate = new Date(`${data.supplyDate}T00:00:00.000Z`)
-    const taxGroups = new Map<number, number>()
-    for (const line of data.lines) { if (line.taxCategoryCode !== 'S' || ![700, 1900].includes(line.taxRateBasisPoints) || !Number.isSafeInteger(line.netAmountCents) || line.netAmountCents <= 0) throw new CommercialAccountingError('Correction lines must use positive standard German 7% or 19% bases.'); taxGroups.set(line.taxRateBasisPoints, (taxGroups.get(line.taxRateBasisPoints) ?? 0) + line.netAmountCents) }
-    const details = [...taxGroups].sort(([a], [b]) => a - b).map(([rate, amountCents]) => calculateVat({ ownerId, sourceId: `outgoing-correction:${structured.id}:vat:${rate}`, amountCents, mode: 'net', taxPoint: data.issueDate, ruleId: rate === 1900 ? 'DE_STANDARD' : 'DE_REDUCED', direction: 'sale' }, germanVatRuleBook))
+    const taxGroups = outgoingTaxGroups(data, isSmallBusinessInvoice(originalData.lines, originalData.exemptionReason))
+    const details = [...taxGroups].sort(([a], [b]) => a - b).map(([rate, amountCents]) => calculateVat({ ownerId, sourceId: `outgoing-correction:${structured.id}:vat:${rate}`, amountCents, mode: 'net', taxPoint: data.issueDate, ruleId: domesticSalesRule(rate), direction: 'sale' }, germanVatRuleBook))
     if (details.reduce((sum, detail) => sum + detail.netBaseCents, 0) !== data.netAmountCents || details.reduce((sum, detail) => sum + detail.taxCents, 0) !== data.taxAmountCents || data.netAmountCents + data.taxAmountCents !== data.grossAmountCents) throw new CommercialAccountingError('Correction totals do not reconcile to canonical VAT groups.')
     const periods = await transaction.fiscalYear.findMany({ where: { ownerId, status: 'OPEN', startsAt: { lte: issueDate }, endsAt: { gte: issueDate } } }); if (periods.length !== 1) throw new CommercialAccountingError('Exactly one open fiscal year must cover the correction date.')
     await transaction.fiscalYear.updateMany({ where: { ownerId, id: periods[0].id, status: 'OPEN' }, data: { updatedAt: new Date() } })
     const profile = await transaction.ledgerProfile.findUnique({ where: { ownerId } }); if (!profile || !['SKR03', 'SKR04'].includes(profile.chart)) throw new CommercialAccountingError('An active SKR03 or SKR04 ledger profile is required.')
     const scale = 10 ** ((profile.accountLength ?? 4) - 4); const receivableNumber = (profile.chart === 'SKR04' ? 1200 : 1400) * scale
-    const accountNumbers = [receivableNumber, ...details.flatMap(detail => { const reduced = detail.rateBasisPoints === 700; return [(profile.chart === 'SKR04' ? reduced ? 4300 : 4400 : reduced ? 8300 : 8400) * scale, (profile.chart === 'SKR04' ? reduced ? 3801 : 3806 : reduced ? 1771 : 1776) * scale] })]
+    const accountNumbers = [receivableNumber, ...details.flatMap(detail => { const numbers = domesticSalesAccounts(profile.chart, detail.rateBasisPoints, scale); return [numbers.revenue, ...(numbers.outputVat ? [numbers.outputVat] : [])] })]
     const accounts = await transaction.ledgerAccount.findMany({ where: { ownerId, active: true, number: { in: accountNumbers } } }); const account = (number: number, category: string) => accounts.find(candidate => candidate.number === number && candidate.category === category)
     const receivable = account(receivableNumber, 'ASSET'); if (!receivable) throw new CommercialAccountingError('The active trade-receivables control account is missing.')
-    const groups = details.map(detail => { const reduced = detail.rateBasisPoints === 700; const revenue = account((profile.chart === 'SKR04' ? reduced ? 4300 : 4400 : reduced ? 8300 : 8400) * scale, 'REVENUE'); const outputVat = account((profile.chart === 'SKR04' ? reduced ? 3801 : 3806 : reduced ? 1771 : 1776) * scale, 'LIABILITY'); if (!revenue || !outputVat) throw new CommercialAccountingError(`The active ${detail.rateBasisPoints / 100}% revenue and output-VAT accounts are missing.`); return { detail, revenue, outputVat, lineId: randomUUID() } })
+    const groups = details.map(detail => { const numbers = domesticSalesAccounts(profile.chart, detail.rateBasisPoints, scale); const revenue = account(numbers.revenue, 'REVENUE'); const outputVat = numbers.outputVat ? account(numbers.outputVat, 'LIABILITY') : undefined; if (!revenue || numbers.outputVat && !outputVat) throw new CommercialAccountingError(`The active ${detail.rateBasisPoints / 100}% revenue and output-VAT accounts are missing.`); return { detail, revenue, outputVat, lineId: randomUUID() } })
     const last = await transaction.journalEntry.findFirst({ where: { fiscalYearId: periods[0].id }, orderBy: { sequenceNumber: 'desc' }, select: { sequenceNumber: true } }); const key = createHash('sha256').update(`${ownerId}:${structured.id}`).digest('hex')
-    const journal = await transaction.journalEntry.create({ data: { ownerId, fiscalYearId: periods[0].id, sequenceNumber: (last?.sequenceNumber ?? 0) + 1, bookingDate: issueDate, documentNumber: `CN-${data.invoiceNumber.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 25)}-${key.slice(0, 8).toUpperCase()}`, description: `${data.kind === 'cancellation' ? 'Cancellation' : 'Credit note'} ${data.invoiceNumber} for ${original.documentNumber}`, source: 'OUTGOING_CREDIT_NOTE', externalKey: `OUTGOING-CORRECTION:${key}`, ...(data.kind === 'cancellation' ? { reversalOfId: original.postingJournalEntryId } : {}), lines: { create: [...groups.flatMap(({ detail, revenue, outputVat, lineId }) => { const negative = { ...detail, amountCents: -detail.amountCents, netBaseCents: -detail.netBaseCents, taxCents: -detail.taxCents, deductibleTaxCents: -detail.deductibleTaxCents, grossCents: -detail.grossCents, outputTaxCents: -detail.outputTaxCents, inputTaxCents: -detail.inputTaxCents, reversalOf: `outgoing-invoice:${originalStructured!.id}:vat:${detail.rateBasisPoints}`, originalTaxPoint: originalData.issueDate }; return [{ id: lineId, accountId: revenue.id, debitCents: detail.netBaseCents, creditCents: 0, ...journalLineVatData(negative) }, { accountId: outputVat.id, debitCents: detail.taxCents, creditCents: 0 }] }), { accountId: receivable.id, debitCents: 0, creditCents: data.grossAmountCents }] }, documents: { create: { documentId: structured.documentId } } } })
+    const journal = await transaction.journalEntry.create({ data: { ownerId, fiscalYearId: periods[0].id, sequenceNumber: (last?.sequenceNumber ?? 0) + 1, bookingDate: issueDate, documentNumber: `CN-${data.invoiceNumber.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 25)}-${key.slice(0, 8).toUpperCase()}`, description: `${data.kind === 'cancellation' ? 'Cancellation' : 'Credit note'} ${data.invoiceNumber} for ${original.documentNumber}`, source: 'OUTGOING_CREDIT_NOTE', externalKey: `OUTGOING-CORRECTION:${key}`, ...(data.kind === 'cancellation' ? { reversalOfId: original.postingJournalEntryId } : {}), lines: { create: [...groups.flatMap(({ detail, revenue, outputVat, lineId }) => { const negative = { ...detail, amountCents: -detail.amountCents, netBaseCents: -detail.netBaseCents, taxCents: -detail.taxCents, deductibleTaxCents: -detail.deductibleTaxCents, grossCents: -detail.grossCents, outputTaxCents: -detail.outputTaxCents, inputTaxCents: -detail.inputTaxCents, reversalOf: `outgoing-invoice:${originalStructured!.id}:vat:${detail.rateBasisPoints}`, originalTaxPoint: originalData.issueDate }; return [{ id: lineId, accountId: revenue.id, debitCents: detail.netBaseCents, creditCents: 0, ...journalLineVatData(negative) }, ...(outputVat ? [{ accountId: outputVat.id, debitCents: detail.taxCents, creditCents: 0 }] : [])] }), { accountId: receivable.id, debitCents: 0, creditCents: data.grossAmountCents }] }, documents: { create: { documentId: structured.documentId } } } })
     for (const { detail, lineId } of groups) { const negative = { ...detail, amountCents: -detail.amountCents, netBaseCents: -detail.netBaseCents, taxCents: -detail.taxCents, deductibleTaxCents: -detail.deductibleTaxCents, grossCents: -detail.grossCents, outputTaxCents: -detail.outputTaxCents, inputTaxCents: -detail.inputTaxCents, reversalOf: `outgoing-invoice:${originalStructured!.id}:vat:${detail.rateBasisPoints}`, originalTaxPoint: originalData.issueDate }; await transaction.vatPostingRecord.create({ data: vatPostingCreateData(ownerId, lineId, negative, structured.documentId) }) }
     const correction = await transaction.commercialDocument.create({ data: { ownerId, businessPartnerId: original.businessPartnerId, structuredInvoiceId: structured.id, evidenceDocumentId: structured.documentId, postingJournalEntryId: journal.id, correctsId: original.id, direction: 'RECEIVABLE', kind: 'CREDIT_NOTE', status: 'POSTED', documentNumber: data.invoiceNumber, documentIdentityKey: commercialDocumentIdentity('RECEIVABLE', ownerId, data.invoiceNumber), issueDate, serviceDate, dueDate: issueDate, description: data.lines.map(line => line.description).join('; '), currency: 'EUR', netAmountCents: data.netAmountCents, taxAmountCents: data.taxAmountCents, grossAmountCents: data.grossAmountCents, payableAmountCents: data.grossAmountCents, counterpartySnapshot: original.counterpartySnapshot, openItem: { create: { side: 'CREDIT', currency: 'EUR', originalAmountCents: data.grossAmountCents } } }, include: { openItem: true } })
     const remaining = original.openItem.originalAmountCents - original.openItem.allocatedAmountCents; const netAmount = Math.min(remaining, correction.openItem!.originalAmountCents); const requestHash = createHash('sha256').update(JSON.stringify({ structuredInvoiceId, originalOpenItemId: original.openItem.id, creditOpenItemId: correction.openItem!.id, netAmount })).digest('hex')

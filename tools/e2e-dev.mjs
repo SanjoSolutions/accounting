@@ -8,6 +8,7 @@ import { assertDisposableDatabasePath, databaseUrlForPath } from './db-safety.mj
 const mode = process.argv[2] ?? 'standard'
 const cwd = process.cwd()
 const modes = {
+  'small-business': { defaultDatabase: 'issue-28-playwright.db', port: '3228' },
   standard: { defaultDatabase: 'playwright.db', port: '3100' },
   'local-solo': { defaultDatabase: 'playwright.db', port: '3110' },
   roles: { defaultDatabase: 'roles-playwright.db', port: '3120' },

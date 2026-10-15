@@ -55,6 +55,7 @@ export const DEFAULT_ACCOUNTS = [
   [8400, 'Erlöse 19 % USt', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput'],
   [8801, 'Erlöse aus Verkäufen Sachanlagevermögen 19 % USt (bei Buchverlust)', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost'],
   [8820, 'Erlöse aus Verkäufen Sachanlagevermögen 19 % USt (bei Buchgewinn)', 'REVENUE', 'is.netIncome.regular.operatingTC.otherOpRevenue'],
+  [8192, 'Erlöse als Kleinunternehmer § 19 UStG', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput'],
 ] as const
 
 export const DEFAULT_SKR04_ACCOUNTS = [
@@ -74,6 +75,7 @@ export const DEFAULT_SKR04_ACCOUNTS = [
   [6885, 'Erlöse aus Verkäufen Sachanlagevermögen 19 % USt (bei Buchverlust)', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost'],
   [6895, 'Anlagenabgänge Sachanlagen (Restbuchwert bei Buchverlust)', 'EXPENSE', 'is.netIncome.regular.operatingTC.otherCost'],
   [6220, 'Abschreibungen auf Sachanlagen', 'EXPENSE', 'is.netIncome.regular.operatingTC.deprAmort.fixAss.tan'],
+  [4184, 'Erlöse als Kleinunternehmer § 19 UStG', 'REVENUE', 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput'],
 ] as const
 
 export function defaultAccountsForLedger(chart: string, accountLength: number | null) {
