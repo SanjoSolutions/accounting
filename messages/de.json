@@ -1337,6 +1337,9 @@
     "loadingPreview": "Vorschau wird geladen: {name}"
   },
   "Euer": {
+    "selectMethod": "Gewinnermittlung auswählen",
+    "working": "Wird verarbeitet …",
+    "officialLabels": "Die Positionsbezeichnungen entsprechen dem amtlichen deutschen Vordruck.",
     "profileTitle": "Einzelunternehmen",
     "method": "Gewinnermittlung",
     "balanceSheet": "Bilanzierung",

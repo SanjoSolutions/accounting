@@ -1337,6 +1337,9 @@
     "loadingPreview": "Loading preview: {name}"
   },
   "Euer": {
+    "selectMethod": "Select profit determination",
+    "working": "Processing …",
+    "officialLabels": "Position labels follow the official German form.",
     "profileTitle": "Sole trader",
     "method": "Profit determination",
     "balanceSheet": "Balance sheet",

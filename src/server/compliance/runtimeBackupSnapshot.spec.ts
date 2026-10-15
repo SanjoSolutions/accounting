@@ -102,7 +102,7 @@ describe('tenant backup runtime snapshot capture', () => {
   it('Given two tenants, when tenant A is backed up, then schema v2 captures every operational collection for tenant A only', async () => {
     await createTenantBackup('tenant-a', 'operator-a', 'DE', 'scheduled recovery point')
 
-    expect(captured.snapshot).toMatchObject({ schemaVersion: 4, ownerId: 'tenant-a' })
+    expect(captured.snapshot).toMatchObject({ schemaVersion: 5, ownerId: 'tenant-a' })
     const collections = {
       businessPartners: 'partner-a', commercialDocuments: 'commercial-a', openItems: 'open-a',
       paymentSettlements: 'payment-a', settlementAllocations: 'allocation-a', structuredInvoices: 'structured-a',

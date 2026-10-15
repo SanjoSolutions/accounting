@@ -17,6 +17,3 @@ CREATE TRIGGER "EuerRevision_no_update" BEFORE UPDATE ON "EuerRevision"
 BEGIN SELECT RAISE(ABORT, 'EÜR revisions are immutable'); END;
 CREATE TRIGGER "EuerRevision_no_delete" BEFORE DELETE ON "EuerRevision"
 BEGIN SELECT RAISE(ABORT, 'EÜR revisions are immutable'); END;
-CREATE TRIGGER "EuerRevision_open_year" BEFORE INSERT ON "EuerRevision"
-WHEN NOT EXISTS (SELECT 1 FROM "FiscalYear" WHERE "ownerId" = NEW."ownerId" AND "year" = NEW."year" AND "status" = 'OPEN')
-BEGIN SELECT RAISE(ABORT, 'EÜR requires an open fiscal year'); END;

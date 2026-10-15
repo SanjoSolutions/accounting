@@ -22,14 +22,14 @@ export async function getEuerWorkspace(ownerId: string, yearValue: number) {
   const year = euerYear(yearValue)
   return prisma.$transaction(async db => {
     const current = await context(db, ownerId, year)
-    const revisions = await db.euerRevision.findMany({ where: { ownerId, year }, orderBy: { version: 'desc' } })
-    const latest = revisions[0]
+    const latest = await db.euerRevision.findFirst({ where: { ownerId, year }, orderBy: { version: 'desc' } })
+    const history = await db.euerRevision.findMany({ where: { ownerId, year }, orderBy: { version: 'desc' }, select: { version: true, createdAt: true, createdBy: true } })
     const profileChanged = Boolean(latest && latest.profileChecksum !== current.profileChecksum)
     return {
       version: latest?.version ?? 0, locked: current.fiscal.status !== 'OPEN', profileChanged,
       report: latest ? JSON.parse(latest.payload) as EuerReport : current.report,
       currentVatRegime: current.profile.vatRegime,
-      history: revisions.map(row => ({ version: row.version, createdAt: row.createdAt.toISOString(), createdBy: row.createdBy })),
+      history: history.map(row => ({ version: row.version, createdAt: row.createdAt.toISOString(), createdBy: row.createdBy })),
     }
   })
 }

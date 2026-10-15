@@ -38,6 +38,13 @@ export const EUER_POSITIONS = [
   position('deposits', 'neutral', 107, '123', 'Geldeinlagen'),
 ] as const
 
+export function euerPositionsForVatRegime(vatRegime: string) {
+  const excluded = vatRegime === 'SMALL_BUSINESS' ? ['taxableReceipts', 'exemptReceipts', 'vatReceived', 'inputVatPaid']
+    : vatRegime === 'EXEMPT' ? ['smallBusinessReceipts', 'taxableReceipts', 'vatReceived', 'inputVatPaid']
+      : ['smallBusinessReceipts']
+  return EUER_POSITIONS.filter(item => !excluded.includes(item.key))
+}
+
 export interface EuerEntry {
   id: string
   paymentDate: string
@@ -142,7 +149,7 @@ export function euerDecimal(cents: number) {
 }
 export function euerCsv(report: EuerReport): string {
   if (!report.input.scopeConfirmed) return fail('Review and confirm the supported EÜR scope before exporting.')
-  const rows = [['EÜR-Arbeitsblatt', String(report.year), report.companyName, report.taxNumber], ['Keine elektronische Übermittlung. In Mein ELSTER prüfen und übertragen.'], ['Zeile', 'Kennzahl', 'Position', 'EUR'],
+  const rows = [['EÜR-Arbeitsblatt', String(report.year), report.companyName, report.taxNumber], ['Betrieb', report.activity], ['Einkunftsart', report.incomeType === 'TRADE' ? '2 - Gewerbebetrieb' : '3 - Selbständige Arbeit'], ['Vordruck', report.sourceUrl, report.ruleVersion], ['Keine elektronische Übermittlung. In Mein ELSTER prüfen und übertragen.'], ['Zeile', 'Kennzahl', 'Position', 'EUR'],
     ...report.positions.map(item => [String(item.line), item.code, item.label, euerDecimal(item.amountCents)]),
     [String(report.incomeLine), '159', 'Summe Betriebseinnahmen', euerDecimal(report.incomeCents)],
     [String(report.expenseLine), '199', 'Summe Betriebsausgaben', euerDecimal(report.expenseCents)],

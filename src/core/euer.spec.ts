@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
-import { euerCsv, euerDecimal, euerRecognitionYear, parseEuerInput, prepareEuer, type EuerEntry, type EuerProfile } from './euer'
+import { euerCsv, euerDecimal, euerPositionsForVatRegime, euerRecognitionYear, parseEuerInput, prepareEuer, type EuerEntry, type EuerProfile } from './euer'
 import { usesEuer, validateSoleTraderTaxProfile } from './companyTaxProfile'
-import { deriveReportApplicability, type CompanyProfile } from '@/server/compliance/companyProfile'
+import { deriveReportApplicability, validateCompanyProfile, type CompanyProfile } from '@/server/compliance/companyProfile'
 import { parseEuerAmount } from '@/euerForm'
 
 const profile: EuerProfile = { legalForm: 'SOLE_TRADER', companyName: 'Example', taxNumber: '123/456/78901', activity: 'Consulting', vatRegime: 'STANDARD', soleTraderTaxProfile: { profitDetermination: 'EUER', incomeType: 'TRADE', euerEligibilityConfirmed: true } }
@@ -24,6 +24,7 @@ describe('sole trader profit determination', () => {
       expect(deriveReportApplicability(facts).E_BILANZ.applicable).toBe(false)
       expect(deriveReportApplicability(facts).HGB_FINANCIAL_STATEMENTS.applicable).toBe(false)
       expect(deriveReportApplicability(facts).VAT_ADVANCE.applicable).toBe(vatRegime === 'STANDARD')
+      expect(validateCompanyProfile({ ...facts, applicabilityOverrides: { E_BILANZ: true } })).toContain('EÜR cannot enable balance-sheet reporting overrides')
     }
   })
 })
@@ -60,6 +61,9 @@ describe('EÜR workpaper calculations', () => {
   test('Given the configured VAT regime, when recording receipts, then incompatible positions and separate small-business input VAT are rejected', () => {
     const small = { ...profile, vatRegime: 'SMALL_BUSINESS' }
     expect(prepareEuer(2026, small, input([entry('smallBusinessReceipts', 11900), entry('supplies', 2380)])).profitCents).toBe(9520)
+    expect(euerPositionsForVatRegime('SMALL_BUSINESS').map(item => item.key)).not.toContain('inputVatPaid')
+    expect(euerPositionsForVatRegime('STANDARD').map(item => item.key)).not.toContain('smallBusinessReceipts')
+    expect(euerPositionsForVatRegime('EXEMPT').map(item => item.key)).not.toContain('vatReceived')
     expect(() => prepareEuer(2026, small, input([entry('inputVatPaid', 380)]))).toThrow(/gross amounts/)
     expect(() => prepareEuer(2026, profile, input([entry('smallBusinessReceipts')]))).toThrow(/regime/)
     expect(() => prepareEuer(2026, { ...profile, vatRegime: 'EXEMPT' }, input([entry('vatReceived')]))).toThrow(/VAT-exempt/)
@@ -76,6 +80,7 @@ describe('EÜR workpaper calculations', () => {
     const csv = euerCsv(report)
     expect(csv).toContain('"123,45"'); expect(csv).toContain('"\'=SUM(1;2)"'); expect(csv).toContain('"\'@evil"')
     expect(csv).toContain('"A;B ""quoted"""'); expect(csv).toContain('Keine elektronische Übermittlung')
+    expect(csv).toContain('2 - Gewerbebetrieb'); expect(csv).toContain(report.sourceUrl)
     expect(() => euerCsv(prepareEuer(2026, profile, input([], false)))).toThrow(/Review/)
   })
 })

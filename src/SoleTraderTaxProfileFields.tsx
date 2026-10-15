@@ -9,7 +9,8 @@ export function SoleTraderTaxProfileFields({ value, onChange }: { value?: SoleTr
   const facts = value ?? { profitDetermination: 'BALANCE_SHEET', incomeType: 'TRADE', euerEligibilityConfirmed: false }
   return <fieldset className="compliance-profile-group">
     <legend>{t('profileTitle')}</legend>
-    <label>{t('method')}<select className="form-select" value={facts.profitDetermination} onChange={event => onChange({ ...facts, profitDetermination: event.target.value as SoleTraderTaxProfile['profitDetermination'], euerEligibilityConfirmed: false })}>
+    <label>{t('method')}<select className="form-select" value={value?.profitDetermination ?? ''} onChange={event => onChange({ ...facts, profitDetermination: event.target.value as SoleTraderTaxProfile['profitDetermination'], euerEligibilityConfirmed: false })}>
+      <option value="" disabled>{t('selectMethod')}</option>
       <option value="BALANCE_SHEET">{t('balanceSheet')}</option><option value="EUER">{t('euer')}</option>
     </select></label>
     <label>{t('incomeType')}<select className="form-select" value={facts.incomeType} onChange={event => onChange({ ...facts, incomeType: event.target.value as SoleTraderTaxProfile['incomeType'] })}>

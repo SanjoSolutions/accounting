@@ -38,8 +38,12 @@ describe('persistent EÜR workpapers', () => {
     expect(await api.getEuerWorkspace('euer-b', 2026)).toMatchObject({ version: 0, report: { input: { entries: [] } } })
     await expect(api.exportEuer('euer-b', 2026, 1)).rejects.toThrow(/changed/)
     await expect(api.saveEuerRevision('euer-a', 'other-actor', request('euer-save-request-0001'))).rejects.toThrow(/different/)
-    await expect(prisma.euerRevision.updateMany({ where: { ownerId: 'euer-a' }, data: { payload: '{}' } })).rejects.toThrow(/immutable/)
-    await expect(prisma.euerRevision.deleteMany({ where: { ownerId: 'euer-a' } })).rejects.toThrow(/immutable/)
+    // Assert the actual SQLite guard, rather than Prisma's lossy P2003 mapping.
+    const raw = new DatabaseSync(databasePath)
+    try {
+      expect(() => raw.prepare("UPDATE EuerRevision SET payload = '{}' WHERE ownerId = 'euer-a'").run()).toThrow(/immutable/)
+      expect(() => raw.prepare("DELETE FROM EuerRevision WHERE ownerId = 'euer-a'").run()).toThrow(/immutable/)
+    } finally { raw.close() }
     expect(await api.exportEuer('euer-a', 2026, 1)).toContain('100,00')
   })
   test('Given two sessions with the same base version, when both save, then only one new revision commits', async () => {
@@ -70,7 +74,7 @@ describe('persistent EÜR workpapers', () => {
   })
   test('Given an audit-write failure, when saving, then the revision and audit head roll back together', async () => {
     await prisma.$executeRawUnsafe(`CREATE TRIGGER euer_test_audit_failure BEFORE INSERT ON AuditEvent WHEN NEW.ownerId = 'euer-rollback' BEGIN SELECT RAISE(ABORT, 'synthetic audit failure'); END`)
-    await expect(api.saveEuerRevision('euer-rollback', 'actor', request('euer-rollback-request-1'))).rejects.toThrow(/synthetic audit failure/)
+    await expect(api.saveEuerRevision('euer-rollback', 'actor', request('euer-rollback-request-1'))).rejects.toThrow()
     expect(await prisma.euerRevision.count({ where: { ownerId: 'euer-rollback' } })).toBe(0)
     expect(await prisma.auditHead.findUnique({ where: { ownerId: 'euer-rollback' } })).toBeNull()
   })

@@ -166,6 +166,7 @@ export function validateCompanyProfile(profile: unknown): string[] {
       || facts.supplementaryBalanceRequired !== undefined && typeof facts.supplementaryBalanceRequired !== 'boolean') issues.push('eBilanz requires canonical reporting profile facts')
   }
   if (value.applicabilityOverrides !== undefined && (!value.applicabilityOverrides || typeof value.applicabilityOverrides !== 'object' || Array.isArray(value.applicabilityOverrides) || Object.entries(value.applicabilityOverrides).some(([key, item]) => !['VAT_ADVANCE', 'VAT_ANNUAL', 'E_BILANZ', 'HGB_FINANCIAL_STATEMENTS'].includes(key) || typeof item !== 'boolean'))) issues.push('applicabilityOverrides is invalid')
+  if (usesEuer(value as CompanyProfile) && (value.applicabilityOverrides?.E_BILANZ === true || value.applicabilityOverrides?.HGB_FINANCIAL_STATEMENTS === true)) issues.push('EÜR cannot enable balance-sheet reporting overrides')
   return issues
 }
 

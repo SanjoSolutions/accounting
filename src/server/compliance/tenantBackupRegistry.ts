@@ -1,3 +1,5 @@
+export const TENANT_BACKUP_SCHEMA_VERSION = 5
+
 export type TenantBackupDefinition = {
   model: string
   delegate: string

@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl'
 import { PageHeading } from './PageHeading'
 import { LocalCurrency } from './LocalNumber'
 import { LocalDate } from './LocalDate'
-import { EUER_POSITIONS, euerDecimal, type EuerEntry, type EuerReport } from './core/euer'
+import { EUER_POSITIONS, euerDecimal, euerPositionsForVatRegime, type EuerEntry, type EuerReport } from './core/euer'
 import { parseEuerAmount } from './euerForm'
 
 type Workspace = { version: number; report: EuerReport; locked: boolean; profileChanged: boolean; currentVatRegime: string; history: { version: number; createdAt: string; createdBy: string }[] }
@@ -73,30 +73,32 @@ export function EuerWorkspace({ year }: { year: number }) {
     } catch (error) { setError(error instanceof Error ? error.message : t('failed')) }
     finally { setBusy(false) }
   }
-  return <div className="workspace pb-4">
+  return <div className="workspace pb-4" aria-busy={busy || !workspace && !error}>
     <PageHeading title={t('title', { year })} subtitle={t('subtitle')}><Link href={`/tax/${year}`} className="btn btn-outline-secondary">{t('back')}</Link></PageHeading>
     {error && <div className="alert alert-danger" role="alert">{error} {!workspace && <Link href="/compliance">{t('configure')}</Link>}</div>}
     {notice && <p className="alert alert-success" role="status">{notice}</p>}
+    {busy && <p role="status">{t('working')}</p>}
     {uncertain && <p className="alert alert-warning" role="status">{t('uncertain')}</p>}
     {!workspace && !error && <p role="status">{t('loading')}</p>}
     {workspace && <>
       <p className="alert alert-info">{t('manual')}</p>
-      {workspace.profileChanged && <p className="alert alert-warning">{t('profileChanged')}</p>}
-      {workspace.locked && <p className="alert alert-warning">{t('locked')}</p>}
+      {workspace.profileChanged && <p className="alert alert-warning" role="status">{t('profileChanged')}</p>}
+      {workspace.locked && <p className="alert alert-warning" role="status">{t('locked')}</p>}
       <section className="card p-3 mb-3">
         <h2 className="h4">{t('entries')}</h2>
         <p>{t(workspace.currentVatRegime === 'STANDARD' ? 'netHelp' : 'grossHelp')}</p>
         <p className="text-muted">{t('timingHelp')}</p>
+        <p className="text-muted small">{t('officialLabels')}</p>
         <form onSubmit={add}>
           <fieldset disabled={disabled}>
             <div className="row g-3">
               <label className="col-sm-4">{t('paymentDate')}<input className="form-control" type="date" required value={entry.paymentDate} onChange={event => setEntry({ ...entry, paymentDate: event.target.value })} /></label>
-              <label className="col-sm-8">{t('position')}<select className="form-select" value={entry.position} onChange={event => setEntry({ ...entry, position: event.target.value })}>{EUER_POSITIONS.map(item => <option key={item.key} value={item.key}>{year === 2025 ? item.line2025 : item.line2026} · {item.label}</option>)}</select></label>
+              <label className="col-sm-8">{t('position')}<select className="form-select" value={entry.position} onChange={event => setEntry({ ...entry, position: event.target.value, recurring: ['deposits', 'withdrawals'].includes(event.target.value) ? false : entry.recurring })}>{euerPositionsForVatRegime(workspace.currentVatRegime).map(item => <option key={item.key} value={item.key}>{year === 2025 ? item.line2025 : item.line2026} · {item.label}</option>)}</select></label>
               <label className="col-sm-4">{t('amount')}<input className="form-control" inputMode="decimal" required value={entry.amount} onChange={event => setEntry({ ...entry, amount: event.target.value })} placeholder="0,00" /></label>
               <label className="col-sm-4">{t('reference')}<input className="form-control" required maxLength={200} value={entry.reference} onChange={event => setEntry({ ...entry, reference: event.target.value })} /></label>
               <label className="col-sm-4">{t('description')}<input className="form-control" required maxLength={300} value={entry.description} onChange={event => setEntry({ ...entry, description: event.target.value })} /></label>
             </div>
-            <div className="form-check my-3"><input id="euer-recurring" className="form-check-input" type="checkbox" checked={entry.recurring} onChange={event => setEntry({ ...entry, recurring: event.target.checked })} /><label htmlFor="euer-recurring" className="form-check-label">{t('recurring')}</label></div>
+            <div className="form-check my-3"><input id="euer-recurring" className="form-check-input" type="checkbox" checked={entry.recurring} disabled={['deposits', 'withdrawals'].includes(entry.position)} onChange={event => setEntry({ ...entry, recurring: event.target.checked })} /><label htmlFor="euer-recurring" className="form-check-label">{t('recurring')}</label></div>
             {entry.recurring && <div className="row g-3 mb-3">
               <label className="col-sm-6">{t('dueDate')}<input className="form-control" type="date" required value={entry.dueDate} onChange={event => setEntry({ ...entry, dueDate: event.target.value })} /></label>
               <label className="col-sm-6">{t('economicYear')}<input className="form-control" type="number" required min={year - 1} max={year + 1} value={entry.economicYear} onChange={event => setEntry({ ...entry, economicYear: Number(event.target.value) })} /></label>
@@ -104,7 +106,7 @@ export function EuerWorkspace({ year }: { year: number }) {
             <button className="btn btn-outline-primary">{t('add')}</button>
           </fieldset>
         </form>
-        <div className="table-responsive mt-3"><table className="table align-middle"><caption>{t('entryCount', { count: entries.length })}</caption><thead><tr><th>{t('paymentDate')}</th><th>{t('position')}</th><th>{t('reference')}</th><th className="text-end">{t('amount')}</th><th>{t('actions')}</th></tr></thead>
+        <div className="table-responsive mt-3"><table className="table align-middle caption-top"><caption>{t('entryCount', { count: entries.length })}</caption><thead><tr><th>{t('paymentDate')}</th><th>{t('position')}</th><th>{t('reference')}</th><th className="text-end">{t('amount')}</th><th>{t('actions')}</th></tr></thead>
           <tbody>{entries.map(item => <tr key={item.id}><td><LocalDate value={item.paymentDate} />{item.recurring && <div className="small">{t('assignedYear', { year: item.recurring.economicYear })}</div>}</td><td>{EUER_POSITIONS.find(position => position.key === item.position)?.label}<div className="text-muted small">{item.description}</div></td><td>{item.reference}</td><td className="text-end text-nowrap"><LocalCurrency cents={item.amountCents} currency="EUR" /></td><td><button type="button" className="btn btn-sm btn-outline-danger" disabled={disabled} aria-label={t('removeEntry', { reference: item.reference })} onClick={() => { setEntries(current => current.filter(row => row.id !== item.id)); changed() }}>{t('remove')}</button></td></tr>)}</tbody>
         </table></div>
       </section>
@@ -116,9 +118,10 @@ export function EuerWorkspace({ year }: { year: number }) {
       </section>
       {workspace.version > 0 && <section className="card p-3 mb-3">
         <h2 className="h4">{t('copyTitle', { version: workspace.version })}</h2>
-        {!workspace.report.input.scopeConfirmed && <p className="alert alert-warning">{t('draft')}</p>}
-        {dirty && <p className="alert alert-warning">{t('unsaved')}</p>}
+        {!workspace.report.input.scopeConfirmed && <p className="alert alert-warning" role="status">{t('draft')}</p>}
+        {dirty && <p className="alert alert-warning" role="status">{t('unsaved')}</p>}
         <p>{workspace.report.companyName} · {workspace.report.taxNumber}</p>
+        <p>{workspace.report.activity} · {t(workspace.report.incomeType === 'TRADE' ? 'trade' : 'selfEmployed')}</p>
         <div className="table-responsive"><table className="table"><thead><tr><th>{t('line')}</th><th>{t('code')}</th><th>{t('position')}</th><th className="text-end">EUR</th></tr></thead>
           <tbody>{workspace.report.positions.filter(item => item.amountCents !== 0).map(item => <tr key={item.key}><td>{item.line}</td><td>{item.code}</td><td>{item.label}</td><td className="text-end text-nowrap">{euerDecimal(item.amountCents)}</td></tr>)}</tbody>
           <tfoot><tr><th colSpan={3}>{t('income')}</th><td className="text-end">{euerDecimal(workspace.report.incomeCents)}</td></tr><tr><th colSpan={3}>{t('expenses')}</th><td className="text-end">{euerDecimal(workspace.report.expenseCents)}</td></tr><tr><th colSpan={3}>{t('profit')}</th><td className="text-end fw-bold">{euerDecimal(workspace.report.profitCents)}</td></tr></tfoot>

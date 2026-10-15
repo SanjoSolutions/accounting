@@ -22,6 +22,6 @@ export class EuerPage {
   async save(version: number) {
     await this.page.getByLabel('Alle Zahlungen und Geldentnahmen/-einlagen', { exact: false }).check()
     await this.page.getByRole('button', { name: 'Version speichern' }).click()
-    await expect(this.page.getByRole('status')).toContainText(`Version ${version} gespeichert.`)
+    await expect(this.page.getByRole('status').filter({ hasText: `Version ${version} gespeichert.` })).toBeVisible()
   }
 }
