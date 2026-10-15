@@ -99,7 +99,12 @@ label { display: flex; flex-direction: column; gap: 6px; color: #435048; font-si
 @media (max-width: 1050px) { .work-grid,.close-grid,.ebalance-grid { grid-template-columns: 1fr; }.metric-grid { grid-template-columns: repeat(2,1fr); } }
 @media (max-width: 991.98px) { .navbar-fiscal-year { margin-left: 0; width: 100%; }.navbar-fiscal-year .fiscal-year-navigation { justify-content: flex-end; margin: .5rem 0 1rem; } }
 @media (max-width: 700px) { .page-heading,.readiness { align-items: stretch; flex-direction: column; }.fiscal-year-navigation { justify-content: stretch; }.fiscal-year-navigation form { flex: 1; }.fiscal-year-navigation form div { display: grid; grid-template-columns: 1fr auto; }.fiscal-year-navigation input { width: 100%; }.year-step { align-self: end; }.form-grid.three,.form-grid.two { grid-template-columns: 1fr; }.posting-grid { grid-template-columns: 1fr 1fr 36px; }.posting-grid.remove-buttons-hidden { grid-template-columns: 1fr 1fr; }.posting-head { display:none; }.posting-line>.account-selector { grid-column: 1 / -1; border-top: 1px solid var(--border); padding-top: 10px; }.posting-line>.form-select { grid-column: 1 / -1; }.account-selector-dropdown { width: 100%; }.balance-bar { grid-template-columns: repeat(3,1fr); }.balance-bar .btn-primary { grid-column: 1 / 4; }.metric-grid { grid-template-columns: 1fr 1fr; }.action-stack { flex-direction: column; }.journal-lines div { flex-direction: column; gap: 2px; } }
-@media (max-width: 700px) { .hgb-fields,.hgb-fields fieldset { grid-template-columns: 1fr; } }
+.hgb-fields fieldset > .hgb-fields { grid-column: 1 / -1; min-width: 0; }
+@media (max-width: 700px) {
+  .hgb-fields,.hgb-fields fieldset { grid-template-columns: 1fr; }
+  .hgb-fields fieldset fieldset { border-inline: 0; padding-inline: 0; }
+  .hgb-fields .card.panel { padding: 8px; }
+}
 @media (max-width: 700px) { .document-picker-panel .panel-title,.document-actions { align-items: stretch; flex-direction: column; }.document-actions { width: 100%; }.document-actions button { width: 100%; }.document-strip { grid-auto-columns: 150px; }.document-frame,.preview-empty { min-height: 420px; }.document-frame { height: 62vh; }.attached-document-row { align-items: stretch; flex-direction: column; }.attached-document-actions { justify-content: stretch; }.attached-document-actions>* { flex: 1 1 auto; } }
 
 code {

@@ -10,7 +10,7 @@ const yearFrom = async (params: Promise<{ year: string }>) => { const year = Num
 
 export async function GET(request: Request, { params }: { params: Promise<{ year: string }> }) {
   const user = await getCurrentUser(request.headers); if (!user) return Response.json({ success: false }, { status: 401 })
-  try { const url = new URL(request.url); const ownerId = await authorizeComplianceTenant(user.id, url.searchParams.get('tenantId')); return Response.json({ success: true, data: await listHgbWorkpapers(ownerId, await yearFrom(params)) }) } catch (error) { return complianceError(error) }
+  try { const url = new URL(request.url); const ownerId = await authorizeComplianceTenant(user.id, url.searchParams.get('tenantId')); return Response.json({ success: true, data: { ...await listHgbWorkpapers(ownerId, await yearFrom(params)), currentActorId: user.actorId, canSelectReviewPolicy: user.actorId === ownerId && user.role === 'ADMIN' } }) } catch (error) { return complianceError(error) }
 }
 
 export async function PUT(request: Request, { params }: { params: Promise<{ year: string }> }) {

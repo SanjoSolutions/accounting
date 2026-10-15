@@ -674,6 +674,9 @@ model HgbWorkpaperRecord {
   reviewedBy     String?
   reviewedAt     DateTime?
   reviewReason   String?
+  reviewMode     String    @default("INDEPENDENT")
+  reviewPolicyId String?
+  reviewEvidenceChecksum String?
   supersedesId   String?
   createdBy      String
   updatedBy      String
@@ -681,8 +684,20 @@ model HgbWorkpaperRecord {
   updatedAt      DateTime  @updatedAt
 
   @@unique([ownerId, fiscalPeriodId, kind, version])
-  @@unique([ownerId, checksum])
   @@index([ownerId, fiscalPeriodId, status])
+}
+
+model HgbReviewPolicyRecord {
+  id             String   @id
+  ownerId        String
+  fiscalPeriodId String
+  version        Int
+  payload        String
+  checksum       String
+  selectedBy     String
+  selectedAt     DateTime @default(now())
+
+  @@unique([ownerId, fiscalPeriodId, version])
 }
 
 model HgbAdjustmentRecord {
@@ -702,7 +717,7 @@ model HgbAdjustmentRecord {
   updatedAt      DateTime  @updatedAt
 
   @@unique([ownerId, workpaperId, proposalId])
-  @@unique([ownerId, fingerprint])
+  @@index([ownerId, fiscalPeriodId, fingerprint])
   @@unique([ownerId, idempotencyKey])
   @@index([ownerId, fiscalPeriodId, status])
 }

@@ -1,6 +1,6 @@
 # Automated HGB close: supported scope and legal rule profile
 
-Checked against the official consolidated statutes on 2026-08-03. This document defines product boundaries; it is not a legal-compliance certificate. The close must fail closed when an applicability fact, source record, review, or approval is missing.
+Base rule profile checked against the official consolidated statutes on 2026-08-03; owner review and UG result appropriation checked on 2026-10-13. This document defines product boundaries; it is not a legal-compliance certificate. The close must fail closed when an applicability fact, source record, review, or approval is missing. The additional check does not extend the base profile's supported fiscal-period start dates.
 
 ## Initial supported scope
 
@@ -23,7 +23,13 @@ Sources: [HGB § 267](https://www.gesetze-im-internet.de/hgb/__267.html), [HGB �
 
 ## Mandatory workpaper gates
 
-Every applicable workpaper needs retained evidence, a named preparer, and a dated review by a different person. The two-person review is a conservative product control for auditability, not a statutory audit requirement for these entities. Bare confirmation booleans do not satisfy the gate.
+Every applicable workpaper needs retained evidence, a named preparer, and a dated review. Independent review by a different person remains the default product control. It is not a generic statutory audit requirement for these small entities ([HGB § 316(1)](https://www.gesetze-im-internet.de/hgb/__316.html)). Bare confirmation booleans do not satisfy the gate.
+
+An authenticated tenant owner can explicitly select a versioned `OWNER_SELF_REVIEW` policy for an eligible German MICRO/SMALL UG. The owner must retain evidence and a reason, attest that they are the sole shareholder and sole managing director, and confirm that legislation, articles and agreements do not impose an additional independent review. This product mode is not offered for GmbH, larger entities, other legal forms or unsupported applicability facts. A delegated administrator cannot select it or impersonate the owner. Other people may still perform genuine independent reviews.
+
+Self-review stores the actual preparer/reviewer identity, review timestamp, reason, policy version, workpaper checksum and evidence fingerprint. It is visibly described as self-review and never as independent approval or a statutory audit opinion. Policy/evidence/profile/size changes invalidate the applicable approvals. New workpaper versions and a fresh annual package are required; historical reviews are retained. Existing independent reviews remain usable under the default policy. Historical annual packages without a source binding must be regenerated for owner self-review. Existing close snapshots can require reevaluation after the expanded comparative-source fingerprint.
+
+Self-review does not replace the dated signature of the managing director ([HGB § 245](https://www.gesetze-im-internet.de/hgb/__245.html)), shareholder adoption and result appropriation ([GmbHG § 42a](https://www.gesetze-im-internet.de/gmbhg/__42a.html)), or any applicable external review. The self-review signature roster must contain the actual owner. Closing still requires an approved immutable annual package, retained signature and resolution evidence, all applicable workpapers, reconciled statements, and posted adjustments.
 
 - Opening balance and continuity with the prior finalized close.
 - Complete one-to-one account mapping, balance-sheet/P&L presentation, comparatives, and reconciliation.
@@ -47,8 +53,18 @@ The software may label an artifact prepared or approved only according to its re
 
 ## Implemented product boundary
 
-The implementation now provides versioned applicability and size classification, a dedicated evidence-qualified browser form for historical fiscal-year profile and mapping onboarding, evidence-backed typed workpapers for every gate above, independent prepare/review lifecycle, deterministic adjustment posting, acquisition/production-cost and subsequent asset valuation, FIFO/weighted-average inventory valuation (LIFO is rejected in this profile), lower-value tests, GL reconciliation controls, one-to-one effective-dated HGB mappings with explicit presentation signs, MICRO/SMALL hierarchy rollups, prior-presentation reconciliation, immutable annual-account packages selected visibly by version, signature/resolution evidence, and a ledger lock bound to the current ledger/profile/mapping/workpaper/evidence fingerprint.
+The implementation now provides versioned applicability and size classification, a dedicated evidence-qualified browser form for historical fiscal-year profile and mapping onboarding, evidence-backed typed workpapers for every gate above, explicit independent/owner review policies, deterministic adjustment posting, acquisition/production-cost and subsequent asset valuation, FIFO/weighted-average inventory valuation (LIFO is rejected in this profile), lower-value tests, GL reconciliation controls, one-to-one effective-dated HGB mappings with explicit presentation signs, MICRO/SMALL hierarchy rollups, prior-presentation reconciliation, immutable annual-account packages selected visibly by version, signature/resolution evidence, and a ledger lock bound to the current ledger/profile/mapping/workpaper/evidence/review-policy/comparative-source fingerprint.
 
 Historical company profiles and mapping cohorts require retained evidence and exact fiscal-period coverage. Missing, overlapping, malformed, unsupported, unreviewed, unposted, or stale inputs block generation or locking. The implementation does not silently infer a legal form, size class, accounting policy, inventory/asset applicability, note disclosure, representative roster, or mapping.
 
 This rule profile does not automate tax-balance reconciliation, e-balance filing, Unternehmensregister transmission, legal advice, statutory audit work, consolidation, sector forms, or facts outside the initial scope. `READY_TO_LOCK` records that the configured controls for the supported profile passed; it is not a legal-compliance certificate and does not replace management, tax-adviser, auditor, or legal review where applicable.
+
+## UG statutory reserve and result appropriation
+
+Where GmbHG § 5a remains applicable, the workpaper explicitly identifies share capital, prior profit or loss carryforward, prior statutory reserve, current annual result, reserve allocation and remaining carryforward. The required allocation is one quarter of the positive annual result after deducting prior loss carryforward. Prior profit is not part of that reserve base; loss or zero-result years create no allocation. The product rounds a fractional cent upward to avoid under-allocation; this is an explicit product convention, not a rounding rule stated in the statute. Applicability is documented separately, including any capital increase under [GmbHG § 5a(5)](https://www.gesetze-im-internet.de/gmbhg/__5a.html).
+
+The supported workflow carries the remaining result forward. Distributions and reserve releases are unsupported and blocked; it does not automate the capital-maintenance assessment for distributions. A positive reserve allocation requires a reviewed, evidenced adjustment debiting the carryforward account and crediting a separate statutory reserve account. The annual package reconciles the declared prior carryforward, capital and reserve against both years' ledger balances and the posted adjustment. Missing evidence or a one-cent difference blocks preparation.
+
+The SMALL balance sheet presents the remaining Bilanzgewinn/Bilanzverlust after partial appropriation with the included prior carryforward explained, in accordance with [HGB § 268(1)](https://www.gesetze-im-internet.de/hgb/__268.html). MICRO retains aggregate equity. The income statement continues to show the full annual result; the package retains the appropriation amounts and evidence references.
+
+See [the isolated synthetic acceptance fixture](ug-2026-close-fixture.md) for reproducible verification and its limits.

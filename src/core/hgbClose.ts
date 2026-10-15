@@ -1,3 +1,5 @@
+import { reviewMatchesPolicy, type HgbReviewPolicy } from './hgbReviewPolicy'
+
 export const HGB_RULE_SET_2024 = 'HGB-DE-2024.1' as const
 
 export type SupportedHgbLegalForm = 'GMBH' | 'UG'
@@ -55,10 +57,13 @@ export interface HgbWorkpaperEvidence {
   reviewedBy: string
   reviewedAt: string
   reason?: string
+  reviewMode?: string
+  reviewPolicyId?: string | null
   section5aReserveApplicable?: boolean
 }
 
 export interface HgbCloseReadinessInput {
+  reviewPolicy?: HgbReviewPolicy | null
   profile: HgbCloseProfile
   workpapers: readonly HgbWorkpaperEvidence[]
   annualAccountsPackageId?: string
@@ -149,14 +154,6 @@ export function classifyHgbSize(profile: HgbCloseProfile): SupportedHgbSize | un
 
 function add(blockers: HgbCloseBlocker[], code: string, message: string, legalAuthority: string) { blockers.push({ code, message, authority: legalAuthority }) }
 function hasEvidence(workpaper: HgbWorkpaperEvidence) { return Array.isArray(workpaper.evidenceIds) && workpaper.evidenceIds.length > 0 && workpaper.evidenceIds.every(id => typeof id === 'string' && Boolean(id.trim())) }
-function validReview(workpaper: HgbWorkpaperEvidence) {
-  return Boolean(typeof workpaper.preparedBy === 'string' && workpaper.preparedBy.trim()
-    && typeof workpaper.reviewedBy === 'string' && workpaper.reviewedBy.trim()
-    && workpaper.preparedBy !== workpaper.reviewedBy
-    && typeof workpaper.reviewedAt === 'string' && realDate(workpaper.reviewedAt.slice(0, 10))
-    && Number.isFinite(Date.parse(workpaper.reviewedAt)))
-}
-
 export function evaluateHgbClose(input: HgbCloseReadinessInput): HgbCloseReadiness {
   const blockers: HgbCloseBlocker[] = []
   const profile = input.profile
@@ -166,6 +163,7 @@ export function evaluateHgbClose(input: HgbCloseReadinessInput): HgbCloseReadine
   if (!['GMBH', 'UG'].includes(profile.legalForm) || !profile.germanRegisteredEntity || profile.groupStatus !== 'STANDALONE_NO_EXEMPTION' || profile.publicInterestEntity !== false || profile.capitalMarketOrListed !== false || profile.regulatedIndustry !== false || profile.liquidationOrInsolvencyBasis !== false || profile.goingConcern !== true || profile.formedOrConvertedInCurrentPeriod !== false || profile.legalForm === 'GMBH' && profile.section5aApplies !== false) add(blockers, 'ENTITY_SCOPE_UNSUPPORTED', 'The initial HGB close scope is limited to standalone, German, non-PIE, unlisted and unregulated GmbH/UG entities on a going-concern basis, excluding formation and conversion periods.', authority.scope)
   if (!isTwelveMonthPeriod(profile.fiscalPeriodStart, profile.fiscalPeriodEnd) || profile.fiscalPeriodStart < '2024-01-01' || profile.fiscalPeriodStart > '2026-08-03') add(blockers, 'PERIOD_SCOPE_UNSUPPORTED', 'A twelve-month fiscal period beginning from 2024-01-01 through the rule set validation date 2026-08-03 is required.', authority.period)
   const size = classifyHgbSize(profile)
+  if (input.reviewPolicy?.mode === 'OWNER_SELF_REVIEW' && (profile.legalForm !== 'UG' || !size)) add(blockers, 'OWNER_REVIEW_INELIGIBLE', 'Owner self-review requires an eligible MICRO/SMALL UG.', authority.scope)
   if (!size) add(blockers, 'SIZE_UNDETERMINED_OR_UNSUPPORTED', 'Current and prior 2-of-3 size facts and the established prior classification are required; medium and large entities are not supported.', authority.size)
   if (typeof profile.hasInventory !== 'boolean') add(blockers, 'INVENTORY_APPLICABILITY_UNKNOWN', 'Inventory applicability must be explicitly determined.', authority.inventory)
   if (typeof profile.hasFixedAssets !== 'boolean') add(blockers, 'FIXED_ASSET_APPLICABILITY_UNKNOWN', 'Fixed-asset applicability must be explicitly determined.', authority.valuation)
@@ -191,7 +189,7 @@ export function evaluateHgbClose(input: HgbCloseReadinessInput): HgbCloseReadine
     if (workpaper.conclusion === 'UNSUPPORTED_COMPLEX_FACTS') add(blockers, 'COMPLEX_FACTS_UNSUPPORTED', `${kind} identified facts outside the implemented close scope.`, authority.scope)
     if (workpaper.conclusion !== 'COMPLETE') add(blockers, 'REQUIRED_WORKPAPER_INCOMPLETE', `${kind} must have a COMPLETE conclusion.`, authority.recognition)
     if (!hasEvidence(workpaper)) add(blockers, 'WORKPAPER_EVIDENCE_MISSING', `${kind} requires retained evidence references.`, authority.recognition)
-    if (!validReview(workpaper)) add(blockers, 'WORKPAPER_REVIEW_INVALID', `${kind} requires a dated review by a person distinct from its preparer.`, authority.statements)
+    if (!reviewMatchesPolicy({ ...workpaper, reviewReason: workpaper.reason }, input.reviewPolicy)) add(blockers, 'WORKPAPER_REVIEW_INVALID', `${kind} requires a dated review under the current policy, with explicit reason for owner self-review.`, 'Product review policy; HGB §§ 238, 239')
   }
   const equityWorkpaper = (byKind.get('GMBH_EQUITY_AND_RESULT') ?? [])[0]
   if (equityWorkpaper && (typeof equityWorkpaper.section5aReserveApplicable !== 'boolean' || equityWorkpaper.section5aReserveApplicable !== profile.section5aApplies)) {
@@ -200,6 +198,7 @@ export function evaluateHgbClose(input: HgbCloseReadinessInput): HgbCloseReadine
   if (!input.annualAccountsPackageId?.trim() || !/^[a-f0-9]{64}$/i.test(input.annualAccountsChecksum ?? '')) add(blockers, 'ANNUAL_ACCOUNTS_PACKAGE_MISSING', 'A validated immutable annual-accounts package and checksum are required.', authority.statements)
   if (!/^[a-f0-9]{64}$/i.test(input.ledgerFingerprint ?? '')) add(blockers, 'LEDGER_FINGERPRINT_MISSING', 'The approved close must be bound to the current ledger, mappings, profile, and evidence fingerprint.', authority.statements)
   const representatives = input.legalRepresentativeIds
+  if (input.reviewPolicy?.mode === 'OWNER_SELF_REVIEW' && (representatives?.length !== 1 || representatives[0] !== input.reviewPolicy.ownerId)) add(blockers, 'OWNER_SIGNATURE_IDENTITY_MISMATCH', 'Owner self-review requires the sole owner/managing director as the sole signing representative.', authority.approval)
   const signatures = input.managingDirectorSignatures
   if (!Array.isArray(representatives) || !representatives.length || representatives.some(id => typeof id !== 'string' || !id.trim()) || new Set(representatives).size !== representatives.length
     || !Array.isArray(signatures) || signatures.length !== representatives.length || signatures.some(signature => !signature || typeof signature.representativeId !== 'string' || !representatives.includes(signature.representativeId) || typeof signature.signatureEvidenceId !== 'string' || !signature.signatureEvidenceId.trim() || typeof signature.signedAt !== 'string' || !Number.isFinite(Date.parse(signature.signedAt))) || new Set(signatures.map(signature => signature.representativeId)).size !== representatives.length) add(blockers, 'MANAGEMENT_SIGNATURES_MISSING', 'Every legal representative must provide dated signature evidence before establishment.', authority.approval)

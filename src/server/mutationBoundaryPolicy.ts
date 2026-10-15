@@ -45,6 +45,7 @@ export const apiMutationBoundaryPolicy = {
   '/api/fiscal-years/[year]/e-balance#POST': 'write',
   '/api/fiscal-years/[year]/hgb-close/mappings#POST': 'write',
   '/api/fiscal-years/[year]/hgb-close/profile#POST': 'write',
+  '/api/fiscal-years/[year]/hgb-close/review-policy#PUT': 'manage_access',
   '/api/fiscal-years/[year]/hgb-close/workpapers/[id]/adjustments/[proposalId]/post#POST': 'write',
   '/api/fiscal-years/[year]/hgb-close/workpapers/[id]/prepare#POST': 'write',
   '/api/fiscal-years/[year]/hgb-close/workpapers/[id]/review#POST': 'write',

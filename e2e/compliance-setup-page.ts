@@ -49,13 +49,14 @@ export class ComplianceSetupPage {
     await expect(periodRow).toBeVisible()
   }
 
-  async onboardHistoricalHgb(years: number[], evidenceId: string) {
+  async onboardHistoricalHgb(years: number[], evidenceId: string, ugEquity = false) {
     await this.waitReady()
     const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Chart and mapping lifecycle' }) })
     const mappings = [
       { accountNumber: 1200, name: 'Bank', accountType: 'ASSET', normalBalance: 'DEBIT', presentationSign: 1, hgbPosition: 'BS.A.B', eBilanzPosition: 'bs.ass.currAss.cashEquiv.bank', evidenceId },
       { accountNumber: 8400, name: 'Revenue', accountType: 'REVENUE', normalBalance: 'CREDIT', presentationSign: 1, hgbPosition: 'IS.M.1', eBilanzPosition: 'is.netIncome.regular.operatingTC.grossTradingProfit.totalOutput', evidenceId },
     ]
+    if (ugEquity) for (const accountNumber of [2900, 2991, 2992]) mappings.push({ accountNumber, name: `Synthetic equity ${accountNumber}`, accountType: 'EQUITY', normalBalance: 'CREDIT', presentationSign: 1, hgbPosition: 'BS.P.A', eBilanzPosition: 'bs.eqLiab.equity', evidenceId })
     await section.getByLabel('Custom chart ID').fill('CUSTOM:HGB-MICRO')
     await section.getByLabel('Effective account mappings (JSON)').fill(JSON.stringify(mappings, null, 2))
     const historical = section.locator('fieldset').filter({ hasText: 'Evidence-qualified historical HGB onboarding' })
@@ -99,9 +100,10 @@ export class ComplianceSetupPage {
     const section = this.page.locator('fieldset').filter({ hasText: 'Prepare annual-accounts package' })
     await section.getByLabel('Fiscal period').selectOption(periodId)
     await section.getByLabel('Preparation reason').fill('Generate reviewed HGB annual accounts')
-    const created = this.page.waitForResponse(response => response.url().endsWith('/api/compliance') && response.request().method() === 'POST' && response.ok())
+    const created = this.page.waitForResponse(response => response.url().endsWith('/api/compliance') && response.request().method() === 'POST')
     await section.getByRole('button', { name: 'Prepare annual accounts' }).click()
-    const body = await (await created).json()
+    const response = await created; const body = await response.json()
+    expect(response.ok(), JSON.stringify(body)).toBe(true)
     await expect(this.page.getByRole('status')).toContainText('annual-accounts package was prepared')
     const packageId = (body.data ?? body).id as string
     await expect(this.page.getByLabel('Prepared annual-accounts package').locator(`option[value="${packageId}"]`)).toHaveCount(1)
@@ -109,11 +111,11 @@ export class ComplianceSetupPage {
   }
 
   async approveAnnualAccounts(packageId: string) {
-    const section = this.page.locator('fieldset').filter({ hasText: 'Independent annual-accounts approval' })
+    const section = this.page.locator('fieldset').filter({ hasText: 'Annual-accounts approval' })
     await section.getByLabel('Prepared annual-accounts package').selectOption(packageId)
-    await section.getByLabel('Approval reason').fill('Independent annual accounts approval')
-    await section.getByRole('button', { name: 'Approve annual accounts independently' }).click()
-    await expect(this.page.getByRole('status')).toContainText('annual-accounts package was independently approved')
+    await section.getByLabel('Approval reason').fill('Annual accounts personally checked under the recorded review policy')
+    await section.getByRole('button', { name: 'Approve annual accounts under review policy' }).click()
+    await expect(this.page.getByRole('status')).toContainText('annual-accounts package was approved under the recorded review policy')
   }
 
   async saveAuthoritativeCityChange(input: { city: string; effectiveFrom: string }) {

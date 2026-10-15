@@ -2,10 +2,12 @@ import { describe, expect, test, vi } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
-import { evaluationInput, HgbCloseWorkbench, initialHgbProfile, newHgbWorkpaper, profileIsExplicit, structuredItemTemplate } from './HgbCloseWorkbench'
-import type { HgbCloseApi } from './hgbCloseClient'
+import { evaluationInput, HgbCloseWorkbench, initialHgbProfile, newHgbWorkpaper, profileIsExplicit, reloadedHgbDraft, savedHgbProfile, structuredItemTemplate } from './HgbCloseWorkbench'
+import type { HgbCloseApi, HgbWorkpaperCollection } from './hgbCloseClient'
+import { canSaveReviewPolicy, initialReviewPolicyChoice } from './HgbReviewPolicyPanel'
 
 vi.mock('next-intl', () => ({
+  useLocale: () => 'en',
   useTranslations: (namespace: string) => {
     const source = JSON.parse(readFileSync('messages/en.json', 'utf8')) as Record<string, unknown>
     const values = source[namespace] as Record<string, unknown>
@@ -15,6 +17,44 @@ vi.mock('next-intl', () => ({
 }))
 
 describe('guided HGB close workbench', () => {
+  test('Given workpapers are still loading, when the initial editor is rendered, then workpaper selection is disabled until the retained records are available', () => {
+    const markup = renderToStaticMarkup(createElement(HgbCloseWorkbench, { year: 2026, api: {} as HgbCloseApi }))
+    const selector = markup.match(/Workpaper type<select\b[^>]*>/)?.[0]
+    expect(selector).toBeDefined()
+    expect(selector).toContain('disabled=""')
+    expect(markup).toContain('aria-busy="true"')
+  })
+  test('Given selected equity work, when a mutation refreshes the collection, then the editor retains that kind and hydrates its own saved content', () => {
+    const current = newHgbWorkpaper('GMBH_EQUITY_AND_RESULT', 2026)
+    const equity = { ...current, title: 'Reviewed UG equity' }
+    const size = newHgbWorkpaper('SIZE_AND_APPLICABILITY', 2026)
+    const collection = { workpapers: [{ kind: size.kind, payload: size }, { kind: equity.kind, payload: equity }] } as HgbWorkpaperCollection
+    const reloaded = reloadedHgbDraft(current, collection)
+    expect(reloaded).toEqual(equity)
+    reloaded.title = 'Next draft'
+    expect(equity.title).toBe('Reviewed UG equity')
+    expect(reloadedHgbDraft(current, { workpapers: [] } as unknown as HgbWorkpaperCollection)).toEqual(current)
+  })
+  test('Given a persisted owner policy, when the form opens, then it preserves the selection and requires a meaningful change before saving', () => {
+    const policy = { mode: 'OWNER_SELF_REVIEW' as const, reason: 'Owner evidence checked', evidenceIds: ['register', 'articles'], soleShareholderManagingDirector: true, noAdditionalReviewRequirement: true }
+    const choice = initialReviewPolicyChoice(policy)
+    expect(choice.mode).toBe('OWNER_SELF_REVIEW')
+    expect(canSaveReviewPolicy(choice, policy)).toBe(false)
+    expect(canSaveReviewPolicy({ ...choice, reason: ` ${choice.reason} `, evidenceIds: ['articles', 'register', 'register'] }, policy)).toBe(false)
+    expect(canSaveReviewPolicy({ ...choice, reason: 'New evidence checked' }, policy)).toBe(true)
+    expect(canSaveReviewPolicy(choice, policy, false)).toBe(true)
+    expect(canSaveReviewPolicy({ ...choice, reason: '' }, policy, false)).toBe(false)
+    choice.evidenceIds.push('new')
+    expect(policy.evidenceIds).toHaveLength(2)
+  })
+  test('Given retained size facts, when reopening the workbench, then the editable profile preserves those facts without mutating the retained record', () => {
+    const draft = newHgbWorkpaper('SIZE_AND_APPLICABILITY', 2026)
+    const collection = { workpapers: [{ kind: draft.kind, payload: draft }] } as HgbWorkpaperCollection
+    const restored = savedHgbProfile(collection)!
+    expect(restored.fiscalPeriodStart).toBe('2026-01-01')
+    restored.legalForm = 'UG'
+    expect(savedHgbProfile(collection)?.legalForm).toBe('')
+  })
   test('fails closed until every scope and applicability fact is answered', () => {
     const profile = initialHgbProfile(2026)
     expect(profileIsExplicit(profile)).toBe(false)

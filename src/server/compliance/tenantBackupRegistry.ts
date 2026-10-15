@@ -45,6 +45,7 @@ export const tenantBackupRegistry = [
   collection('LexwareAnnualVatField', 'lexwareAnnualVatField', 'lexwareAnnualVatFields', 10),
   collection('FiscalYear', 'fiscalYear', 'periods', 10),
   collection('HgbWorkpaperRecord', 'hgbWorkpaperRecord', 'hgbWorkpapers', 10),
+  collection('HgbReviewPolicyRecord', 'hgbReviewPolicyRecord', 'hgbReviewPolicies', 10),
   collection('HgbAdjustmentRecord', 'hgbAdjustmentRecord', 'hgbAdjustments', 10),
   collection('JournalDraft', 'journalDraft', 'drafts', 10),
   collection('PeriodReopenRequest', 'periodReopenRequest', 'reopenRequests', 10),
