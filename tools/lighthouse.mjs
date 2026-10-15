@@ -29,9 +29,8 @@ export function lighthouseEnvironment(fixtureDirectory, env = process.env, cwd =
   if (isProtectedDatabasePath(databasePath, { cwd, env })) throw new Error('Lighthouse cannot use the company database.')
   const port = lighthousePort(env)
   return {
-    // Ignore LHCI environment overrides so collect cannot target a different app
-    // or upload reports to an external service.
-    ...Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('LHCI_'))),
+    // Keep the checked-in target/upload settings and always collect real reports.
+    ...Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('LHCI_') && !key.startsWith('LHCITEST_'))),
     NODE_ENV: 'production',
     DATABASE_URL: databaseUrlForPath(databasePath, cwd),
     DISPOSABLE_DATABASE: 'true',

@@ -1,6 +1,6 @@
 # Development
 
-Requirements: Node.js 22.13 or newer and pnpm 10.28.1.
+Requirements: Node.js 22.13 or newer and pnpm 11.16.0.
 
 ```sh
 pnpm install

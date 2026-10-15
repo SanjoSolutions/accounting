@@ -36,13 +36,14 @@ describe('isolated Lighthouse QA', () => {
       DATABASE_URL: 'file:./accounting.db', DOCUMENT_STORAGE_DRIVER: 's3', DOCUMENT_STORAGE_ROOT: './storage',
       AUTH_MODE: 'credentials', PORT: '3000', LHCI_COLLECT__URL: 'http://localhost:3000',
       LHCI_UPLOAD__TARGET: 'temporary-public-storage',
+      LHCITEST_MOCK_LHR: '{"categories":{"performance":{"score":1}}}',
     }, cwd)
     expect(env).toMatchObject({
       DATABASE_URL: 'file:./.playwright/lighthouse-fixture/lighthouse.db',
       DOCUMENT_STORAGE_DRIVER: 'fs', DOCUMENT_STORAGE_ROOT: path.join(fixture, 'documents'),
       AUTH_MODE: 'none', APP_BIND_HOST: '127.0.0.1', PORT: '3234', NODE_ENV: 'production', DISPOSABLE_DATABASE: 'true',
     })
-    expect(Object.keys(env).filter(key => key.startsWith('LHCI_'))).toEqual([])
+    expect(Object.keys(env).filter(key => key.startsWith('LHCI_') || key.startsWith('LHCITEST_'))).toEqual([])
     expect(() => lighthouseEnvironment(cwd, {}, cwd)).toThrow(/fresh .playwright/)
     expect(() => lighthouseEnvironment(fixture, { COMPANY_DATABASE_FILE: path.join(fixture, 'lighthouse.db') }, cwd)).toThrow(/company database/)
   })
