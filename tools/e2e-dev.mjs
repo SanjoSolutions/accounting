@@ -13,6 +13,7 @@ const modes = {
   roles: { defaultDatabase: 'roles-playwright.db', port: '3120' },
   'external-ebilanz': { defaultDatabase: 'external-playwright.db', port: '3112' },
   'annual-documents': { defaultDatabase: 'annual-documents-playwright.db', port: '3113' },
+  'ebilanz-lifecycle': { defaultDatabase: 'issue19-playwright.db', port: '3219' },
 }
 const selected = modes[mode]
 if (!selected) throw new Error(`Unknown E2E mode: ${mode}`)

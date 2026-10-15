@@ -1,4 +1,14 @@
 {
+  "EBalanceReportReview": {
+    "download": "Download version {version}",
+    "boundary": "Local report review only. Official validation and transmission are separate.",
+    "reason": "Review note",
+    "confirm": "I have reviewed version {version} and the checksum shown above.",
+    "approve": "Approve report",
+    "saving": "Saving approval…",
+    "approved": "Local review recorded.",
+    "failed": "Approval could not be saved."
+  },
   "Metadata": {
     "title": "Accounting",
     "description": "Accounting application"

@@ -17,7 +17,8 @@ import {
 } from '@/core/doubleEntry'
 import { type EBalanceMasterData } from '@/core/eBilanz'
 import { createEBalancePackage } from '@/core/eBilanzPackage'
-import { assertCurrentEBalanceExport, prepareAuthoritativeEBalanceExport, serializePreparedEBalanceEvidence } from './compliance/eBilanzExportRepository'
+import { assertCurrentEBalanceExport, prepareAuthoritativeEBalanceExport } from './compliance/eBilanzExportRepository'
+import { retainEBalanceReport } from './compliance/eBilanzReportStore'
 import { createElsterEBalanceEnvelope } from '@/core/elsterEnvelope'
 import type { Prisma } from '@/generated/prisma/client'
 import { createEricTicket, EricProcessingError, getEricConfiguration, hashEricRequest, runEric } from './eric'
@@ -793,11 +794,7 @@ export async function exportEBalance(ownerId: string, year: number, masterData: 
       const latest = await transaction.retainedArtifact.findFirst({ where: { ownerId, objectType: 'TaxExport', objectId }, orderBy: { version: 'desc' } })
       const artifact = await transaction.retainedArtifact.create({ data: { ownerId, objectType: 'TaxExport', objectId, version: (latest?.version ?? 0) + 1, retentionClass: 'TAX_RECORD', contentHash: sha256(archive), provenance: 'authenticated E-Bilanz export', storageKey, periodEndsAt: fiscalYear.endsAt, retainUntil: new Date(`${deadline.retainUntil}T23:59:59.999Z`) } })
       const reportChecksum = sha256(xml)
-      let report = await transaction.eBalanceLifecycleReport.findFirst({ where: { ownerId, fiscalYearId: fiscalYear.id, closeGenerationId: currentCloseGeneration.id, reportChecksum } })
-      if (!report) {
-        const latestReport = await transaction.eBalanceLifecycleReport.findFirst({ where: { ownerId, fiscalYearId: fiscalYear.id }, orderBy: { version: 'desc' } })
-        report = await transaction.eBalanceLifecycleReport.create({ data: { id: exportId, ownerId, fiscalYearId: fiscalYear.id, closeGenerationId: currentCloseGeneration.id, version: (latestReport?.version ?? 0) + 1, status: 'EXPORTED', taxonomyVersion: dataset.taxonomy.version, profileSnapshot: JSON.stringify(dataset.company), reportPayload: serializePreparedEBalanceEvidence(prepared), reportXml: xml, reportChecksum, storageKey, supersedesId: latestReport?.id ?? null, createdBy: ownerId } })
-      }
+      const { report } = await retainEBalanceReport(transaction, { ownerId, actorId: ownerId, id: exportId, prepared, storageKey, storageChecksum: sha256(archive), status: 'EXPORTED', reason: 'Authenticated report export' })
       await appendAuditEvent(transaction, { ownerId, actorId: ownerId, action: 'E_BILANZ_EXPORTED', reason: 'Authenticated report export', objectType: 'TaxExport', objectId, after: { artifactId: artifact.id, contentHash: artifact.contentHash, storageKey, lifecycleReportId: report.id, reportChecksum, closeGenerationId: currentCloseGeneration.id } })
     })
   } catch (error) {
