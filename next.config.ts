@@ -30,7 +30,7 @@ export const nextConfig: NextConfig = {
     silenceDeprecations: ['color-functions', 'global-builtin', 'if-function', 'import'],
   },
   // Native dependencies used by storage and the isolated thumbnail worker.
-  serverExternalPackages: ['@napi-rs/canvas', 'opendal', 'pdfjs-dist'],
+  serverExternalPackages: ['@napi-rs/canvas', 'opendal', 'pdfjs-dist', 'libxml2-wasm'],
   outputFileTracingIncludes: {
     '/api/documents': ['./src/server/documentThumbnailWorker.mjs'],
   },
