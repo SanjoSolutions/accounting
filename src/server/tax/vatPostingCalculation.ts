@@ -7,8 +7,10 @@ import {
   type VatSourceSplit,
 } from '@/core/vatEngine'
 import { prisma } from '@/server/persistence/client'
+import { assertVatRegimeRule, smallBusinessVatRules } from '@/core/smallBusinessVat'
+import { companyVatRegimeAt } from './companyVatProfile'
 
-export const germanVatRuleBook = createConfiguredVatRuleBook(representativeGermanVatRules, 'german-vat-rules:2026.1')
+export const germanVatRuleBook = createConfiguredVatRuleBook([...representativeGermanVatRules, ...smallBusinessVatRules(representativeGermanVatRules)], 'german-vat-rules:2026.2')
 
 export type VatReversalContext = {
   registry: ReturnType<typeof createConfiguredVatReversalStore>
@@ -76,6 +78,7 @@ export async function withCalculatedOriginalVatPostings<T>(
     context.pending = new Set()
     try {
       if (splits.some(split => split.ownerId !== ownerId || split.reversalOf)) throw new Error('Atomic journal VAT preparation accepts only original postings for the same tenant.')
+      for (const split of splits) assertVatRegimeRule(await companyVatRegimeAt(ownerId, split.taxPoint), split)
       const details = calculateMixedVat(splits, germanVatRuleBook, [], context.registry)
       const markers = [...context.pending]
       const result = await persist(details, markers)

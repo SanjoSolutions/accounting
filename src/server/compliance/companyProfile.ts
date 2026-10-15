@@ -223,7 +223,7 @@ export function profileAt(versions: ProfileVersion[], ownerId: string, date: str
 export function deriveReportApplicability(profile: CompanyProfile): Record<ReportKind, { applicable: boolean; basis: string; overridden: boolean }> {
   const derived: Record<ReportKind, boolean> = {
     VAT_ADVANCE: profile.vatRegime === 'STANDARD' && profile.vatFilingFrequency !== 'ANNUAL',
-    VAT_ANNUAL: profile.vatRegime !== 'EXEMPT',
+    VAT_ANNUAL: profile.vatRegime === 'STANDARD',
     E_BILANZ: !profile.elections.includes('E_BILANZ_EXEMPT'),
     HGB_FINANCIAL_STATEMENTS: !['SOLE_TRADER', 'GBR'].includes(profile.legalForm) || profile.sizeClass !== 'MICRO',
   }

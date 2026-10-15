@@ -1,4 +1,6 @@
-export interface InvoiceFormLine { id: string; description: string; quantity: string; unitCode: string; netAmount: string; taxRate: '19' | '7' }
+import { SMALL_BUSINESS_NOTICE } from './core/smallBusinessVat'
+
+export interface InvoiceFormLine { id: string; description: string; quantity: string; unitCode: string; netAmount: string; taxRate: '19' | '7' | '0' }
 export interface StructuredInvoiceFormValues {
   requestKey: string; issueDate: string; supplyDate: string
   buyerReference: string
@@ -18,9 +20,11 @@ export function euroToCents(value: string): number {
 
 export function calculateInvoiceTotals(lines: readonly Pick<InvoiceFormLine, 'netAmount' | 'taxRate'>[]) {
   if (!lines.length) throw new Error('At least one invoice line is required.')
+  if (lines.some(line => line.taxRate === '0') && lines.some(line => line.taxRate !== '0')) throw new Error('Kleinunternehmer and taxable lines cannot be combined.')
   const grouped = new Map<number, number>()
   for (const line of lines) {
     const net = euroToCents(line.netAmount)
+    if (!['0', '7', '19'].includes(line.taxRate)) throw new Error('Choose 7%, 19% or the Kleinunternehmer exemption.')
     const rate = Number(line.taxRate) * 100
     const total = (grouped.get(rate) ?? 0) + net
     if (!Number.isSafeInteger(total)) throw new Error('Invoice total exceeds safe cent precision.')
@@ -52,13 +56,13 @@ export function buildStructuredInvoiceRequest(values: StructuredInvoiceFormValue
   const lines = values.lines.map((line, index) => {
     const quantity = Number(line.quantity.replace(',', '.'))
     if (!Number.isFinite(quantity) || quantity <= 0) throw new Error(`Quantity row ${index + 1} must be positive.`)
-    return { description: required(line.description, `Description row ${index + 1}`), quantity, unitCode: required(line.unitCode, `Unit row ${index + 1}`).toUpperCase(), netAmountCents: euroToCents(line.netAmount), taxRateBasisPoints: Number(line.taxRate) * 100, taxCategoryCode: 'S' }
+    return { description: required(line.description, `Description row ${index + 1}`), quantity, unitCode: required(line.unitCode, `Unit row ${index + 1}`).toUpperCase(), netAmountCents: euroToCents(line.netAmount), taxRateBasisPoints: Number(line.taxRate) * 100, taxCategoryCode: line.taxRate === '0' ? 'E' : 'S', ...(line.taxRate === '0' ? { exemptionReason: SMALL_BUSINESS_NOTICE } : {}) }
   })
   const totals = calculateInvoiceTotals(values.lines)
   return {
     requestKey: values.requestKey, kind: 'invoice' as const, issueDate: isoDate(values.issueDate, 'Issue date'), supplyDate: isoDate(values.supplyDate, 'Supply date'), buyerReference: required(values.buyerReference, 'Buyer reference'),
     buyerElectronicAddress: { schemeId: values.buyerElectronicAddressScheme, value: required(values.buyerElectronicAddress, 'Buyer electronic address') },
     buyer: { name: required(values.buyerName, 'Buyer name'), street: required(values.buyerStreet, 'Buyer street'), postalCode: required(values.buyerPostalCode, 'Buyer postal code'), city: required(values.buyerCity, 'Buyer city'), countryCode: required(values.buyerCountry, 'Buyer country').toUpperCase(), ...(values.buyerVatId?.trim() ? { vatId: values.buyerVatId.trim().toUpperCase() } : {}) },
-    lines, ...totals, currency: 'EUR', paymentTerms: required(values.paymentTerms ?? '', 'Payment terms'), paymentIban,
+    lines, ...totals, ...(values.lines.every(line => line.taxRate === '0') ? { exemptionReason: SMALL_BUSINESS_NOTICE } : {}), currency: 'EUR', paymentTerms: required(values.paymentTerms ?? '', 'Payment terms'), paymentIban,
   }
 }
