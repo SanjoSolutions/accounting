@@ -307,7 +307,7 @@ export async function issueStructuredInvoice(ownerId: string, input: StructuredI
   })
 }
 
-export async function correctStructuredInvoice(ownerId: string, targetId: string, input: Omit<StructuredInvoiceInput, 'kind' | 'correctedInvoiceNumber'> & { kind: Exclude<InvoiceDocumentKind, 'invoice'> }, requestKey: string) {
+export async function correctStructuredInvoice(ownerId: string, actorId: string, targetId: string, input: Omit<StructuredInvoiceInput, 'kind' | 'correctedInvoiceNumber'> & { kind: Exclude<InvoiceDocumentKind, 'invoice'> }, requestKey: string) {
   if (!['credit-note', 'cancellation'].includes(input?.kind)) throw new EInvoiceValidationError(['Only domestic EUR credit notes and full cancellations are supported; replacement correction semantics are rejected.'])
   const target = await prisma.structuredInvoice.findFirst({ where: { ownerId, id: targetId, direction: 'OUTGOING', kind: 'invoice' }, select: { invoiceNumber: true } })
   if (!target) throw new EInvoiceValidationError(['The corrected outgoing invoice does not belong to this tenant.'])
@@ -318,7 +318,7 @@ export async function correctStructuredInvoice(ownerId: string, targetId: string
     try { return await storeStructuredInvoice(ownerId, prepared.invoice, `${prepared.invoiceNumber}.xml`, targetId, 'OUTGOING', prepared.reservationId, issuanceRequestId) }
     catch (error) { await voidInvoiceNumber(ownerId, prepared.reservationId, error); throw error }
   })
-  try { await registerOutgoingStructuredCorrection(ownerId, ownerId, issued.id, requestKey) } catch (error) { if (error instanceof CommercialAccountingError) throw new EInvoiceValidationError([error.message]); throw error }
+  try { await registerOutgoingStructuredCorrection(ownerId, actorId, issued.id, requestKey) } catch (error) { if (error instanceof CommercialAccountingError) throw new EInvoiceValidationError([error.message]); throw error }
   return issued
 }
 

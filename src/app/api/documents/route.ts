@@ -41,7 +41,7 @@ export async function POST(request: Request) {
       content,
       contentType,
       fileName,
-    }, user.id)
+    }, user.id, user.actorId)
     return Response.json({ success: true, data: document }, { status: 201 })
   } catch (error) {
     if (error instanceof DocumentUploadError || error instanceof EInvoiceValidationError) {

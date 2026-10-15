@@ -10,7 +10,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ yea
   const forbidden = forbiddenUnless(user, 'write'); if (forbidden) return forbidden
   const year = Number((await params).year)
   try {
-    return Response.json(await closeFiscalYear(user.id, year))
+    return Response.json(await closeFiscalYear(user.id, user.actorId, year))
   } catch (error) {
     if (error instanceof AccountingValidationError) {
       return Response.json({ success: false, issues: error.issues }, { status: 400 })

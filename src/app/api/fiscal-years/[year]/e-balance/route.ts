@@ -25,7 +25,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ yea
   try {
     const body: unknown = await request.json()
     const masterData = parseEBalanceMasterData(body)
-    const archive = await exportEBalance(user.id, year, masterData)
+    const archive = await exportEBalance(user.id, user.actorId, year, masterData)
     return new Response(Buffer.from(archive), {
       headers: {
         'content-type': 'application/zip',

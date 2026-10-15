@@ -57,7 +57,7 @@ describe('document thumbnail lifecycle', () => {
   })
 
   it('stores one generated thumbnail and returns only its authenticated URL', async () => {
-    const document = await createDocument(pdfInput(), 'owner-1')
+    const document = await createDocument(pdfInput(), 'owner-1', 'owner-1')
 
     expect(mocks.generateDocumentThumbnail).toHaveBeenCalledOnce()
     expect(mocks.write).toHaveBeenCalledTimes(2)
@@ -82,7 +82,7 @@ describe('document thumbnail lifecycle', () => {
   it('keeps a valid upload when thumbnail generation is unavailable', async () => {
     mocks.generateDocumentThumbnail.mockRejectedValueOnce(new Error('renderer unavailable'))
 
-    const document = await createDocument(pdfInput(), 'owner-1')
+    const document = await createDocument(pdfInput(), 'owner-1', 'owner-1')
 
     expect(document.thumbnailUrl).toBeUndefined()
     expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ thumbnailStorageKey: undefined }))
@@ -90,8 +90,8 @@ describe('document thumbnail lifecycle', () => {
   })
 
   it('assigns a unique ID filename to every upload while preserving its original display name', async () => {
-    await createDocument(pdfInput(), 'owner-1')
-    await createDocument(pdfInput(), 'owner-1')
+    await createDocument(pdfInput(), 'owner-1', 'owner-1')
+    await createDocument(pdfInput(), 'owner-1', 'owner-1')
 
     const [first, second] = mocks.save.mock.calls.map(call => call[0] as Document)
     expect(first.id).not.toBe(second.id)
@@ -106,7 +106,7 @@ describe('document thumbnail lifecycle', () => {
       content: Buffer.from('<?xml version="1.0"?><BkToCstmrStmt />'),
       contentType: 'application/xml',
       fileName: 'wise-camt.xml',
-    }, 'owner-1')
+    }, 'owner-1', 'owner-1')
 
     const storedDocument = mocks.save.mock.calls[0][0] as Document
     expect(mocks.generateDocumentThumbnail).not.toHaveBeenCalled()
@@ -118,14 +118,14 @@ describe('document thumbnail lifecycle', () => {
   })
 
   test('rejects mislabeled or malformed XML evidence', async () => {
-    await expect(createDocument({ content: Buffer.from('not XML'), contentType: 'application/xml', fileName: 'statement.xml' }, 'owner-1')).rejects.toThrow(/valid XML/)
-    await expect(createDocument({ content: Buffer.from('<root />'), contentType: 'text/plain', fileName: 'statement.xml' }, 'owner-1')).rejects.toThrow(/PDF and XML/)
+    await expect(createDocument({ content: Buffer.from('not XML'), contentType: 'application/xml', fileName: 'statement.xml' }, 'owner-1', 'owner-1')).rejects.toThrow(/valid XML/)
+    await expect(createDocument({ content: Buffer.from('<root />'), contentType: 'text/plain', fileName: 'statement.xml' }, 'owner-1', 'owner-1')).rejects.toThrow(/PDF and XML/)
     expect(mocks.write).not.toHaveBeenCalled()
   })
 
   it('uses a conservative next-year retention boundary before fiscal-period assignment', async () => {
     mocks.fiscalPeriod.mockResolvedValueOnce(null)
-    await createDocument(pdfInput(), 'owner-1')
+    await createDocument(pdfInput(), 'owner-1', 'owner-1')
     expect(mocks.registerRetainedArtifact).toHaveBeenCalledWith('owner-1', 'owner-1', expect.objectContaining({ periodEndsAt: `${new Date().getUTCFullYear() + 1}-12-31` }))
   })
 
@@ -153,7 +153,7 @@ describe('document thumbnail lifecycle', () => {
   it('preserves document bytes when retention fails and the persisted row cannot be rolled back', async () => {
     mocks.registerRetainedArtifact.mockRejectedValueOnce(new Error('retention unavailable'))
     mocks.deleteRecord.mockRejectedValueOnce(new Error('database unavailable'))
-    await expect(createDocument(pdfInput(), 'owner-1')).rejects.toThrow(/storage objects were preserved/)
+    await expect(createDocument(pdfInput(), 'owner-1', 'owner-1')).rejects.toThrow(/storage objects were preserved/)
     expect(mocks.delete).not.toHaveBeenCalled()
   })
 })

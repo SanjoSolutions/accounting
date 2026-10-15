@@ -15,6 +15,6 @@ export async function POST(request: Request) {
     if (!body.adjustment) throw new TaxDeclarationError(['Annual tax year and adjustment are required.'])
     const year = parseAnnualTaxYear(body.year)
     const adjustment = parseTaxAdjustmentInput(body.adjustment)
-    return Response.json({ success: true, data: await saveTaxAdjustment(user.id, year, adjustment) }, { status: 201 })
+    return Response.json({ success: true, data: await saveTaxAdjustment(user.id, user.actorId, year, adjustment) }, { status: 201 })
   } catch (error) { return taxError(error) }
 }

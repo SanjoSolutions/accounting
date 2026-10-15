@@ -65,7 +65,7 @@ describe('document upload API', () => {
       content: Buffer.from('%PDF-test'),
       contentType: 'application/pdf',
       fileName: 'invoice 1.pdf',
-    }, 'user-1')
+    }, 'user-1', 'user-1')
   })
 
   it('preserves a validated structured original for the authenticated tenant', async () => {
@@ -91,7 +91,7 @@ describe('document upload API', () => {
     const response = await POST(request)
 
     expect(response.status).toBe(201)
-    expect(mocks.createDocument).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'report.xml', contentType: 'application/xml' }), 'user-1')
+    expect(mocks.createDocument).toHaveBeenCalledWith(expect.objectContaining({ fileName: 'report.xml', contentType: 'application/xml' }), 'user-1', 'user-1')
     expect(mocks.storeStructuredInvoice).not.toHaveBeenCalled()
   })
 

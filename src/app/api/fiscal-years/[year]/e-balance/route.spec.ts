@@ -39,7 +39,7 @@ describe('E-Bilanz export API', () => {
     const response = await POST(request(JSON.stringify(masterData)), { params: Promise.resolve({ year: '2026' }) })
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('application/zip')
-    expect(mocks.exportEBalance).toHaveBeenCalledWith('owner-1', 2026, masterData)
+    expect(mocks.exportEBalance).toHaveBeenCalledWith('owner-1', 'user-1', 2026, masterData)
   })
 
   it('rejects an unsupported legal form', async () => {
