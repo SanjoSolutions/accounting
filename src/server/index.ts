@@ -401,7 +401,7 @@ function validateDocumentFile({ content, contentType, fileName }: DocumentFileIn
 }
 
 function sanitizeFileName(fileName: string, extension: 'pdf' | 'xml'): string {
-  const sanitized = fileName.replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 200)
+  const sanitized = fileName.normalize('NFC').replace(/[^\p{L}\p{M}\p{N}._ -]/gu, '_').slice(0, 200)
   return sanitized.toLowerCase().endsWith(`.${extension}`) ? sanitized : `${ sanitized }.${extension}`
 }
 

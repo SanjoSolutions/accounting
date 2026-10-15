@@ -241,10 +241,28 @@ model DocumentRecord {
   structuredInvoice   StructuredInvoice?
   commercialDocuments CommercialDocument[]
   extraction          DocumentExtraction?
+  searchIndex         DocumentSearchIndex?
 
   @@unique([ownerId, id])
   @@index([ownerId])
   @@index([ownerId, availableForBooking])
+}
+
+model DocumentSearchIndex {
+  documentId   String         @id
+  ownerId      String
+  document     DocumentRecord @relation(fields: [ownerId, documentId], references: [ownerId, id], onDelete: Cascade)
+  status       String
+  text         String         @default("")
+  source       String?
+  inputHash    String?
+  failureCode  String?
+  attemptId    String?
+  leaseUntil   DateTime?
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([ownerId, documentId])
+  @@index([ownerId, status])
 }
 
 model DocumentExtraction {

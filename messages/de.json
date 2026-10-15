@@ -1085,6 +1085,8 @@
     "status": { "DRAFT": "Entwurf" }
   },
   "Workspaces": {
+    "noSearchDocuments": "Keine passenden Belege.",
+    "noAvailableSearchDocuments": "Keine weiteren Belege zur Auswahl verfügbar.",
     "eBalanceExternalSubtitle": "Exportversionen für externe Validierung und Übermittlung.",
     "eBalanceFilingMode": "Abgabeweg",
     "eBalanceExternalMode": "Extern: myebilanz BASIS / CSV",
@@ -1335,5 +1337,27 @@
     "previewTitle": "Vorschau: {name}",
     "recordEvidence": "Externen Nachweis zu Version {version} erfassen",
     "loadingPreview": "Vorschau wird geladen: {name}"
+  },
+  "DocumentSearch": {
+    "label": "Belege suchen",
+    "placeholder": "Dateiname oder Inhalt",
+    "help": "Sucht alle Wörter im Dateinamen und im erfassten Inhalt.",
+    "clear": "Leeren",
+    "loading": "Suche läuft…",
+    "count": "{count, plural, one {# Treffer} other {# Treffer}}",
+    "refreshing": "Treffer werden aktualisiert…",
+    "pending": "{count, plural, one {# Inhalt noch nicht vollständig erfasst} other {# Inhalte noch nicht vollständig erfasst}}",
+    "index": "Inhaltssuche aktualisieren",
+    "indexing": "Inhalte werden erfasst…",
+    "retry": "Erneut versuchen",
+    "more": "Mehr anzeigen",
+    "loadFailed": "Belege konnten nicht gesucht werden.",
+    "indexFailed": "Inhaltserfassung konnte nicht gestartet werden.",
+    "PENDING": "Inhalt noch nicht erfasst",
+    "PROCESSING": "Inhalt wird erfasst…",
+    "READY": "Inhalt durchsuchbar",
+    "PARTIAL": "Einige Seiten benötigen OCR",
+    "NEEDS_OCR": "Scan benötigt OCR-Einrichtung",
+    "FAILED": "Inhaltserfassung fehlgeschlagen; erneut versuchen"
   }
 }

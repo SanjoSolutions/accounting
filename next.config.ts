@@ -32,7 +32,8 @@ export const nextConfig: NextConfig = {
   // Native dependencies used by storage and the isolated thumbnail worker.
   serverExternalPackages: ['@napi-rs/canvas', 'opendal', 'pdfjs-dist', 'libxml2-wasm'],
   outputFileTracingIncludes: {
-    '/api/documents': ['./src/server/documentThumbnailWorker.mjs'],
+    '/api/documents': ['./src/server/documentThumbnailWorker.mjs', './src/server/documentSearchWorker.mjs'],
+    '/api/documents/*/search-index': ['./src/server/documentSearchWorker.mjs'],
   },
 }
 

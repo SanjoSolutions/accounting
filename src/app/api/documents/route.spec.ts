@@ -1,16 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   createDocument: vi.fn(),
   getCurrentUser: vi.fn(),
   getMaxDocumentUploadBytes: vi.fn(() => 1024),
   listDocuments: vi.fn(),
+  after: vi.fn(),
+  indexDocumentSearch: vi.fn().mockResolvedValue({ status: 'READY' }),
   parseStructuredUpload: vi.fn((): unknown => null),
   storeStructuredInvoice: vi.fn(),
   conflict: class StructuredInvoiceConflictError extends Error {},
 }))
 
 vi.mock('server-only', () => ({}))
+vi.mock('next/server', () => ({ after: mocks.after }))
+vi.mock('@/server/documentSearch', () => ({ indexDocumentSearch: mocks.indexDocumentSearch }))
 vi.mock('@/server', () => ({
   createDocument: mocks.createDocument,
   DocumentUploadError: class DocumentUploadError extends Error {},
@@ -117,6 +121,15 @@ describe('document upload API', () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ success: false })
     expect(mocks.createDocument).not.toHaveBeenCalled()
+  })
+
+  test('Given a successful upload, when the response is prepared, then content indexing runs afterward for its authenticated tenant', async () => {
+    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'tenant-a', actorId: 'actor-a', role: 'ADMIN' })
+    mocks.createDocument.mockResolvedValueOnce({ id: 'document-a' })
+    expect((await POST(createUploadRequest('%PDF-test'))).status).toBe(201)
+    expect(mocks.indexDocumentSearch).not.toHaveBeenCalled()
+    await mocks.after.mock.calls[0][0]()
+    expect(mocks.indexDocumentSearch).toHaveBeenCalledWith('tenant-a', 'document-a')
   })
 })
 

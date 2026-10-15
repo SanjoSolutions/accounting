@@ -1,4 +1,6 @@
 import 'server-only'
+import { after } from 'next/server'
+import { indexDocumentSearch } from '@/server/documentSearch'
 
 import {
   createDocument,
@@ -12,6 +14,7 @@ import { EInvoiceValidationError } from '@/core/eInvoice'
 import { parseStructuredUpload, storeStructuredInvoice, StructuredInvoiceConflictError } from '@/server/tax/structuredInvoices'
 
 export const runtime = 'nodejs'
+export const maxDuration = 90
 
 export async function GET(request: Request) {
   const user = await getCurrentUser(request.headers)
@@ -35,6 +38,7 @@ export async function POST(request: Request) {
       const invoice = await storeStructuredInvoice(user.id, structured, fileName)
       const document = (await listDocuments(user.id)).find(item => item.id === invoice.documentId)
       if (!document) throw new Error('Stored structured invoice document is unavailable.')
+      after(() => indexDocumentSearch(user.id, document.id).then(() => undefined).catch(() => undefined))
       return Response.json({ success: true, data: { ...document, structuredInvoice: invoice } }, { status: 201 })
     }
     const document = await createDocument({
@@ -42,6 +46,7 @@ export async function POST(request: Request) {
       contentType,
       fileName,
     }, user.id)
+    after(() => indexDocumentSearch(user.id, document.id).then(() => undefined).catch(() => undefined))
     return Response.json({ success: true, data: document }, { status: 201 })
   } catch (error) {
     if (error instanceof DocumentUploadError || error instanceof EInvoiceValidationError) {
