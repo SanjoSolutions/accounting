@@ -37,18 +37,19 @@ export class DocumentSearchPage {
   }
 
   async proveSearchAndSelection() {
-    await this.search('ALPHA', ['alpha-invoice'])
+    await this.search('ALPHA', ['alpha-Büro'])
+    await this.search('BURO', ['alpha-Büro'])
     await this.cards.first().click()
-    await expect(this.page.locator('.document-tabs')).toContainText('alpha-invoice')
-    await this.search('e2e-2026-001', ['alpha-invoice'])
+    await expect(this.page.locator('.document-tabs')).toContainText('alpha-Büro')
+    await this.search('e2e-2026-001', ['alpha-Büro'])
     await expect(this.picker).toContainText('e2e-2026-001')
     await this.search('nothing-matches-xyz', [])
     await expect(this.picker).toContainText('No matching documents.')
-    await expect(this.page.locator('.document-tabs')).toContainText('alpha-invoice')
+    await expect(this.page.locator('.document-tabs')).toContainText('alpha-Büro')
     await this.page.getByRole('button', { name: 'Clear', exact: true }).click()
     await expect(this.cards).toHaveCount(1)
     await this.page.reload()
-    await this.search('e2e-2026-001', ['alpha-invoice'])
+    await this.search('e2e-2026-001', ['alpha-Büro'])
   }
 
   async screenshot(name: string) {

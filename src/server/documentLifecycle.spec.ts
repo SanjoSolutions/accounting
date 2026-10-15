@@ -56,6 +56,14 @@ describe('document thumbnail lifecycle', () => {
     mocks.deleteRecord.mockResolvedValue({ count: 0 })
   })
 
+  test('Given a Unicode filename, when uploaded, then its searchable display name retains accents while storage uses a generated safe key', async () => {
+    const document = await createDocument({ ...pdfInput(), fileName: 'Bu\u0308ro Straße.pdf' }, 'owner-1')
+    expect(document.fileName).toBe('Büro Straße.pdf')
+    expect(mocks.write.mock.calls[0][0]).toMatch(/^documents\/owner-1\/[a-f0-9-]+\.pdf$/)
+    const unsafe = await createDocument({ ...pdfInput(), fileName: 'Büro/\"\r\n.pdf' }, 'owner-1')
+    expect(unsafe.fileName).toBe('Büro____.pdf')
+  })
+
   it('stores one generated thumbnail and returns only its authenticated URL', async () => {
     const document = await createDocument(pdfInput(), 'owner-1')
 

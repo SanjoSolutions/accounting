@@ -6,7 +6,7 @@ import { scannedSearchPdf } from '../src/test/documentSearchFixtures'
 test('Given an uploaded PDF, when searching its name and contents, then matches survive reload and filtering keeps the selection', async ({ page }) => {
   const search = new DocumentSearchPage(page)
   await search.open()
-  await search.upload('alpha-invoice.pdf', readFileSync('e2e/fixtures/invoice.pdf'), 'E2E-2026-001')
+  await search.upload('alpha-Büro.pdf', readFileSync('e2e/fixtures/invoice.pdf'), 'E2E-2026-001')
   await search.proveSearchAndSelection()
   await search.screenshot('text-results')
 })
