@@ -849,6 +849,24 @@
       "corrected": "Berichtigt",
       "cancelled": "Storniert",
       "unknown": "Unbekannter Status"
+    },
+    "review": {
+      "prepare": "Zur Prüfung vorbereiten",
+      "prepared": "Lokal zur Prüfung vorbereitet. Es wurde nichts übermittelt.",
+      "title": "Prüfung vor ELSTER",
+      "localOnly": "Nur lokal vorbereitet. In Mein ELSTER wurde kein Entwurf erstellt und keine Steuererklärung versendet.",
+      "check": "Vorbereitete Werte und zugehörige Belege prüfen.",
+      "transfer": "Passendes Formular und Jahr in Mein ELSTER öffnen und die geprüften Werte manuell übertragen.",
+      "save": "Das Formular in Mein ELSTER als Entwurf speichern. Während dieser Prüfung nicht absenden.",
+      "limitation": "Eine automatische Entwurfserstellung in Mein ELSTER ist hier nicht verfügbar. Der Download ist eine Prüfdatei, keine ELSTER-Importdatei.",
+      "download": "Prüfdatei herunterladen",
+      "openElster": "Mein ELSTER-Formulare öffnen",
+      "snapshot": "Die Datei enthält den aktuellen Stand und Quellenverweise. Nach Änderungen erneut vorbereiten. Sie ersetzt keine amtliche Validierung oder steuerliche Prüfung.",
+      "values": "Vorbereitete Werte",
+      "valuesHint": "Interne Berechnungsfelder zur Prüfung. Für UStVA-Formularwerte die Kopieransicht unten nutzen; andere Formulare müssen manuell zugeordnet und vervollständigt werden.",
+      "field": "Berechnungsfeld",
+      "value": "Wert",
+      "unsupported": "Die lokale Vorbereitung unterstützt UStVA, Jahresumsatzsteuer und geeignete KSt-/GewSt-Fälle für 2025/2026."
     }
   },
   "AccountingReports": {
