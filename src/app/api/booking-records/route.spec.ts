@@ -20,6 +20,12 @@ describe('posting API', () => {
     expect((await POST(request({}))).status).toBe(401)
   })
 
+  test('Given a read-only user, when saving a booking, then no draft is created', async () => {
+    mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1', actorId: 'viewer-1', role: 'READ_ONLY' })
+    expect((await POST(request({}))).status).toBe(403)
+    expect(mocks.createBookingBatch).not.toHaveBeenCalled()
+  })
+
   test('returns all accounting validation issues', async () => {
     mocks.getCurrentUser.mockResolvedValue({ id: 'owner-1', actorId: 'user-1', role: 'ADMIN' })
     mocks.createBookingBatch.mockRejectedValue(new AccountingValidationError(['Soll und Haben stimmen nicht überein.']))

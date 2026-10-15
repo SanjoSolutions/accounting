@@ -182,9 +182,9 @@ export function bookingBatchPatchRequest(expectedVersion: number, posting: Edita
   }
 }
 
-export function bookingBatchPostRequest(reason: string) {
+export function bookingBatchPostRequest(reason: string, expectedVersion?: number) {
   const trimmedReason = reason.trim()
-  return trimmedReason ? { reason: trimmedReason } : {}
+  return { ...(trimmedReason ? { reason: trimmedReason } : {}), ...(expectedVersion === undefined ? {} : { expectedVersion }) }
 }
 
 function normalizeDraft(value: unknown): BookingBatchDraft | null {
@@ -336,10 +336,10 @@ export function BookingBatchWorkspace({ initialYear = new Date().getFullYear() }
       const response = await fetch(`/api/booking-batches/${encodeURIComponent(selectedDraft.id)}/post`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(bookingBatchPostRequest(reason)),
+        body: JSON.stringify(bookingBatchPostRequest(reason, selectedDraft.version)),
       })
       const body = await readResponseBody(response)
-      if (!response.ok) throw new Error(apiError(body, t('postFailed')))
+      if (!response.ok) throw new Error(response.status === 409 ? t('versionConflict') : apiError(body, t('postFailed')))
       setWorkspace(current => current ? { ...current, drafts: current.drafts.filter(draft => draft.id !== selectedDraft.id) } : current)
       setSelectedDraftId('')
       setPosting(null)

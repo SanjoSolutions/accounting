@@ -9,6 +9,7 @@ import { LocalDate } from './LocalDate'
 import { localizeErrorDates } from './errorFormatting'
 import { useRegionalFormat } from './RegionalFormatProvider'
 import { LocalCurrency, formatCount } from './LocalNumber'
+import { BookingSubmissionError, loadPendingBooking, postSavedBooking, saveBooking, storePendingBooking, type BookingSubmissionMode, type SavedBooking } from './bookingSubmission'
 
 type Account = { id: string; number: number; name: string; category: AccountCategory }
 export type VatTreatment = '' | 'DE_STANDARD_SALE_NET' | 'DE_STANDARD_PURCHASE_NET' | 'DE_STANDARD_SALE_GROSS' | 'DE_STANDARD_PURCHASE_GROSS'
@@ -67,6 +68,9 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
   const [continueWithSameDocuments, setContinueWithSameDocuments] = useState(defaultContinueWithSameDocuments)
   const [documentsUploading, setDocumentsUploading] = useState(false)
   const [storageRestored, setStorageRestored] = useState(false)
+  const [submissionMode, setSubmissionMode] = useState<BookingSubmissionMode>('post')
+  const [pendingBooking, setPendingBooking] = useState<SavedBooking | null>(null)
+  const submittingRef = useRef(false)
   const yearRef = useRef(year)
   const loadRef = useRef(0)
   const suppressNextDraftSaveRef = useRef(false)
@@ -95,6 +99,10 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
     }
     setStorageRestored(true)
   }, [initialYear, ownerId, restoreStoredYear, view])
+
+  useEffect(() => {
+    if (view === 'booking') setPendingBooking(loadPendingBooking(getBrowserBookingWorkspaceStorage(), ownerId, year))
+  }, [ownerId, year, view])
 
   useEffect(() => {
     if (!storageRestored || view !== 'booking') return
@@ -153,34 +161,42 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
     )
   }
 
-  async function post(event: React.FormEvent) {
-    event.preventDefault(); setBusy(true); setIssues([]); setSuccess('')
+  function clearForm(posted: boolean) {
+    const documentState = documentStateAfterPosting(selectedDocumentIds, continueWithSameDocuments)
+    const storage = getBrowserBookingWorkspaceStorage()
+    storePendingBooking(storage, ownerId, year, null)
+    setPendingBooking(null)
+    suppressNextDraftSaveRef.current = storage ? clearBookingWorkspaceState(storage, ownerId) : false
+    const clearedLines = [emptyLine(), emptyLine()]
+    bookingWorkspaceStateRef.current = {
+      ...bookingWorkspaceStateRef.current, lines: clearedLines, description: '', selectedDocumentIds: documentState.selectedDocumentIds,
+    }
+    setLines(clearedLines); setDescription(''); setSelectedDocumentIds(documentState.selectedDocumentIds)
+    if (posted) setUnavailableDocumentIds(current => [...new Set([...current, ...documentState.unavailableDocumentIds])])
+  }
+
+  async function post(event?: React.FormEvent) {
+    event?.preventDefault()
+    if (submittingRef.current || documentsUploading) return
+    if (!pendingBooking && (!workspace || workspace.fiscalYear.year !== year)) { setIssues([t('bookingsLoadFailed')]); return }
+    submittingRef.current = true
+    setBusy(true); setIssues([]); setSuccess('')
     const submittedYear = year
-    if (documentsUploading) { setBusy(false); return }
-    if (!workspace || workspace.fiscalYear.year !== year) { setIssues([t('bookingsLoadFailed')]); setBusy(false); return }
+    const postImmediately = Boolean(pendingBooking) || submissionMode === 'post'
     try {
-      const response = await fetch('/api/booking-records', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ fiscalYear: year, bookingDate, description, documentIds: selectedDocumentIds, lines: lines.map(bookingLineRequest) }),
-      })
-      if (!response.ok) { const body = await response.json(); if (yearRef.current === submittedYear) setIssues(body.issues ?? [t('postingFailed')]); return }
-      if (yearRef.current === submittedYear) {
-        const postedDocumentState = documentStateAfterPosting(selectedDocumentIds, continueWithSameDocuments)
-        const storage = getBrowserBookingWorkspaceStorage()
-        suppressNextDraftSaveRef.current = storage ? clearBookingWorkspaceState(storage, ownerId) : false
-        const clearedLines = [emptyLine(), emptyLine()]
-        bookingWorkspaceStateRef.current = {
-          ...bookingWorkspaceStateRef.current,
-          lines: clearedLines,
-          description: '',
-          selectedDocumentIds: postedDocumentState.selectedDocumentIds,
-        }
-        setLines(clearedLines); setDescription(''); setSelectedDocumentIds(postedDocumentState.selectedDocumentIds)
-        setUnavailableDocumentIds(current => [...new Set([...current, ...postedDocumentState.unavailableDocumentIds])])
-        setSuccess(t('postingSaved')); await load()
+      const saved = pendingBooking ?? await saveBooking({ fiscalYear: year, bookingDate, description, documentIds: selectedDocumentIds, lines: lines.map(bookingLineRequest) }, t('draftSaveFailed'))
+      if (postImmediately) {
+        if (yearRef.current === submittedYear) setPendingBooking(saved)
+        if (!storePendingBooking(getBrowserBookingWorkspaceStorage(), ownerId, submittedYear, saved)) throw new BookingSubmissionError([t('postingRecoveryUnavailable')])
+        await postSavedBooking(saved, t('postingFailed'))
+        storePendingBooking(getBrowserBookingWorkspaceStorage(), ownerId, submittedYear, null)
       }
-    } catch { if (yearRef.current === submittedYear) setIssues([t('postingFailed')]) }
-    finally { if (yearRef.current === submittedYear) setBusy(false) }
+      if (yearRef.current === submittedYear) {
+        clearForm(postImmediately)
+        setSuccess(t(postImmediately ? 'postingSaved' : 'draftSaved')); await load()
+      }
+    } catch (error) { if (yearRef.current === submittedYear) setIssues(error instanceof BookingSubmissionError ? error.issues : [t(postImmediately ? 'postingFailed' : 'draftSaveFailed')]) }
+    finally { submittingRef.current = false; if (yearRef.current === submittedYear) setBusy(false) }
   }
 
   const sections = workspaceSections(view)
@@ -193,7 +209,17 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
       <div className="card metric"><span>{t('status')}</span><strong className={`badge status ${currentWorkspace.fiscalYear.status.toLowerCase()}`}>{currentWorkspace.fiscalYear.status === 'OPEN' ? t('open') : t('locked')}</strong></div>
     </section>}
 
-    {sections.booking && <BookingDocuments selectedDocumentIds={selectedDocumentIds} unavailableDocumentIds={unavailableDocumentIds} onSelectionChange={setSelectedDocumentIds} onUploadingChange={setDocumentsUploading}>
+    {sections.booking && pendingBooking && <section className="card panel">
+      <h2 className="h5">{t('pendingPosting')}</h2>
+      <p>{t('pendingPostingHelp')}</p>
+      {issues.length > 0 && <div className="alert alert-danger" role="alert">{issues.map(issue => <p className="mb-0" key={issue}>{localizeErrorDates(issue, regionalLocale)}</p>)}</div>}
+      <div className="d-flex flex-wrap gap-2">
+        <button className="btn btn-primary" disabled={busy} onClick={() => void post()}>{busy ? t('postingBusy') : t('retryPosting')}</button>
+        {!busy && <a className="btn btn-outline-secondary" href={`/booking-batches?year=${year}`} onClick={() => clearForm(false)}>{t('reviewBookingBatches')}</a>}
+        <a className="btn btn-link" href={`/journal?year=${year}`}>{t('viewJournal')}</a>
+      </div>
+    </section>}
+    {sections.booking && !pendingBooking && <BookingDocuments selectedDocumentIds={selectedDocumentIds} unavailableDocumentIds={unavailableDocumentIds} onSelectionChange={setSelectedDocumentIds} onUploadingChange={setDocumentsUploading}>
       <section className="card panel booking-panel">
         <div className="panel-title"><h2>{t('recordTransaction')}</h2></div>
         <form onSubmit={post}>
@@ -239,7 +265,19 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
           </div>
           <button className="btn btn-link add-line" type="button" onClick={() => setLines(current => [...current, emptyLine()])}>+ {t('addSplitLine')}</button>
           {issues.length > 0 && <div className="alert alert-danger" role="alert"><strong>{t('pleaseReview')}</strong><ul>{issues.map(issue => <li key={issue}>{localizeErrorDates(issue, regionalLocale)}</li>)}</ul></div>}
-          {success && <p className="alert alert-success" role="status">{success}</p>}
+          {success && <p className="alert alert-success" role="status">{success} {submissionMode === 'draft' && <a href={`/booking-batches?year=${year}`}>{t('reviewBookingBatches')}</a>}</p>}
+          <fieldset className="mb-3">
+            <legend className="fs-6">{t('bookingWorkflow')}</legend>
+            <label className="form-check">
+              <input className="form-check-input" type="radio" name="booking-workflow" value="post" aria-describedby="booking-workflow-help" checked={submissionMode === 'post'} onChange={() => setSubmissionMode('post')} />
+              <span className="form-check-label">{t('postImmediately')}</span>
+            </label>
+            <label className="form-check">
+              <input className="form-check-input" type="radio" name="booking-workflow" value="draft" aria-describedby="booking-workflow-help" checked={submissionMode === 'draft'} onChange={() => setSubmissionMode('draft')} />
+              <span className="form-check-label">{t('saveToBatch')}</span>
+            </label>
+            <p id="booking-workflow-help" className="form-text mb-0" aria-live="polite">{t(submissionMode === 'post' ? 'postImmediatelyHelp' : 'saveToBatchHelp')}</p>
+          </fieldset>
           <label className="form-check">
             <input className="form-check-input" type="checkbox" checked={continueWithSameDocuments} onChange={event => setContinueWithSameDocuments(event.target.checked)} />
             <span className="form-check-label">{t('continueWithSameDocuments')}</span>
@@ -248,7 +286,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
             <div><span>{t('totalDebit')}</span><strong><LocalCurrency cents={totals.debit} currency="EUR" /></strong></div>
             <div><span>{t('totalCredit')}</span><strong><LocalCurrency cents={totals.credit} currency="EUR" /></strong></div>
             <div><span>{t('difference')}</span><strong><LocalCurrency cents={difference} currency="EUR" /></strong></div>
-            <button className="btn btn-primary" disabled={busy || selectedDocumentIds.length === 0 || difference !== 0 || totals.debit === 0 || currentWorkspace?.fiscalYear.status !== 'OPEN'}>{busy ? t('postingBusy') : t('post')}</button>
+            <button className="btn btn-primary" disabled={busy || selectedDocumentIds.length === 0 || difference !== 0 || totals.debit === 0 || currentWorkspace?.fiscalYear.status !== 'OPEN'}>{busy ? t('postingBusy') : t(submissionMode === 'post' ? 'post' : 'saveToBatch')}</button>
           </div>
           </fieldset>
         </form>
@@ -279,7 +317,7 @@ export function AccountingWorkspace({ ownerId, view = 'booking', initialYear = n
 }
 
 function MoneyInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <div className="input-group money-input"><input className="form-control" aria-label={label} inputMode="decimal" type="number" min="0" step="0.01" value={value} onChange={event => onChange(event.target.value)} /><span className="input-group-text">€</span></div>
+  return <label className="posting-money-field"><span className="posting-money-label">{label}</span><div className="input-group money-input"><input className="form-control" aria-label={label} inputMode="decimal" type="number" min="0" step="0.01" value={value} onChange={event => onChange(event.target.value)} /><span className="input-group-text">€</span></div></label>
 }
 function Metric({ label, value }: { label: string; value: number }) { return <div className="card metric"><span>{label}</span><strong><LocalCurrency cents={value} currency="EUR" /></strong></div> }
 function toCents(value: string) { const number = Number(value || 0); return Number.isFinite(number) ? Math.round(number * 100) : 0 }

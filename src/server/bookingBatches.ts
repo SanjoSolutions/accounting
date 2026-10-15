@@ -181,11 +181,16 @@ export async function reviseBookingBatch(ownerId: string, actorId: string, draft
 
 export async function postBookingBatch(ownerId: string, actorId: string, draftId: string, input?: unknown) {
   let reason: unknown = DEFAULT_POST_REASON
+  let expectedVersion: number | undefined
   if (input !== undefined) {
     const body = objectBody(input, 'Booking batch post payload must be an object')
     if (body.reason !== undefined) reason = body.reason
+    if (body.expectedVersion !== undefined) {
+      if (!Number.isSafeInteger(body.expectedVersion) || Number(body.expectedVersion) < 1) throw new ComplianceRuntimeError('expectedVersion must be a positive integer', 400)
+      expectedVersion = Number(body.expectedVersion)
+    }
   }
-  return postDraft(ownerId, actorId, draftId, reason)
+  return postDraft(ownerId, actorId, draftId, reason, expectedVersion)
 }
 
 export function bookingBatchError(error: unknown) {

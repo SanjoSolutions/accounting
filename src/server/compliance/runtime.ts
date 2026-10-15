@@ -262,10 +262,11 @@ export async function reviseDraft(ownerId: string, actorId: string, draftId: str
   })
 }
 
-export async function postDraft(ownerId: string, actorId: string, draftId: string, reasonValue: unknown) {
+export async function postDraft(ownerId: string, actorId: string, draftId: string, reasonValue: unknown, expectedVersion?: number) {
   const reason = requireReason(reasonValue)
   const existingDraft = await prisma.journalDraft.findFirst({ where: { id: draftId, ownerId } })
   if (!existingDraft) throw new ComplianceRuntimeError('Draft not found', 404)
+  if (expectedVersion !== undefined && existingDraft.version !== expectedVersion) throw new ComplianceRuntimeError('Draft changed concurrently', 409)
   if (existingDraft.status === 'POSTED' && existingDraft.postedEntryId) return prisma.journalEntry.findFirstOrThrow({ where: { id: existingDraft.postedEntryId, fiscalYear: { ownerId } }, include: { lines: true, documents: true } })
   const finalize = async (entry: { id: string }) => prisma.$transaction(async transaction => {
     const updated = await transaction.journalDraft.updateMany({ where: { id: draftId, ownerId, status: 'POSTING' }, data: { status: 'POSTED', postedEntryId: entry.id, updatedBy: actorId } })
@@ -284,11 +285,11 @@ export async function postDraft(ownerId: string, actorId: string, draftId: strin
     const leaseCutoff = new Date(now.getTime() - 5 * 60_000)
     if (isPostingLeaseExpired(existingDraft.updatedAt, now)) {
       const released = await prisma.journalDraft.updateMany({ where: { id: draftId, ownerId, status: 'POSTING', updatedAt: { lte: leaseCutoff } }, data: { status: 'DRAFT', updatedBy: actorId } })
-      if (released.count === 1) return postDraft(ownerId, actorId, draftId, reason)
+      if (released.count === 1) return postDraft(ownerId, actorId, draftId, reason, expectedVersion)
     }
     throw new ComplianceRuntimeError('Draft posting is already in progress', 409)
   }
-  const claimed = await prisma.journalDraft.updateMany({ where: { id: draftId, ownerId, status: 'DRAFT' }, data: { status: 'POSTING', updatedBy: actorId } })
+  const claimed = await prisma.journalDraft.updateMany({ where: { id: draftId, ownerId, status: 'DRAFT', version: existingDraft.version }, data: { status: 'POSTING', updatedBy: actorId } })
   if (claimed.count !== 1) throw new ComplianceRuntimeError('Draft is not available for posting', 409)
   const draft = await prisma.journalDraft.findUniqueOrThrow({ where: { id: draftId } })
   let entry
