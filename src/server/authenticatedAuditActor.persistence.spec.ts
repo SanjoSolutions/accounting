@@ -4,6 +4,8 @@ import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 import type { Prisma } from '@/generated/prisma/client'
+import { eBalanceChecksum } from '@/core/eBilanzExport'
+import { eBilanz2026Fixture } from '@/core/fixtures/eBilanz2026'
 
 const session = vi.hoisted(() => ({ getSession: vi.fn() }))
 vi.mock('server-only', () => ({}))
@@ -28,6 +30,7 @@ let correct: typeof import('@/app/api/tax/e-invoices/[id]/corrections/route').PO
 let correctionTemplate: typeof import('@/app/api/tax/e-invoices/[id]/corrections/route').GET
 let close: typeof import('@/app/api/fiscal-years/[year]/close/route').POST
 let exportBalance: typeof import('@/app/api/fiscal-years/[year]/e-balance/route').POST
+let reconcileBalance: typeof import('@/app/api/compliance/e-bilanz/route').POST
 
 beforeAll(async () => {
   const databasePath = join(directory, 'test.db').replace(/\\/g, '/')
@@ -56,6 +59,7 @@ beforeAll(async () => {
   correctionTemplate = (await import('@/app/api/tax/e-invoices/[id]/corrections/route')).GET
   close = (await import('@/app/api/fiscal-years/[year]/close/route')).POST
   exportBalance = (await import('@/app/api/fiscal-years/[year]/e-balance/route')).POST
+  reconcileBalance = (await import('@/app/api/compliance/e-bilanz/route')).POST
 })
 
 afterAll(async () => {
@@ -145,12 +149,33 @@ describe('authenticated actor propagation through routes and migrated persistenc
     const commercial = await prisma.commercialDocument.findFirstOrThrow({ where: { ownerId, structuredInvoiceId: corrected.data.id }, include: { correctionNetting: true } })
     expect(commercial.correctionNetting).toMatchObject({ ownerId, createdBy: actorId })
 
+    // Current exports require a versioned profile and an approved reconciliation
+    // bound to the exact close generation, even when there are no tax differences.
+    const settings = await prisma.accountRecord.findUniqueOrThrow({ where: { ownerId } })
+    await prisma.companyProfileVersion.create({ data: {
+      ownerId, effectiveFrom: new Date('2026-01-01'), createdBy: actorId, reason: 'Synthetic export profile',
+      payload: JSON.stringify({ ...JSON.parse(settings.payload).companyProfile,
+        registeredAddress: { streetAndHouseNumber: 'Testweg 1', zipCode: '10115', city: 'Berlin', country: 'DE' },
+      }),
+    } })
+
     await prisma.hgbCloseRun.create({ data: {
       ownerId, fiscalPeriodId: workspace.fiscalYear.id, version: 1, status: 'READY_TO_LOCK', ruleSetVersion: 'test',
-      ledgerFingerprint: 'test', inputChecksum: 'test', checksum: `approved-${ownerId}`, payload: '{}', createdBy: actorId,
+      ledgerFingerprint: 'test', inputChecksum: 'test', checksum: eBalanceChecksum(`approved-${ownerId}`), payload: '{}', createdBy: actorId,
     } })
     await json(await close(request(ownerId), { params: Promise.resolve({ year: '2026' }) }), 200)
     await expectEvent(ownerId, actorId, 'FISCAL_PERIOD_CLOSED')
+    const generation = await prisma.fiscalCloseGeneration.findFirstOrThrow({ where: { ownerId, fiscalYearId: workspace.fiscalYear.id } })
+    const evidence = eBilanz2026Fixture().reconciliation.payload
+    await json(await reconcileBalance(request(ownerId, {
+      action: 'reconciliation.record', kind: 'TAX_BALANCE', fiscalYearId: workspace.fiscalYear.id,
+      reason: 'Approve synthetic tax balance', evidenceIds: [uploaded.data.id],
+      payload: { ...evidence, closeGenerationId: generation.id, adjustments: [], assetMappings: [],
+        bvv: { openingEquityCents: 0, capitalAdjustmentsCents: 0, contributionsCents: 0, distributionsCents: 0 },
+        gcd: { ...evidence.gcd, business: 'Consulting', previousPeriod: null },
+      },
+    })))
+    await expectEvent(ownerId, actorId, 'E_BILANZ_TAX_BALANCE_APPROVED')
     const masterData = { companyName: 'Synthetic GmbH', street: 'Testweg 1', postalCode: '10115', city: 'Berlin', taxNumber: '1234567890123', legalForm: 'GMBH' }
     const exported = await exportBalance(request(ownerId, masterData), { params: Promise.resolve({ year: '2026' }) })
     expect(exported.status, exported.status !== 200 ? await exported.text() : '').toBe(200)

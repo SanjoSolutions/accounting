@@ -6,6 +6,7 @@ import { PageHeading } from './PageHeading'
 import { LocalDateTime } from './LocalDate'
 import { LocalCount, LocalPercentUnits, formatCount } from './LocalNumber'
 import { useRegionalFormat } from './RegionalFormatProvider'
+import { ExternalEBalancePanel } from './ExternalEBalancePanel'
 
 type LoadState = 'loading' | 'ready' | 'failed'
 type EricReadiness = { validationReady: boolean; submissionReady: boolean; testMode: boolean; issues: string[] }
@@ -100,6 +101,7 @@ export function EBalanceWorkspace({ year }: { year: number }) {
   const [lifecycle, setLifecycle] = useState<LifecycleOverview>({ taxonomies: [], reports: [], reconciliations: [], closeEvidence: null })
   const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string | null>(null)
   const [sourceEdited, setSourceEdited] = useState(false)
+  const [filingMode, setFilingMode] = useState<'external' | 'direct'>('external')
   const yearRef = useRef(year)
   useEffect(() => {
     yearRef.current = year
@@ -235,10 +237,12 @@ export function EBalanceWorkspace({ year }: { year: number }) {
   const percent = coverage.total ? Math.round(coverage.mapped / coverage.total * 100) : 100
   const lifecycleView = reportLifecycleView(lifecycle, sourceEdited)
   return <div className="workspace pb-4">
-    <PageHeading title={t('eBalanceYear', { year })} subtitle={t('eBalanceSubtitle')}>
+    <PageHeading title={t('eBalanceYear', { year })} subtitle={t(year === 2026 && filingMode === 'external' ? 'eBalanceExternalSubtitle' : 'eBalanceSubtitle')}>
       <span className="taxonomy">{t('taxonomy')} <strong>{lifecycle.taxonomies.find(item => item.validForFiscalPeriodsStartingFrom <= `${year}-12-31` && `${year}-01-01` <= item.validForFiscalPeriodsStartingThrough)?.version ?? '—'}</strong></span>
     </PageHeading>
-    <div className="ebalance-grid">
+    {year === 2026 && <div className="mb-4"><label className="form-label" htmlFor="ebilanz-filing-mode">{t('eBalanceFilingMode')}</label><select id="ebilanz-filing-mode" className="form-select" value={filingMode} onChange={event => setFilingMode(event.target.value as 'external' | 'direct')}><option value="external">{t('eBalanceExternalMode')}</option><option value="direct">{t('eBalanceDirectMode')}</option></select></div>}
+    {year === 2026 && filingMode === 'external' && <ExternalEBalancePanel key={year} year={year} />}
+    {(year !== 2026 || filingMode === 'direct') && <div className="ebalance-grid">
       <form className="card panel" onSubmit={download}><div className="panel-title"><div><span className="step">{t('gcdMasterData')}</span><h2>{t('prepareReport')}</h2></div></div>
         <fieldset className="row g-3" disabled={isEBalanceMasterDataLocked(ericBusy, exportBusy)}>
         <div className="col-12"><label className="form-label" htmlFor="e-balance-company-name">{t('companyName')}</label><input id="e-balance-company-name" className="form-control" required readOnly={masterDataSource !== 'MANUAL_INPUT'} value={companyName} onChange={event => { setCompanyName(event.target.value); prepareChangedReportSource() }} /></div>
@@ -273,7 +277,7 @@ export function EBalanceWorkspace({ year }: { year: number }) {
         {lifecycle.reports.length ? <ul className="list-group list-group-flush">{lifecycle.reports.map(report => <li className="list-group-item" key={report.id}><strong>v{report.version} · {report.status} · {sourceEdited ? 'STALE' : report.sourceStatus}</strong><br/>{t('closeGeneration')} <code>{report.closeGenerationId ?? '—'}</code><br/>{t('taxonomy')} {report.taxonomyVersion}<br/><code>{report.reportChecksum}</code></li>)}</ul> : <p>{t('noLifecycleReports')}</p>}
         <p className="small text-body-secondary">{t('reconciliationEvidenceCount', { count: lifecycle.reconciliations.length, countFormatted: formatCount(lifecycle.reconciliations.length, regionalLocale) })}</p>
       </section>
-    </div>
+    </div>}
   </div>
 
   function prepareCorrectedAttempt() {
