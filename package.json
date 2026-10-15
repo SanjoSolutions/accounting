@@ -17,6 +17,7 @@
     "db:push": "node tools/guarded-prisma.mjs db push",
     "eric:build": "dotnet publish tools/eric-bridge/EricBridge.csproj -c Release -o .eric/bridge",
     "test": "vitest run",
+    "test:lighthouse": "node tools/lighthouse.mjs",
     "typecheck": "tsc --noEmit",
     "audit:security": "pnpm audit --audit-level high",
     "test:e2e": "playwright test",
@@ -59,6 +60,7 @@
     "server-only": "^0.0.1"
   },
   "devDependencies": {
+    "@lhci/cli": "0.15.1",
     "@playwright/test": "^1.61.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/lodash": "^4.17.21",
