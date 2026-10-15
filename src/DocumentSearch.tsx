@@ -48,7 +48,10 @@ export function DocumentSearch({ revision, onDocuments, children }: {
   useEffect(() => {
     const current = ++generation.current
     setLoading(true)
-    if (previousQuery.current !== query) setData(null)
+    if (previousQuery.current !== query) {
+      setData(null)
+      setIndexError('')
+    }
     previousQuery.current = query
     const timer = setTimeout(() => void load(0, current), 200)
     return () => { clearTimeout(timer); request.current?.abort() }
