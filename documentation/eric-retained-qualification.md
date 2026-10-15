@@ -139,6 +139,15 @@ On 15 October 2026, this worktree had no `.eric` directory and the executing pro
 had no ERiC environment configuration. This is a local availability check, not a
 claim about every installation or protected CI environment.
 
+A follow-up metadata check found no runtime directories at the primary checkout's
+`.eric`, the user's `.eric`, `C:/Program Files/ERiC`,
+`C:/Program Files (x86)/ERiC` or `C:/eric`. GitHub returned no repository
+environments. The repository runner-inventory endpoint returned HTTP 403, so
+availability of authorized shared runners remains unknown. No certificate,
+credential values or business records were read. Developer-account approval
+itself remains unconfirmed; first check whether ELSTER has already granted access,
+and register only if access has not been granted.
+
 The official process remains developer registration, authority review, developer
 access, runtime download and a separate manufacturer-ID application. The owner
 can use the [official registration form](https://www.elster.de/elsterweb/registrierung-entwickler/form)
