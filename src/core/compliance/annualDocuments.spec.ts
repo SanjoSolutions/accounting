@@ -27,6 +27,16 @@ describe('immutable printable annual accounts', () => {
 })
 
 describe('minimized manual disclosure', () => {
+  test.each(['MICRO', 'SMALL'] as const)('Given a detailed internal %s balance sheet, when preparing manual disclosure, then extra breakdowns are omitted and approved totals stay unchanged', size => {
+    const source = annualDocumentFixture(size)
+    source.input.balanceSheet = source.input.balanceSheet.map(line => line.code === 'A.GOODWILL' ? { ...line, label: 'Internal additional breakdown' } : line)
+    expect(renderAnnualDocument(source, 'annual')).toContain('Internal additional breakdown')
+    const html = renderAnnualDocument(source, 'manual', { noteIndexes: [0, 1], policyIndexes: size === 'SMALL' ? [0] : [], establishedOn: '2027-03-03', confirmedCompleteAndMinimized: true })
+    expect(html).not.toContain('Internal additional breakdown')
+    const total = source.input.balanceSheet.find(line => line.code === 'A.ASSETS')!
+    expect(html).toContain(`Summe Aktiva</td><td class="money">${euroCents(total.amountCents)}</td><td class="money">${euroCents(total.comparativeCents)}`)
+    if (size === 'MICRO') expect(html).not.toContain('Gezeichnetes Kapital')
+  })
   test.each(['MICRO', 'SMALL'] as const)('Given supported %s facts and reviewed selection, when exported, then only the balance sheet and selected disclosures leave the internal report', size => {
     const source = annualDocumentFixture(size)
     const files = annualDocumentFiles(source, 'manual', { noteIndexes: [0, 1], policyIndexes: size === 'SMALL' ? [0] : [], establishedOn: '2027-03-03', confirmedCompleteAndMinimized: true })
