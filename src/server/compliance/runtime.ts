@@ -13,7 +13,7 @@ import { assertRecoveryObjectives, backupMatchesManifest, createBackup, resolveB
 import { validateMappings, type AccountMapping } from './chartLifecycle'
 import { persistComplianceObject } from './objectStorage'
 import { exerciseIsolatedObjectRestore, snapshotStorageReferences, verifyRestoredStorageObjects, verifySnapshotInIsolatedDatabase, type TenantBackupSnapshot } from './restoreVerification'
-import { captureRegisteredTenantSnapshot } from './tenantBackupRegistry'
+import { captureRegisteredTenantSnapshot, TENANT_BACKUP_SCHEMA_VERSION } from './tenantBackupRegistry'
 
 export class ComplianceRuntimeError extends Error {
   constructor(message: string, readonly status = 400) { super(message) }
@@ -551,7 +551,7 @@ export async function createTenantBackup(ownerId: string, actorId: string, regio
   await reconcileDocumentArtifacts(ownerId, actorId, 'Pre-backup retained-artifact reconciliation')
   const snapshot: TenantBackupSnapshot = await prisma.$transaction(async transaction => {
     const recoveryPointAt = new Date().toISOString()
-    return { schemaVersion: 4, recoveryPointAt, ownerId, ...await captureRegisteredTenantSnapshot(transaction as any, ownerId) } as unknown as TenantBackupSnapshot
+    return { schemaVersion: TENANT_BACKUP_SCHEMA_VERSION, recoveryPointAt, ownerId, ...await captureRegisteredTenantSnapshot(transaction as any, ownerId) } as unknown as TenantBackupSnapshot
   })
   if (!snapshot.policy || !(JSON.parse(snapshot.policy.operatorIds) as unknown[]).includes(actorId)) throw new ComplianceRuntimeError('Compliance operator authorization changed during backup capture', 403)
   const allowedRegions = JSON.parse(snapshot.policy.allowedStorageRegions) as string[]
@@ -596,7 +596,7 @@ export async function verifyTenantRestore(ownerId: string, actorId: string, back
   const encrypted = JSON.parse(encryptedPayload.toString()) as EncryptedBackup
   if (!backupMatchesManifest(encrypted, stored)) throw new ComplianceRuntimeError('Backup payload does not match its selected manifest', 409)
   const manifest = JSON.parse(stored.manifest) as { schemaVersion?: unknown; backupId?: unknown; ownerId?: unknown; objectCount?: unknown }
-  if (![1, 2, 3, 4].includes(Number(manifest.schemaVersion)) || manifest.backupId !== stored.id || manifest.ownerId !== stored.ownerId) throw new ComplianceRuntimeError('Backup manifest identity is invalid', 409)
+  if (![1, 2, 3, 4, TENANT_BACKUP_SCHEMA_VERSION].includes(Number(manifest.schemaVersion)) || manifest.backupId !== stored.id || manifest.ownerId !== stored.ownerId) throw new ComplianceRuntimeError('Backup manifest identity is invalid', 409)
   const restored = restoreBackup(encrypted, backupKey(stored.encryptionKeyId))
   if (manifest.objectCount !== Object.keys(restored.objects).length) throw new ComplianceRuntimeError('Backup object count does not match its manifest', 409)
   const snapshot = JSON.parse(restored.database.toString()) as TenantBackupSnapshot

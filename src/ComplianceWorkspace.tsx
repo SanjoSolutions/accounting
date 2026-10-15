@@ -9,8 +9,11 @@ import { localizeErrorDates } from './errorFormatting'
 import { LocalCount } from './LocalNumber'
 import { localizeComplianceError } from './complianceErrorLocalization'
 import { AnnualDocumentExports } from './AnnualDocumentExports'
+import { SoleTraderTaxProfileFields } from './SoleTraderTaxProfileFields'
+import type { SoleTraderTaxProfile } from './core/companyTaxProfile'
 
 type Profile = {
+  soleTraderTaxProfile?: SoleTraderTaxProfile
   companyName: string; legalForm: string; registerCourt?: string; registerNumber?: string; taxNumber: string; vatId?: string; taxOffice: string
   registeredAddress?: { streetAndHouseNumber: string; zipCode: string; city: string; country: string }
   vatRegime: string; vatFilingFrequency: string; activity: string; sizeClass: string; chart: string; elections: string[]; applicabilityOverrides?: Record<string, boolean>
@@ -198,10 +201,11 @@ export function ComplianceWorkspace() {
         <div className="compliance-profile-groups">
           <fieldset className="compliance-profile-group"><legend>{t('groupCompany')}</legend>
             <Text label={t('companyName')} value={profile.companyName} onChange={companyName => setProfile(current => ({ ...current, companyName }))} />
-            <Select label={t('legalForm')} value={profile.legalForm} values={['SOLE_TRADER', 'GMBH', 'UG', 'AG', 'OHG', 'KG', 'GBR', 'PARTNERSHIP', 'OTHER']} labels={optionLabels.legalForms} onChange={legalForm => setProfile(current => ({ ...current, legalForm, ...(supportsCapitalCompanyTaxProfile(legalForm) ? { annualTaxProfile: current.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE } : {}) }))} />
+            <Select label={t('legalForm')} value={profile.legalForm} values={['SOLE_TRADER', 'GMBH', 'UG', 'AG', 'OHG', 'KG', 'GBR', 'PARTNERSHIP', 'OTHER']} labels={optionLabels.legalForms} onChange={legalForm => setProfile(current => ({ ...current, legalForm, soleTraderTaxProfile: legalForm === 'SOLE_TRADER' ? current.soleTraderTaxProfile : undefined, ...(supportsCapitalCompanyTaxProfile(legalForm) ? { annualTaxProfile: current.annualTaxProfile ?? EMPTY_CAPITAL_COMPANY_TAX_PROFILE } : {}) }))} />
             <Text label={t('registerCourt')} value={profile.registerCourt ?? ''} onChange={registerCourt => setProfile(current => ({ ...current, registerCourt: registerCourt || undefined }))} />
             <Text label={t('registerNumber')} value={profile.registerNumber ?? ''} onChange={registerNumber => setProfile(current => ({ ...current, registerNumber: registerNumber || undefined }))} />
           </fieldset>
+          {profile.legalForm === 'SOLE_TRADER' && <SoleTraderTaxProfileFields value={profile.soleTraderTaxProfile} onChange={soleTraderTaxProfile => setProfile(current => ({ ...current, soleTraderTaxProfile }))} />}
           <fieldset className="compliance-profile-group"><legend>{t('groupAddress')}</legend>
           <Text label={t('street')} value={profile.registeredAddress?.streetAndHouseNumber ?? ''} onChange={streetAndHouseNumber => setProfile(current => ({ ...current, registeredAddress: { streetAndHouseNumber, zipCode: current.registeredAddress?.zipCode ?? '', city: current.registeredAddress?.city ?? '', country: current.registeredAddress?.country ?? 'DE' } }))} />
           <Text label={t('postalCode')} value={profile.registeredAddress?.zipCode ?? ''} onChange={zipCode => setProfile(current => ({ ...current, registeredAddress: { streetAndHouseNumber: current.registeredAddress?.streetAndHouseNumber ?? '', zipCode, city: current.registeredAddress?.city ?? '', country: current.registeredAddress?.country ?? 'DE' } }))} />

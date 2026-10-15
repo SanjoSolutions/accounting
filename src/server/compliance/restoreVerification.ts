@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path'
 import { getDocumentStorage } from '@/server/storage'
 import { verifyAuditChain } from './auditPersistence'
 import { sha256 } from './retention'
-import { registeredStorageReferences, tenantBackupCollections, tenantBackupRegistry, tenantBackupSingletons, type TenantBackupDefinition } from './tenantBackupRegistry'
+import { registeredStorageReferences, tenantBackupCollections, tenantBackupRegistry, tenantBackupSingletons, TENANT_BACKUP_SCHEMA_VERSION, type TenantBackupDefinition } from './tenantBackupRegistry'
 
 export type TenantBackupSnapshot = Record<string, any> & { ownerId: string; schemaVersion: number; audit: any[]; auditHead: { headHash: string | null; version: number } | null }
 
@@ -155,8 +155,9 @@ function verifyCompleteRegisteredSnapshot(snapshot: TenantBackupSnapshot) {
 }
 
 export function verifySnapshotInIsolatedDatabase(snapshot: TenantBackupSnapshot) {
-  if (![1, 2, 3, 4].includes(snapshot.schemaVersion) || typeof snapshot.ownerId !== 'string' || !snapshot.ownerId) throw new Error('Unsupported tenant backup schema')
-  if (snapshot.schemaVersion === 4) return verifyCompleteRegisteredSnapshot(snapshot)
+  if (![1, 2, 3, 4, TENANT_BACKUP_SCHEMA_VERSION].includes(snapshot.schemaVersion) || typeof snapshot.ownerId !== 'string' || !snapshot.ownerId) throw new Error('Unsupported tenant backup schema')
+  if (snapshot.schemaVersion === TENANT_BACKUP_SCHEMA_VERSION) return verifyCompleteRegisteredSnapshot(snapshot)
+  if (snapshot.schemaVersion === 4) return verifyCompleteRegisteredSnapshot({ ...snapshot, euerRevisions: snapshot.euerRevisions ?? [] })
   if ([2, 3].includes(snapshot.schemaVersion)) {
     const compatible: TenantBackupSnapshot = { ...snapshot, schemaVersion: 4 }
     for (const definition of tenantBackupRegistry) if (compatible[definition.snapshotKey] === undefined) compatible[definition.snapshotKey] = definition.shape === 'singleton' ? null : []

@@ -606,6 +606,7 @@ model FiscalYear {
   eBalanceSubmissions EBalanceSubmission[]
   hgbCloseRuns        HgbCloseRun[]
   closeGenerations    FiscalCloseGeneration[]
+  euerRevisions       EuerRevision[]
   createdAt           DateTime                @default(now())
   updatedAt           DateTime                @updatedAt
 
@@ -1366,6 +1367,23 @@ model TaxDatasetPreparationRecord {
   @@index([ownerId, kind, period, createdAt])
   @@index([closeGenerationId])
   @@index([annualCaseId])
+}
+
+model EuerRevision {
+  id              String   @id @default(cuid())
+  ownerId         String
+  year            Int
+  fiscalYear      FiscalYear @relation(fields: [ownerId, year], references: [ownerId, year], onDelete: Restrict, onUpdate: Restrict)
+  version         Int
+  requestKey      String
+  requestHash     String
+  profileChecksum String
+  payload         String
+  createdBy       String
+  createdAt       DateTime @default(now())
+
+  @@unique([ownerId, year, version])
+  @@unique([ownerId, requestKey])
 }
 
 model TaxAnnualCaseRecord {
