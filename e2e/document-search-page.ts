@@ -13,11 +13,19 @@ export class DocumentSearchPage {
     const add = this.page.getByRole('button', { name: 'Add document', exact: true })
     if (await add.isVisible()) await add.click()
     await expect(this.page.getByRole('searchbox', { name: 'Search documents' })).toBeVisible()
+    await expect(this.picker.locator('[aria-busy]')).toHaveAttribute('aria-busy', 'false')
   }
 
   async upload(name: string, buffer: Buffer, expectedText: string) {
     const uploaded = this.page.waitForResponse(response => response.url().endsWith('/api/documents') && response.request().method() === 'POST')
-    await this.picker.locator('input[type="file"]').setInputFiles({ name, mimeType: 'application/pdf', buffer })
+    const payload = { name, mimeType: 'application/pdf', buffer }
+    const emptyUpload = this.picker.locator('button.document-empty')
+    if (await emptyUpload.isVisible()) {
+      const chooser = this.page.waitForEvent('filechooser')
+      await emptyUpload.focus()
+      await emptyUpload.press('Enter')
+      await (await chooser).setFiles(payload)
+    } else await this.picker.locator('input[type="file"]').setInputFiles(payload)
     const response = await uploaded
     expect(response.status()).toBe(201)
     const body = await response.json()

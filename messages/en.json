@@ -1086,6 +1086,7 @@
   },
   "Workspaces": {
     "noSearchDocuments": "No matching documents.",
+    "noAvailableSearchDocuments": "No more documents available for selection.",
     "eBalanceExternalSubtitle": "Export versions for external validation and transmission.",
     "eBalanceFilingMode": "Filing method",
     "eBalanceExternalMode": "External: myebilanz BASIS / CSV",
@@ -1343,7 +1344,8 @@
     "help": "Search all words in the filename and indexed content.",
     "clear": "Clear",
     "loading": "Searching…",
-    "count": "{count, plural, one {# document} other {# documents}}",
+    "count": "{count, plural, one {# match} other {# matches}}",
+    "refreshing": "Updating results…",
     "pending": "{count, plural, one {# content index incomplete} other {# content indexes incomplete}}",
     "index": "Update content search",
     "indexing": "Indexing content…",

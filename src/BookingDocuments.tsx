@@ -274,10 +274,12 @@ export function BookingDocuments({
         const visibleDocuments = availableBookingDocuments(results, unavailableDocumentIdSet)
           .filter(document => !compactByDefault || !selectedDocumentIds.includes(document.id))
         return visibleDocuments.length === 0 && !uploading
-        ? searching ? <p className="text-muted">{t('noSearchDocuments')}</p> : <div className="document-empty" onClick={() => inputRef.current?.click()}><i className="bi bi-file-earmark-arrow-up" aria-hidden="true" /><strong>{t('noDocuments')}</strong><span>{t('noDocumentsHelp')}</span></div>
-        : <div className="document-strip" aria-label={t('availableDocuments')}>{visibleDocuments.map(document => {
+        ? results.length ? <p className="text-muted">{t('noAvailableSearchDocuments')}</p>
+          : searching ? <p className="text-muted">{t('noSearchDocuments')}</p>
+          : <button type="button" className="document-empty btn btn-outline-secondary w-100" onClick={() => inputRef.current?.click()}><i className="bi bi-file-earmark-arrow-up" aria-hidden="true" /><strong>{t('noDocuments')}</strong><span>{t('noDocumentsHelp')}</span></button>
+        : <div className="document-strip" role="list" aria-label={t('availableDocuments')}>{visibleDocuments.map(document => {
           const selected = selectedDocumentIds.includes(document.id)
-          return <div key={document.id} className="flex-shrink-0" style={{ width: 160 }}><DocumentCard
+          return <div key={document.id} className="document-search-result" role="listitem"><DocumentCard
             document={document}
             selected={selected}
             fallbackName={t('unnamedDocument')}

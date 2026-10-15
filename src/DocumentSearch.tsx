@@ -22,6 +22,7 @@ export function DocumentSearch({ revision, onDocuments, children }: {
   const request = useRef<AbortController | null>(null)
   const generation = useRef(0)
   const indexingRef = useRef(false)
+  const previousQuery = useRef(query)
 
   const load = useCallback(async (offset = 0, expectedGeneration = generation.current) => {
     request.current?.abort()
@@ -47,7 +48,8 @@ export function DocumentSearch({ revision, onDocuments, children }: {
   useEffect(() => {
     const current = ++generation.current
     setLoading(true)
-    setData(null)
+    if (previousQuery.current !== query) setData(null)
+    previousQuery.current = query
     const timer = setTimeout(() => void load(0, current), 200)
     return () => { clearTimeout(timer); request.current?.abort() }
   }, [load, revision, refresh])
@@ -80,7 +82,7 @@ export function DocumentSearch({ revision, onDocuments, children }: {
     </div>
     <p id={`${id}-help`} className="small text-muted mb-2">{t('help')}</p>
     <div className="d-flex flex-wrap align-items-center gap-2 mb-3">
-      <span className="small text-muted" role="status">{loading ? t('loading') : t('count', { count: data?.total ?? 0 })}</span>
+      <span className="small text-muted" role="status">{loading ? t(data ? 'refreshing' : 'loading') : data ? t('count', { count: data.total }) : ''}</span>
       {Boolean(data?.pending) && <>
         <span className="small text-muted">{t('pending', { count: data!.pending })}</span>
         <button type="button" className="btn btn-sm btn-outline-secondary" disabled={indexing} onClick={() => void indexPending()}>{indexing ? t('indexing') : t('index')}</button>
