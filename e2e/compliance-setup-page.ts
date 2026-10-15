@@ -34,7 +34,8 @@ export class ComplianceSetupPage {
 
   async createPeriod(year: number) {
     const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Fiscal periods' }) })
-    if (await section.locator('.history-list li').filter({ hasText: `Jan 1, ${year}–Dec 31, ${year}` }).count()) return
+    const periodRow = section.locator('.history-list li').filter({ has: this.page.locator('strong', { hasText: new RegExp(`(?:^| )${year}$`) }) })
+    if (await periodRow.count()) return
     await section.getByLabel('Reference year').fill(String(year))
     await section.getByLabel('Label').fill(`HGB ${year}`)
     await section.getByLabel('Starts').fill(`${year}-01-01`)
@@ -45,7 +46,7 @@ export class ComplianceSetupPage {
     await refreshed
     await this.waitReady()
     await expect(this.page.getByRole('status')).toContainText('fiscal period was created')
-    await expect(section.locator('.history-list')).toContainText(`Jan 1, ${year}–Dec 31, ${year}`)
+    await expect(periodRow).toBeVisible()
   }
 
   async onboardHistoricalHgb(years: number[], evidenceId: string, ugEquity = false) {
@@ -73,8 +74,14 @@ export class ComplianceSetupPage {
     const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Chart and mapping lifecycle' }) })
     const details = section.locator('details')
     await details.locator('summary').click()
-    const mappings = JSON.parse((await details.locator('pre').textContent()) || '[]') as Array<{ id: string }>
-    return mappings.filter(item => String((item as { effectiveFrom?: string }).effectiveFrom ?? '').includes(String(year))).map(item => item.id)
+    const response = await this.page.request.get('/api/compliance')
+    expect(response.ok()).toBe(true)
+    const body = await response.json()
+    const mappings = (body.data ?? body).chart.mappings as Array<{ id: string; effectiveFrom: string }>
+    const ids = mappings.filter(item => item.effectiveFrom.startsWith(String(year))).map(item => item.id)
+    expect(ids.length).toBeGreaterThan(0)
+    for (const id of ids) await expect(details.locator('pre')).toContainText(id)
+    return ids
   }
 
   async configureReviewPolicy(ownerId: string, reviewerId: string) {
@@ -147,7 +154,8 @@ export class ComplianceSetupPage {
   private async waitReady() { const workspace = this.page.locator('.compliance-workspace'); await expect(workspace).toHaveAttribute('aria-busy', 'false'); await expect(workspace).toHaveAttribute('data-compliance-ready', 'true') }
 
   async visiblePeriodId(year: number) {
-    const item = this.page.locator('.history-list li').filter({ hasText: `Jan 1, ${year}–Dec 31, ${year}` })
+    const section = this.page.locator('section').filter({ has: this.page.getByRole('heading', { name: 'Fiscal periods' }) })
+    const item = section.locator('.history-list li').filter({ has: this.page.locator('strong', { hasText: new RegExp(`(?:^| )${year}$`) }) })
     return (await item.locator('code').textContent())!.trim()
   }
 

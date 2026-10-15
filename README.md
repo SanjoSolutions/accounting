@@ -17,3 +17,5 @@ Eine Buchhaltungssoftware für Deutschland.
 * [Setup](./SETUP.md)
 * [Development](./DEVELOPMENT.md)
 * [Mithelfen](./CONTRIBUTING.md)
+* [E-Bilanz 2026: Übermittlungswege und Kosten](./documentation/ebilanz-2026-filing-route-decision.md)
+* [Direkte ERiC-Anbindung: Machbarkeit und Qualifizierung](./documentation/eric-direct-qualification-plan.md)

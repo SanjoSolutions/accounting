@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, test } from 'vitest'
 import { apiMutationBoundaryPolicy, serverActionBoundaryPolicy, sideEffectingReadBoundaryPolicy } from './mutationBoundaryPolicy'
 
 const repositoryRoot = resolve(process.cwd())
@@ -32,7 +32,7 @@ function sideEffectingReads() {
     const source = readFileSync(file, 'utf8'); const start = source.search(/export async function GET\b/)
     if (start < 0) return []
     const next = source.indexOf('export async function ', start + 24); const handler = source.slice(start, next < 0 ? undefined : next)
-    if (!/\b(?:ensureLedger|reconcilePendingOutgoingInvoiceAccounting|downloadTenantBackupPayload|downloadReportingPackage)\s*\(/.test(handler)) return []
+    if (!/\b(?:ensureLedger|reconcilePendingOutgoingInvoiceAccounting|downloadTenantBackupPayload|downloadReportingPackage|downloadAnnualDocument|externalEBalance\.(?:download|downloadEvidence))\s*\(/.test(handler)) return []
     const route = `/api/${relative(apiRoot, file).replaceAll('\\', '/').replace(/\/route\.ts$/, '')}`
     return [{ key: `${route}#GET`, source: handler }]
   })
@@ -79,7 +79,7 @@ describe('complete mutation-boundary authorization policy', () => {
     }
   })
 
-  it('Given the role model, when policy values are reviewed, then membership and owner review policy administration are admin-only', () => {
+  test('Given the role model, when policy values are reviewed, then membership and owner review policy administration are admin-only', () => {
     expect(Object.entries(apiMutationBoundaryPolicy).filter(([, policy]) => policy === 'manage_access').map(([key]) => key)).toEqual(['/api/access#POST', '/api/fiscal-years/[year]/hgb-close/review-policy#PUT'])
   })
 

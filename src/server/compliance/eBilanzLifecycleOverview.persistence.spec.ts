@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 import { PrismaClient } from '@/generated/prisma/client'
 
 vi.mock('server-only', () => ({}))
@@ -36,7 +36,7 @@ afterAll(async () => {
 })
 
 describe('persistent E-Bilanz stale-version remediation evidence', () => {
-  it('Given two retained reports for one exact close generation, when the overview is reloaded, then only the newest version is current and the superseded version remains stale', async () => {
+  test('given retained legacy reports, preserves both versions but never labels internal XML as a current filing', async () => {
     const report = (id: string, version: number, checksum: string, createdAt: Date, supersedesId: string | null) => ({ id, ownerId: 'tenant-a', fiscalYearId: 'fy-2026', closeGenerationId: generation.id, version, status: 'EXPORTED', taxonomyVersion: '6.9', profileSnapshot: JSON.stringify({ city: version === 1 ? 'Berlin' : 'Berlin-Mitte' }), reportPayload: '{}', reportXml: `<report version="${version}"/>`, reportChecksum: checksum, storageKey: `tax-exports/${id}.zip`, supersedesId, createdBy: 'user-a', createdAt })
     await prisma.eBalanceLifecycleReport.create({ data: report('report-v1', 1, 'checksum-v1', new Date('2027-01-02T11:00:00Z'), null) })
     await prisma.eBalanceLifecycleReport.create({ data: report('report-v2', 2, 'checksum-v2', new Date('2027-01-02T12:00:00Z'), 'report-v1') })
@@ -44,7 +44,7 @@ describe('persistent E-Bilanz stale-version remediation evidence', () => {
     await expect(api.getEBalanceLifecycleOverview('tenant-a', 'fy-2026')).resolves.toMatchObject({
       closeEvidence: { currentCloseGenerationId: generation.id, sourceStatus: 'CURRENT' },
       reports: [
-        { id: 'report-v2', version: 2, closeGenerationId: generation.id, sourceStatus: 'CURRENT', supersedesId: 'report-v1' },
+        { id: 'report-v2', version: 2, closeGenerationId: generation.id, sourceStatus: 'STALE', supersedesId: 'report-v1' },
         { id: 'report-v1', version: 1, closeGenerationId: generation.id, sourceStatus: 'STALE' },
       ],
     })

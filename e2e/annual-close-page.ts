@@ -55,6 +55,7 @@ export class AnnualClosePage {
     await this.page.getByRole('button', { name: messages.Workspaces.post, exact: true }).click()
     await expect(this.page.getByRole('status')).toContainText(messages.Workspaces.postingSaved)
     await this.page.goto(`/booking-batches?year=${year}`)
+    await this.page.getByRole('option', { name: /Revenue for annual close/ }).click()
     await this.page.getByLabel(messages.BookingBatches.postReason).fill('Synthetic annual-close fixture')
     const posted = this.page.waitForResponse(response => response.url().includes('/api/booking-batches/') && response.url().endsWith('/post') && response.request().method() === 'POST')
     await this.page.getByRole('button', { name: messages.BookingBatches.postToJournal, exact: true }).click()

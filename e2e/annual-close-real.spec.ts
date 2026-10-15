@@ -53,13 +53,15 @@ test.describe('real annual close', () => {
     await context.close()
   })
 
-  for (const scenario of [{ legalForm: 'UG' as const, year: 2025 }, { legalForm: 'GMBH' as const, year: 2026 }]) test(`completes the reviewed HGB close, E-Bilanz export, KSt and GewSt lifecycle for a ${scenario.year} ${scenario.legalForm}`, async ({ browser }, testInfo) => {
+  for (const scenario of [{ legalForm: 'UG' as const, year: 2025, exportOnly: false }, { legalForm: 'GMBH' as const, year: 2026, exportOnly: false }, { legalForm: 'UG' as const, year: 2026, exportOnly: true }]) test(`completes the reviewed HGB close and ${scenario.exportOnly ? 'authoritative E-Bilanz download' : 'E-Bilanz export, KSt and GewSt lifecycle'} for a ${scenario.year} ${scenario.legalForm}`, async ({ browser }, testInfo) => {
     const { year, ownerContext, reviewerContext, ownerPage, reviewerPage, evidenceId, compliance, reviewerCompliance, periodId, companyProfile, ownerAnnualClose } = await prepareIndependentClose(browser, testInfo, scenario)
 
     const eBalance = new EBalancePage(ownerPage)
     await eBalance.open(year)
     await eBalance.expectAuthoritativeMasterData({ companyName: companyProfile.companyName, street: 'Test 1', postalCode: '10115', city: 'Berlin', taxNumber: '1234567890123', legalForm: scenario.legalForm })
+    await eBalance.approveSyntheticTaxBalance(periodId, year, evidenceId)
     await eBalance.exportCurrentValidationPackage(year)
+    if (scenario.exportOnly) { await ownerContext.close(); await reviewerContext.close(); return }
 
     const corporationTax = new TaxWorkflowPage(ownerPage, year)
     await corporationTax.prepare('KST')
@@ -105,6 +107,7 @@ test.describe('real annual close', () => {
       await ownerAnnualClose.evaluateReadyClose(year, { evidenceId, signedAt: `${year + 1}-01-16T11:00` })
       await ownerAnnualClose.lockReadyFiscalYear(year)
       await eBalance.open(year)
+      await eBalance.approveSyntheticTaxBalance(periodId, year, evidenceId)
       await eBalance.exportRemediatedAuthoritativePackage(year)
     }
     await ownerContext.close(); await reviewerContext.close()
