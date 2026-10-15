@@ -15,6 +15,7 @@ node_modules
 /roles-playwright.db*
 /external-playwright.db*
 /annual-documents-playwright.db*
+/issue-23-playwright.db*
 /database
 /accounting.db
 /accounting.db-journal

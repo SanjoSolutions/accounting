@@ -5,6 +5,10 @@ import { useTranslations } from 'next-intl'
 import { api, getJSON } from './Requester'
 import { DocumentExtractionPanel } from './DocumentExtractionPanel'
 import { LocalCount } from './LocalNumber'
+import { BookedDocumentList } from './BookedDocumentList'
+import type { DocumentBooking, DocumentLibraryView } from './core/documentBooking'
+import { documentDisplayName, documentIconClass } from './documentPresentation'
+export { documentDisplayName, documentIconClass } from './documentPresentation'
 
 export type BookingDocument = {
   id: string
@@ -13,34 +17,7 @@ export type BookingDocument = {
   contentType?: string
   size?: number
   thumbnailUrl?: string
-}
-
-type DocumentKind = 'pdf' | 'xml' | 'generic'
-
-/**
- * Select the icon used when a document has no usable thumbnail.
- *
- * Stored metadata is not always complete (older documents may only have a
- * filename), so a recognized MIME type takes precedence and the filename
- * extension is used as a fallback. Both values are normalized before they
- * are inspected to handle casing and MIME parameters consistently.
- */
-export function documentIconClass(document: Pick<BookingDocument, 'contentType' | 'fileName'>): string {
-  const kind = documentKind(document)
-  if (kind === 'pdf') return 'bi bi-file-earmark-pdf'
-  if (kind === 'xml') return 'bi bi-file-earmark-code'
-  return 'bi bi-file-earmark'
-}
-
-function documentKind(document: Pick<BookingDocument, 'contentType' | 'fileName'>): DocumentKind {
-  const contentType = document.contentType?.split(';', 1)[0]?.trim().toLowerCase()
-  if (contentType === 'application/pdf') return 'pdf'
-  if (contentType === 'application/xml' || contentType === 'text/xml' || contentType?.endsWith('+xml')) return 'xml'
-
-  const extension = document.fileName?.trim().match(/\.([^.\\/]+)$/)?.[1]?.toLowerCase()
-  if (extension === 'pdf') return 'pdf'
-  if (extension === 'xml') return 'xml'
-  return 'generic'
+  bookings?: DocumentBooking[]
 }
 
 function DocumentThumbnail({ document }: { document: BookingDocument }) {
@@ -96,6 +73,7 @@ export function BookingDocuments({
   const inputRef = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
   const uploadingRef = useRef(false)
+  const uploadedDocumentIdsRef = useRef<string[]>([])
   const selectedDocumentIdsRef = useRef(selectedDocumentIds)
   selectedDocumentIdsRef.current = selectedDocumentIds
   const [documents, setDocuments] = useState<BookingDocument[]>(() => initialDocuments)
@@ -103,6 +81,10 @@ export function BookingDocuments({
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
+  const [libraryView, setLibraryView] = useState<DocumentLibraryView>('inbox')
+  const [libraryResult, setLibraryResult] = useState<{ view: DocumentLibraryView; ids: string[] } | null>(null)
+  const [libraryError, setLibraryError] = useState('')
+  const [loadingLibrary, setLoadingLibrary] = useState(false)
   const [documentColumnPercent, setDocumentColumnPercent] = useState(60)
   const [addFlowOpen, setAddFlowOpen] = useState(!compactByDefault)
   const pickerOpen = documentPickerIsOpen(compactByDefault, addFlowOpen)
@@ -119,17 +101,27 @@ export function BookingDocuments({
   useEffect(() => {
     if (!pickerOpen) return
     const controller = new AbortController()
-    void fetch('/api/documents', { signal: controller.signal })
+    const uploadedCountAtRequest = uploadedDocumentIdsRef.current.length
+    setLoadingLibrary(true)
+    setLibraryError('')
+    void fetch(libraryView === 'inbox' ? '/api/documents' : '/api/documents?view=booked', { signal: controller.signal })
       .then(async response => {
         if (!response.ok) throw new Error()
         const body = await response.json()
+        if (controller.signal.aborted) return
         setDocuments(current => mergeDocumentLists(current, body.data ?? []))
+        const fetchedIds = (body.data ?? []).map((document: BookingDocument) => document.id)
+        // Preserve concurrent uploads, but let later requests remove documents
+        // that have since been posted in another editor or browser tab.
+        const concurrentUploads = uploadedDocumentIdsRef.current.slice(uploadedCountAtRequest)
+        setLibraryResult({ view: libraryView, ids: libraryView === 'inbox' ? [...new Set([...fetchedIds, ...concurrentUploads])] : fetchedIds })
       })
       .catch(fetchError => {
-        if (fetchError?.name !== 'AbortError') setError(t('documentsLoadFailed'))
+        if (!controller.signal.aborted && fetchError?.name !== 'AbortError') setLibraryError(t('documentsLoadFailed'))
       })
+      .finally(() => { if (!controller.signal.aborted) setLoadingLibrary(false) })
     return () => controller.abort()
-  }, [pickerOpen, t])
+  }, [pickerOpen, libraryView, t])
 
   const upload = useCallback(async (fileList: ArrayLike<File>) => {
     if (uploadingRef.current || (compactByDefault && !addFlowOpen)) return
@@ -144,7 +136,9 @@ export function BookingDocuments({
       for (const file of files) {
         const response = await api.postFile('/api/documents', file)
         const uploadedDocument = await readDocumentUploadResponse(response, t('documentUploadFailed'))
+        uploadedDocumentIdsRef.current = mergeDocumentSelection(uploadedDocumentIdsRef.current, uploadedDocument.id)
         setDocuments(current => mergeUploadedDocument(current, uploadedDocument))
+        setLibraryResult(current => current?.view === 'inbox' ? { ...current, ids: mergeDocumentSelection(current.ids, uploadedDocument.id) } : current)
         uploadedAny = true
         const nextSelection = mergeDocumentSelection(selectedDocumentIdsRef.current, uploadedDocument.id)
         selectedDocumentIdsRef.current = nextSelection
@@ -214,9 +208,9 @@ export function BookingDocuments({
   )
   const unavailableDocumentIdSet = useMemo(() => new Set(unavailableDocumentIds), [unavailableDocumentIds])
   const availableDocuments = useMemo(
-    () => availableBookingDocuments(documents, unavailableDocumentIdSet)
+    () => bookingDocumentsForView(documents, libraryResult?.view === libraryView ? libraryResult.ids : [], unavailableDocumentIdSet, libraryView)
       .filter(document => !compactByDefault || !selectedDocumentIds.includes(document.id)),
-    [compactByDefault, documents, selectedDocumentIds, unavailableDocumentIdSet],
+    [compactByDefault, documents, libraryResult, libraryView, selectedDocumentIds, unavailableDocumentIdSet],
   )
   const activeDocument = selectedDocuments.find(document => document.id === activeDocumentId) ?? selectedDocuments[0]
   const activeDocumentName = activeDocument
@@ -256,6 +250,23 @@ export function BookingDocuments({
     window.localStorage.setItem(documentColumnStorageKey, String(next))
   }
 
+  function renderLibrary() {
+    if (loadingLibrary || (libraryResult?.view !== libraryView && !libraryError)) return <p role="status">{t('loadingDocuments')}</p>
+    if (libraryError) return null
+    if (availableDocuments.length === 0 && !uploading) {
+      if (libraryView === 'booked') return <p className="text-muted mb-0">{t('noBookedDocuments')}</p>
+      return <div className="document-empty" onClick={() => inputRef.current?.click()}><i className="bi bi-file-earmark-arrow-up" aria-hidden="true" /><strong>{t('noDocuments')}</strong><span>{t('noDocumentsHelp')}</span></div>
+    }
+    if (libraryView === 'booked') return <BookedDocumentList documents={availableDocuments} selectedIds={selectedDocumentIds} onSelect={select} />
+    return <div className="document-strip" aria-label={t('availableDocuments')}>{availableDocuments.map(document => <DocumentCard
+      key={document.id}
+      document={document}
+      selected={selectedDocumentIds.includes(document.id)}
+      fallbackName={t('unnamedDocument')}
+      onSelect={extendSelection => select(document.id, extendSelection)}
+    />)}</div>
+  }
+
   const pickerPanel = <section className="card panel document-picker-panel">
       <div className="panel-title">
         <h2>{t('documents')}</h2>
@@ -267,19 +278,15 @@ export function BookingDocuments({
           <input ref={inputRef} className="visually-hidden" type="file" accept="application/pdf,application/xml,text/xml,.pdf,.xml" multiple onChange={event => event.target.files && void upload(event.target.files)} />
         </div>
       </div>
+      <label className="form-label mb-3">{t('documentView')}
+        <select className="form-select" value={libraryView} onChange={event => setLibraryView(event.target.value as DocumentLibraryView)}>
+          <option value="inbox">{t('documentInbox')}</option>
+          <option value="booked">{t('bookedDocuments')}</option>
+        </select>
+      </label>
       {error && <div className="alert alert-danger" role="alert">{error}</div>}
-      {availableDocuments.length === 0 && !uploading
-        ? <div className="document-empty" onClick={() => inputRef.current?.click()}><i className="bi bi-file-earmark-arrow-up" aria-hidden="true" /><strong>{t('noDocuments')}</strong><span>{t('noDocumentsHelp')}</span></div>
-        : <div className="document-strip" aria-label={t('availableDocuments')}>{availableDocuments.map(document => {
-          const selected = selectedDocumentIds.includes(document.id)
-          return <DocumentCard
-            key={document.id}
-            document={document}
-            selected={selected}
-            fallbackName={t('unnamedDocument')}
-            onSelect={extendSelection => select(document.id, extendSelection)}
-          />
-        })}</div>}
+      {libraryError && <div className="alert alert-danger" role="alert">{libraryError}</div>}
+      {renderLibrary()}
     </section>
 
   const attachedDocumentsRegion = <section className="attached-documents-region border-top mt-4 pt-4" aria-label={t('attachedDocuments')}>
@@ -513,10 +520,6 @@ export class LongTouchSelectionGesture {
   }
 }
 
-export function documentDisplayName(fileName: string, fallbackName = fileName): string {
-  return fileName.replace(/\.(?:pdf|xml)$/i, '') || fallbackName
-}
-
 export function selectionExtendsForActivation(shiftKey: boolean, longTouch: boolean): boolean {
   return shiftKey || longTouch
 }
@@ -559,6 +562,13 @@ export function mergeDocumentLists(current: BookingDocument[], fetched: BookingD
 
 export function availableBookingDocuments(documents: BookingDocument[], unavailableDocumentIds: ReadonlySet<string>): BookingDocument[] {
   return documents.filter(document => !unavailableDocumentIds.has(document.id))
+}
+
+/** Cached preview metadata must never leak booked evidence back into the inbox. */
+export function bookingDocumentsForView(documents: BookingDocument[], listedIds: string[], unavailableIds: ReadonlySet<string>, view: DocumentLibraryView): BookingDocument[] {
+  const listed = new Set(listedIds)
+  const matching = documents.filter(document => listed.has(document.id))
+  return view === 'booked' ? matching : availableBookingDocuments(matching, unavailableIds)
 }
 
 /** Keep attached documents visible while the document library request is pending. */
