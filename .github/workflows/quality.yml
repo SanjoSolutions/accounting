@@ -23,6 +23,8 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       - run: pnpm test:e2e:local-solo
+      - run: pnpm exec playwright test --config playwright.annual-documents.config.ts
+      - run: pnpm exec playwright test --config playwright.external-ebilanz.config.ts
 
   xrechnung-contract:
     runs-on: ubuntu-latest

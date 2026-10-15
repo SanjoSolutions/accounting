@@ -86,6 +86,22 @@ describe('Prisma development startup', () => {
     expect(workflow).toContain('pnpm install --frozen-lockfile')
   })
 
+  test('Given browser suites with dedicated disposable servers, when CI selects suites, then the default run excludes them and CI runs each dedicated config', async () => {
+    const [{ default: standard }, { default: annual }, { default: external }] = await Promise.all([
+      import('../../../playwright.config'), import('../../../playwright.annual-documents.config'), import('../../../playwright.external-ebilanz.config'),
+    ])
+    const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/quality.yml'), 'utf8')
+    for (const [suite, name, config] of [
+      ['annual-documents.spec.ts', 'playwright.annual-documents.config.ts', annual],
+      ['external-ebilanz-real.spec.ts', 'playwright.external-ebilanz.config.ts', external],
+    ] as const) {
+      expect(standard.testIgnore).toContain(`**/${suite}`)
+      expect(config.testMatch).toBe(suite)
+      expect(config.use?.baseURL).not.toBe(standard.use?.baseURL)
+      expect(workflow).toContain(`pnpm exec playwright test --config ${name}`)
+    }
+  })
+
   test('documents the live instance boundary before browser testing', () => {
     const agents = readFileSync(resolve(process.cwd(), 'AGENTS.md'), 'utf8')
 

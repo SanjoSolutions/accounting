@@ -17,6 +17,7 @@ import { requireCurrentFiscalCloseGeneration } from '@/server/fiscalCloseGenerat
 import { profilePayloadWithConfirmedAddress, validateCompanyProfile, type CompanyProfile } from './companyProfile'
 import { appendAuditEvent } from './auditPersistence'
 import { validateEBalanceFilingXml } from './eBilanzSchemaValidation'
+import { loadVerifiedCloseEvidence } from './closeEvidence'
 
 type Client = Prisma.TransactionClient | typeof prisma
 const date = (value: Date) => value.toISOString().slice(0, 10)
@@ -46,13 +47,9 @@ async function loadSource(client: Client, ownerId: string, fiscalYearId: string)
 
 async function requireEvidence(client: Client, ownerId: string, ids: string[]) {
   const unique = [...new Set(ids)]
-  const [artifacts, documents] = await Promise.all([
-    client.retainedArtifact.findMany({ where: { ownerId, id: { in: unique }, disposedAt: null, storageDeletedAt: null }, select: { id: true, contentHash: true } }),
-    client.documentRecord.findMany({ where: { ownerId, id: { in: unique } }, select: { id: true, payload: true } }),
-  ])
-  const found = new Map([...artifacts.map(row => [row.id, row.contentHash] as const), ...documents.map(row => [row.id, eBalanceChecksum(row.payload)] as const)])
-  if (unique.some(id => !found.has(id))) throw new Error('Reconciliation evidence is missing, disposed or belongs to another tenant.')
-  return [...found].sort(([a], [b]) => a.localeCompare(b))
+  const { evidence, missingEvidenceIds } = await loadVerifiedCloseEvidence(client, ownerId, unique)
+  if (missingEvidenceIds.length) throw new Error('Reconciliation evidence is missing, unreadable or failed retained-byte verification.')
+  return evidence.map(({ id, contentHash }) => [id, contentHash] as const).sort(([a], [b]) => a.localeCompare(b))
 }
 
 export async function recordTaxBalanceReconciliation(ownerId: string, actorId: string, input: Record<string, unknown>) {
