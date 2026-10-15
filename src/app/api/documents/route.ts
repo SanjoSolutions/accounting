@@ -7,6 +7,7 @@ import {
   listDocuments,
 } from '@/server'
 import { getCurrentUser } from '@/server/authentication'
+import { listBookedDocuments } from '@/server/bookedDocuments'
 import { forbiddenUnless } from '@/server/authorization'
 import { EInvoiceValidationError } from '@/core/eInvoice'
 import { parseStructuredUpload, storeStructuredInvoice, StructuredInvoiceConflictError } from '@/server/tax/structuredInvoices'
@@ -16,6 +17,9 @@ export const runtime = 'nodejs'
 export async function GET(request: Request) {
   const user = await getCurrentUser(request.headers)
   if (!user) return Response.json({ success: false }, { status: 401 })
+  const view = new URL(request.url).searchParams.get('view') ?? 'inbox'
+  if (view !== 'inbox' && view !== 'booked') return Response.json({ success: false, error: 'Invalid document view.' }, { status: 400 })
+  if (view === 'booked') return Response.json({ success: true, data: await listBookedDocuments(user.id) })
   return Response.json({ success: true, data: await listDocuments(user.id) })
 }
 

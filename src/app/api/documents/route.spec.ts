@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, test, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   createDocument: vi.fn(),
   getCurrentUser: vi.fn(),
   getMaxDocumentUploadBytes: vi.fn(() => 1024),
   listDocuments: vi.fn(),
+  listBookedDocuments: vi.fn(),
   parseStructuredUpload: vi.fn((): unknown => null),
   storeStructuredInvoice: vi.fn(),
   conflict: class StructuredInvoiceConflictError extends Error {},
@@ -20,6 +21,7 @@ vi.mock('@/server', () => ({
 vi.mock('@/server/authentication', () => ({
   getCurrentUser: mocks.getCurrentUser,
 }))
+vi.mock('@/server/bookedDocuments', () => ({ listBookedDocuments: mocks.listBookedDocuments }))
 vi.mock('@/server/tax/structuredInvoices', () => ({
   parseStructuredUpload: mocks.parseStructuredUpload,
   storeStructuredInvoice: mocks.storeStructuredInvoice,
@@ -32,6 +34,31 @@ describe('document upload API', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.getMaxDocumentUploadBytes.mockReturnValue(1024)
+  })
+
+  test('Given no session, when booked documents are requested, then no document history is read', async () => {
+    mocks.getCurrentUser.mockResolvedValueOnce(null)
+    const response = await GET(new Request('http://localhost/api/documents?view=booked'))
+    expect(response.status).toBe(401)
+    expect(mocks.listBookedDocuments).not.toHaveBeenCalled()
+  })
+
+  test('Given a delegated read-only session, when booked history is requested, then only its authorized tenant is queried', async () => {
+    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'tenant-1', actorId: 'reader-1', role: 'READ_ONLY' })
+    mocks.listBookedDocuments.mockResolvedValueOnce([{ id: 'retained', bookings: [{ id: 'entry-1' }] }])
+    const response = await GET(new Request('http://localhost/api/documents?view=booked&ownerId=other-tenant'))
+    expect(response.status).toBe(200)
+    expect(mocks.listBookedDocuments).toHaveBeenCalledWith('tenant-1')
+    expect(mocks.listDocuments).not.toHaveBeenCalled()
+    expect(await response.json()).toMatchObject({ data: [{ id: 'retained', bookings: [{ id: 'entry-1' }] }] })
+  })
+
+  test('Given an unsupported view, when the library is requested, then it fails without broadening the document query', async () => {
+    mocks.getCurrentUser.mockResolvedValueOnce({ id: 'tenant-1' })
+    const response = await GET(new Request('http://localhost/api/documents?view=all'))
+    expect(response.status).toBe(400)
+    expect(mocks.listDocuments).not.toHaveBeenCalled()
+    expect(mocks.listBookedDocuments).not.toHaveBeenCalled()
   })
 
   it('rejects an anonymous upload', async () => {
