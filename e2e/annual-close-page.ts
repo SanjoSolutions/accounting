@@ -120,8 +120,11 @@ export class AnnualClosePage {
 
   async approvePreparedWorkpapers(year: number, kinds: HgbWorkpaperKind[], selfReview = false) {
     await this.page.goto(`/annual-close/${year}`)
+    await expect(this.page.locator('.hgb-workbench')).toHaveAttribute('aria-busy', 'false')
     for (const kind of kinds) {
       await this.page.getByLabel('Workpaper type').selectOption(kind)
+      await expect(this.page.getByLabel('Workpaper type')).toHaveValue(kind)
+      await expect(this.workpaper().getByLabel('Title', { exact: true })).toHaveValue(messages.HgbCloseWorkbench.kinds[kind])
       await this.page.getByLabel('Review note').fill(selfReview ? 'I personally rechecked the synthetic evidence, estimates and calculation as sole owner.' : 'Independent HGB acceptance review')
       const reviewed = this.page.waitForResponse(response => response.url().endsWith('/review') && response.request().method() === 'POST')
       await this.page.getByRole('button', { name: selfReview ? messages.HgbReviewPolicy.approveSelf : 'Approve independently' }).click()
